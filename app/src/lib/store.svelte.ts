@@ -1,0 +1,157 @@
+import type {
+  Note, JournalEntry, Task, AudioRecord,
+  ChatSession, CalendarEvent, AppSettings
+} from './types';
+import { loadEncFile, saveEncFile, PATHS, validateToken } from './github';
+
+type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'enzo';
+
+class Store {
+  // Auth
+  tok = $state<string | null>(null);
+  userLogin = $state('');
+
+  // Data
+  notes = $state<Note[]>([]);
+  notesSha = $state<string | null>(null);
+
+  journal = $state<JournalEntry[]>([]);
+  journalSha = $state<string | null>(null);
+
+  tasks = $state<Task[]>([]);
+  tasksSha = $state<string | null>(null);
+
+  chatSessions = $state<ChatSession[]>([]);
+  chatSha = $state<string | null>(null);
+
+  audioRecords = $state<AudioRecord[]>([]);
+  audioSha = $state<string | null>(null);
+
+  calEvents = $state<CalendarEvent[]>([]);
+
+  settings = $state<AppSettings>({
+    userName: 'Amritha',
+    groqKey: '',
+    workerUrl: '',
+    themeOverride: 'auto'
+  });
+  settingsSha = $state<string | null>(null);
+
+  // UI
+  view = $state<View>('dashboard');
+  currentNoteId = $state<string | null>(null);
+  sidebarOpen = $state(true);
+  enzoOpen = $state(true);
+  loading = $state(false);
+  loadingMsg = $state('Loading...');
+  error = $state<string | null>(null);
+  enzoSearchQuery = $state('');
+
+  // Derived
+  get authenticated(): boolean { return this.tok !== null; }
+  get currentNote(): Note | null {
+    return this.notes.find(n => n.id === this.currentNoteId) ?? null;
+  }
+  get activeTasks(): Task[] {
+    return this.tasks.filter(t => !t.done).sort((a, b) => {
+      const p = { high: 0, medium: 1, low: 2 };
+      return p[a.priority] - p[b.priority];
+    });
+  }
+  get pinnedNotes(): Note[] {
+    return this.notes.filter(n => n.pinned && !n.archived);
+  }
+  get recentNotes(): Note[] {
+    return [...this.notes]
+      .filter(n => !n.archived)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, 10);
+  }
+
+  async login(token: string): Promise<void> {
+    this.loading = true;
+    this.loadingMsg = 'Validating token...';
+    try {
+      sessionStorage.setItem('_qt', token);
+      const { login } = await validateToken(token);
+      this.tok = token;
+      this.userLogin = login;
+      await this.loadAll();
+    } catch (e) {
+      sessionStorage.removeItem('_qt');
+      throw e;
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  logout(): void {
+    this.tok = null;
+    sessionStorage.removeItem('_qt');
+    this.notes = [];
+    this.journal = [];
+    this.tasks = [];
+    this.chatSessions = [];
+    this.audioRecords = [];
+    this.calEvents = [];
+  }
+
+  async loadAll(): Promise<void> {
+    if (!this.tok) return;
+    this.loadingMsg = 'Decrypting your research...';
+
+    const [n, j, t, c, a, s] = await Promise.all([
+      loadEncFile<Note[]>(this.tok, PATHS.notes, []),
+      loadEncFile<JournalEntry[]>(this.tok, PATHS.journal, []),
+      loadEncFile<Task[]>(this.tok, PATHS.tasks, []),
+      loadEncFile<ChatSession[]>(this.tok, PATHS.chat, []),
+      loadEncFile<AudioRecord[]>(this.tok, PATHS.audio, []),
+      loadEncFile<AppSettings>(this.tok, PATHS.settings, this.settings)
+    ]);
+
+    this.notes = n.data; this.notesSha = n.sha;
+    this.journal = j.data; this.journalSha = j.sha;
+    this.tasks = t.data; this.tasksSha = t.sha;
+    this.chatSessions = c.data; this.chatSha = c.sha;
+    this.audioRecords = a.data; this.audioSha = a.sha;
+    this.settings = { ...this.settings, ...s.data }; this.settingsSha = s.sha;
+  }
+
+  async saveNotes(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(this.tok, PATHS.notes, this.notes, this.notesSha, 'notes: update');
+    this.notesSha = sha;
+  }
+
+  async saveJournal(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(this.tok, PATHS.journal, this.journal, this.journalSha, 'journal: update');
+    this.journalSha = sha;
+  }
+
+  async saveTasks(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(this.tok, PATHS.tasks, this.tasks, this.tasksSha, 'tasks: update');
+    this.tasksSha = sha;
+  }
+
+  async saveChat(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(this.tok, PATHS.chat, this.chatSessions, this.chatSha, 'enzo: chat update');
+    this.chatSha = sha;
+  }
+
+  async saveAudio(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(this.tok, PATHS.audio, this.audioRecords, this.audioSha, 'audio: update');
+    this.audioSha = sha;
+  }
+
+  async saveSettings(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(this.tok, PATHS.settings, this.settings, this.settingsSha, 'settings: update');
+    this.settingsSha = sha;
+  }
+}
+
+export const store = new Store();
