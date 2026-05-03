@@ -128,30 +128,14 @@ export async function fetchPubMedAbstract(pmid: string): Promise<string> {
   return res.text();
 }
 
-export async function searchSemanticScholar(query: string, max = 10): Promise<PaperResult[]> {
-  const fields = 'title,authors,year,abstract,externalIds,openAccessPdf,venue';
-  const res = await fetch(
-    `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=${fields}&limit=${max}`
-  );
-  if (!res.ok) throw new Error('Semantic Scholar search failed');
-  const data = await res.json() as { data?: Record<string, unknown>[] };
-  return (data.data ?? []).map(p => {
-    const ext = (p.externalIds ?? {}) as Record<string, string>;
-    const pdf = (p.openAccessPdf ?? null) as { url?: string } | null;
-    const doi = ext.DOI ?? '';
-    return {
-      id: (p.paperId as string) ?? doi,
-      title: (p.title as string) ?? '',
-      authors: ((p.authors as { name: string }[]) ?? []).map(a => a.name).slice(0, 5),
-      abstract: (p.abstract as string) ?? '',
-      journal: (p.venue as string) || 'Semantic Scholar',
-      year: (p.year as number) ?? 0,
-      doi,
-      url: `https://www.semanticscholar.org/paper/${p.paperId as string}`,
-      source: 'semanticscholar' as const,
-      pdfUrl: pdf?.url ?? undefined,
-    };
-  }).filter(p => p.title);
+export async function searchOpenAlex(query: string, max = 10): Promise<PaperResult[]> {
+  const workerUrl = store.settings.workerUrl || WORKER_URL;
+  const res = await fetch(`${workerUrl}/openalex?q=${encodeURIComponent(query)}&max=${max}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(body.error || 'OpenAlex search failed');
+  }
+  return res.json() as Promise<PaperResult[]>;
 }
 
 export async function searchEuropePMC(query: string, max = 10): Promise<PaperResult[]> {
@@ -176,15 +160,6 @@ export async function searchEuropePMC(query: string, max = 10): Promise<PaperRes
   }).filter(p => p.title);
 }
 
-export async function searchGoogleScholar(query: string, max = 10): Promise<PaperResult[]> {
-  const workerUrl = store.settings.workerUrl || WORKER_URL;
-  const res = await fetch(`${workerUrl}/scholar?q=${encodeURIComponent(query)}&max=${max}`);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({})) as { error?: string; hint?: string };
-    throw new Error(body.hint || body.error || 'Google Scholar search failed');
-  }
-  return res.json() as Promise<PaperResult[]>;
-}
 
 export async function fetchAllFeeds(): Promise<PaperResult[]> {
   const [pubmed, preprints, journals] = await Promise.allSettled([
