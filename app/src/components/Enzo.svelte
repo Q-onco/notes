@@ -6,6 +6,35 @@
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
+  const IDLE_STATUSES = [
+    '· oncology research AI',
+    '· nose in the literature',
+    '· tail wagging happily',
+    '· ready when you are',
+    '· decoding the TME',
+    '· your loyal companion',
+    '· scRNA-seq enthusiast',
+    '· good girl, always',
+    '· loves a good hypothesis',
+    '· reads fast, thinks deep',
+    '· on the scent of something',
+    '· biomarker hunter',
+    '· thinking about olaparib',
+    '· at your service',
+    '· dreaming of spatial data',
+  ];
+
+  let statusIdx = $state(0);
+  const enzoStatus = $derived(streaming ? '· thinking...' : IDLE_STATUSES[statusIdx]);
+
+  $effect(() => {
+    if (streaming) return;
+    const t = setInterval(() => {
+      statusIdx = (statusIdx + 1) % IDLE_STATUSES.length;
+    }, 4500);
+    return () => clearInterval(t);
+  });
+
   let tab = $state<'chat' | 'history'>('chat');
   let inputText = $state('');
   let streaming = $state(false);
@@ -174,7 +203,7 @@
     <div class="enzo-title">
       <span class="enzo-avatar">E</span>
       <span class="enzo-name-label">Enzo</span>
-      <span class="enzo-status text-xs text-mu">· oncology research AI</span>
+      <span class="enzo-status text-xs text-mu" class:thinking={streaming}>{enzoStatus}</span>
     </div>
     <div class="enzo-tabs">
       <button class="etab" class:active={tab === 'chat'} onclick={() => tab = 'chat'}>Chat</button>
@@ -319,7 +348,20 @@
     flex-shrink: 0;
   }
   .enzo-name-label { font-weight: 700; font-size: 0.875rem; color: var(--enzo); }
-  .enzo-status { font-size: 0.72rem; }
+  .enzo-status {
+    font-size: 0.72rem;
+    transition: opacity 0.4s ease;
+    animation: status-fade 4.5s ease infinite;
+  }
+  .enzo-status.thinking {
+    color: var(--enzo);
+    animation: none;
+  }
+  @keyframes status-fade {
+    0%, 85%  { opacity: 1; }
+    90%, 95% { opacity: 0; }
+    100%     { opacity: 1; }
+  }
 
   .enzo-tabs { display: flex; gap: 2px; background: var(--sf2); border-radius: var(--radius-sm); padding: 2px; }
   .etab {
