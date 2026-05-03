@@ -12,6 +12,7 @@ export const PATHS = {
   tasks:    'data/tasks.enc',
   chat:     'data/chat.enc',
   audio:    'data/audio.enc',
+  pinned:   'data/pinned.enc',
   settings: 'settings/keys.enc'
 } as const;
 

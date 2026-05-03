@@ -3,6 +3,7 @@
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
   import { nanoid } from 'nanoid';
+  import { exportNote, exportAllNotes } from '../lib/export';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -147,6 +148,11 @@
         <button class="btn-icon" onclick={archiveNote} title="Archive">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>
+          </svg>
+        </button>
+        <button class="btn-icon" onclick={() => exportNote(note!)} title="Export note as .md">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
         </button>
         <button class="btn-icon danger" onclick={deleteNote} title="Delete">

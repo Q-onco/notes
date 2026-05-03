@@ -2,6 +2,9 @@
   import { searchPubMed, fetchBioRxiv, fetchNatureCell, fetchPubMedAbstract } from '../lib/pubmed';
   import type { PaperResult } from '../lib/types';
   import { store } from '../lib/store.svelte';
+  import { exportPapers } from '../lib/export';
+
+  let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
   let activeTab = $state<'pubmed' | 'preprints' | 'journals'>('pubmed');
   let query = $state('ovarian cancer tumor microenvironment');
@@ -61,14 +64,33 @@
     const abs = abstractText[paper.id] || paper.abstract || '';
     store.enzoSearchQuery = `Summarise and discuss the significance of this paper:\n\nTitle: ${paper.title}\nAuthors: ${paper.authors.join(', ')}\nJournal: ${paper.journal} (${paper.year})\n\n${abs}`;
     store.enzoOpen = true;
-    store.view = 'enzo';
+  }
+
+  async function togglePin(paper: PaperResult) {
+    if (store.isPinned(paper.id)) {
+      await store.unpinPaper(paper.id);
+      showToast('Removed from dashboard');
+    } else {
+      await store.pinPaper(paper);
+      showToast('Pinned to dashboard');
+    }
   }
 </script>
 
 <div class="research">
   <div class="research-header">
-    <h2>Research</h2>
-    <p class="text-sm text-mu">Literature, preprints, and journal feeds</p>
+    <div>
+      <h2>Research</h2>
+      <p class="text-sm text-mu">Literature, preprints, and journal feeds</p>
+    </div>
+    <div class="header-actions">
+      {#if store.pinnedPapers.length > 0}
+        <button class="btn btn-ghost btn-sm" onclick={() => exportPapers(store.pinnedPapers)}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export pinned ({store.pinnedPapers.length})
+        </button>
+      {/if}
+    </div>
   </div>
 
   <!-- Tabs -->
@@ -118,6 +140,16 @@
             {#if paper.year > 0}<span class="text-xs text-mu">· {paper.year}</span>{/if}
           </div>
           <div class="paper-actions">
+            <button
+              class="btn-icon pin-btn"
+              class:pinned={store.isPinned(paper.id)}
+              onclick={() => togglePin(paper)}
+              title={store.isPinned(paper.id) ? 'Unpin from dashboard' : 'Pin to dashboard'}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill={store.isPinned(paper.id) ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2">
+                <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>
+              </svg>
+            </button>
             <button class="btn-icon" onclick={() => sendToEnzo(paper)} title="Ask Enzo about this">
               <span class="text-enzo text-xs font-mono">E</span>
             </button>
@@ -181,7 +213,19 @@
     gap: 16px;
   }
 
+  .research-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
   .research-header h2 { margin-bottom: 2px; }
+  .header-actions { display: flex; gap: 8px; align-items: center; }
+
+  .pin-btn { color: var(--mu); }
+  .pin-btn.pinned { color: var(--enzo); }
+  .pin-btn:hover { color: var(--enzo); background: var(--enzo-bg); }
 
   .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--bd); padding-bottom: 0; }
   .tab {

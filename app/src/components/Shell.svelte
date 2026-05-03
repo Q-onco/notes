@@ -137,7 +137,7 @@
       {:else if store.view === 'calendar'}
         <Calendar {showToast} />
       {:else if store.view === 'research'}
-        <Research />
+        <Research {showToast} />
       {:else if store.view === 'audio'}
         <Audio {showToast} />
       {/if}
