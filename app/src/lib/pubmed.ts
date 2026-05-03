@@ -128,6 +128,54 @@ export async function fetchPubMedAbstract(pmid: string): Promise<string> {
   return res.text();
 }
 
+export async function searchSemanticScholar(query: string, max = 10): Promise<PaperResult[]> {
+  const fields = 'title,authors,year,abstract,externalIds,openAccessPdf,venue';
+  const res = await fetch(
+    `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=${fields}&limit=${max}`
+  );
+  if (!res.ok) throw new Error('Semantic Scholar search failed');
+  const data = await res.json() as { data?: Record<string, unknown>[] };
+  return (data.data ?? []).map(p => {
+    const ext = (p.externalIds ?? {}) as Record<string, string>;
+    const pdf = (p.openAccessPdf ?? null) as { url?: string } | null;
+    const doi = ext.DOI ?? '';
+    return {
+      id: (p.paperId as string) ?? doi,
+      title: (p.title as string) ?? '',
+      authors: ((p.authors as { name: string }[]) ?? []).map(a => a.name).slice(0, 5),
+      abstract: (p.abstract as string) ?? '',
+      journal: (p.venue as string) || 'Semantic Scholar',
+      year: (p.year as number) ?? 0,
+      doi,
+      url: `https://www.semanticscholar.org/paper/${p.paperId as string}`,
+      source: 'semanticscholar' as const,
+      pdfUrl: pdf?.url ?? undefined,
+    };
+  }).filter(p => p.title);
+}
+
+export async function searchEuropePMC(query: string, max = 10): Promise<PaperResult[]> {
+  const res = await fetch(
+    `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(query)}&resultType=core&format=json&pageSize=${max}&sort=P_PDATE_D%20desc`
+  );
+  if (!res.ok) throw new Error('Europe PMC search failed');
+  const data = await res.json() as { resultList?: { result?: Record<string, unknown>[] } };
+  return (data.resultList?.result ?? []).map(p => {
+    const doi = (p.doi as string) ?? '';
+    return {
+      id: (p.id as string) ?? (p.pmid as string) ?? doi,
+      title: (p.title as string) ?? '',
+      authors: (p.authorString as string) ? (p.authorString as string).split(', ').slice(0, 5) : [],
+      abstract: (p.abstractText as string) ?? '',
+      journal: (p.journalTitle as string) || (p.source as string) || 'Europe PMC',
+      year: parseInt((p.pubYear as string) ?? '0') || 0,
+      doi,
+      url: doi ? `https://doi.org/${doi}` : `https://europepmc.org/article/${p.source as string}/${p.id as string}`,
+      source: 'europepmc' as const,
+    };
+  }).filter(p => p.title);
+}
+
 export async function fetchAllFeeds(): Promise<PaperResult[]> {
   const [pubmed, preprints, journals] = await Promise.allSettled([
     searchPubMed(DEFAULT_QUERY, 12),

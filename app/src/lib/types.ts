@@ -112,6 +112,6 @@ export interface PaperResult {
   year: number;
   doi: string;
   url: string;
-  source: 'pubmed' | 'biorxiv' | 'medrxiv' | 'nature' | 'cell';
+  source: 'pubmed' | 'biorxiv' | 'medrxiv' | 'nature' | 'cell' | 'semanticscholar' | 'europepmc';
   pdfUrl?: string;
 }
