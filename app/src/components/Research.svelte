@@ -1,59 +1,93 @@
 <script lang="ts">
-  import { searchPubMed, fetchBioRxiv, fetchNatureCell, fetchPubMedAbstract } from '../lib/pubmed';
+  import { searchPubMed, fetchBioRxiv, fetchNatureCell, fetchPubMedAbstract, searchSemanticScholar, searchEuropePMC } from '../lib/pubmed';
   import type { PaperResult } from '../lib/types';
   import { store } from '../lib/store.svelte';
   import { exportPapers } from '../lib/export';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
-  type SourceKey = 'pubmed' | 'biorxiv' | 'medrxiv' | 'nature' | 'cell';
+  type SourceKey = 'pubmed' | 'biorxiv' | 'medrxiv' | 'nature' | 'cell' | 'semanticscholar' | 'europepmc';
 
   const SOURCES: { key: SourceKey; label: string; cls: string; worker?: boolean }[] = [
-    { key: 'pubmed',  label: 'PubMed',  cls: 'sc-ac' },
-    { key: 'biorxiv', label: 'bioRxiv', cls: 'sc-gn' },
-    { key: 'medrxiv', label: 'medRxiv', cls: 'sc-gn' },
-    { key: 'nature',  label: 'Nature',  cls: 'sc-enzo', worker: true },
-    { key: 'cell',    label: 'Cell',    cls: 'sc-rd',   worker: true },
+    { key: 'pubmed',         label: 'PubMed',            cls: 'sc-ac' },
+    { key: 'semanticscholar',label: 'Semantic Scholar',  cls: 'sc-pu' },
+    { key: 'europepmc',      label: 'Europe PMC',        cls: 'sc-yw' },
+    { key: 'biorxiv',        label: 'bioRxiv',           cls: 'sc-gn' },
+    { key: 'medrxiv',        label: 'medRxiv',           cls: 'sc-gn' },
+    { key: 'nature',         label: 'Nature',            cls: 'sc-enzo', worker: true },
+    { key: 'cell',           label: 'Cell',              cls: 'sc-rd',   worker: true },
   ];
 
   const SOURCE_LABELS: Record<string, string> = {
-    pubmed: 'PubMed', biorxiv: 'bioRxiv', medrxiv: 'medRxiv', nature: 'Nature', cell: 'Cell'
+    pubmed: 'PubMed', biorxiv: 'bioRxiv', medrxiv: 'medRxiv',
+    nature: 'Nature', cell: 'Cell',
+    semanticscholar: 'Semantic Scholar', europepmc: 'Europe PMC'
   };
   const SOURCE_CLS: Record<string, string> = {
-    pubmed: 'tag-ac', biorxiv: 'tag-gn', medrxiv: 'tag-gn', nature: 'tag-enzo', cell: 'tag-rd'
+    pubmed: 'tag-ac', biorxiv: 'tag-gn', medrxiv: 'tag-gn',
+    nature: 'tag-enzo', cell: 'tag-rd',
+    semanticscholar: 'tag-pu', europepmc: 'tag-yw'
   };
 
   const CONCEPT_POOL = [
+    // TME & immune landscape
     'ovarian cancer tumor microenvironment',
-    'HGSOC platinum resistance',
-    'PARP inhibitor resistance mechanisms',
-    'CAF subtypes high grade serous',
+    'CAF subtypes high grade serous ovarian',
     'T cell exhaustion ovarian cancer',
+    'CD8 T cell infiltration HGSOC',
+    'myeloid derived suppressor cells ovarian',
+    'NK cell activity peritoneal ascites',
+    'tumor associated macrophages ovarian',
+    'regulatory T cells Treg ovarian',
+    'dendritic cell dysfunction tumor',
+    'immune exclusion peritoneal metastasis',
+    // scRNA-seq & spatial
     'scRNA-seq tumor immune landscape',
     'spatial transcriptomics HGSOC',
-    'ascites immunosuppression ovarian',
-    'RAD51 homologous recombination deficiency',
-    'olaparib niraparib rucaparib resistance',
-    'SOLO-1 PRIMA DUO-O clinical trial',
-    'immune checkpoint PD-L1 ovarian',
-    'BRCA1 BRCA2 ovarian cancer',
-    'cancer associated fibroblasts TME',
-    'CD8 T cell infiltration tumor',
-    'myeloid derived suppressor cells ovarian',
-    'NK cell peritoneum ovarian cancer',
-    'copy number alteration HGSOC',
-    'clonal evolution chemotherapy resistance',
-    'homologous recombination deficiency HRD',
-    'VEGF bevacizumab anti-angiogenic ovarian',
-    'epithelial mesenchymal transition ovarian',
-    'cisplatin carboplatin response biomarker',
-    'fallopian tube carcinogenesis STIC',
-    'peritoneal metastasis dissemination',
     'single cell sequencing ascites',
-    'PARP1 trapping mechanism',
+    'cell-cell communication ligand receptor',
+    'trajectory analysis pseudotime tumor',
+    'clonotype TCR scRNA ovarian',
+    // PARP inhibitors & HR
+    'PARP inhibitor resistance mechanisms',
+    'olaparib niraparib rucaparib resistance',
+    'PARP1 trapping catalytic inhibition',
     'BRCAness reversion mutation',
+    'RAD51 homologous recombination deficiency',
     '53BP1 RIF1 NHEJ pathway',
-    'immunotherapy checkpoint ovarian',
+    'homologous recombination deficiency HRD',
+    // HGSOC biology
+    'HGSOC platinum resistance',
+    'BRCA1 BRCA2 ovarian cancer',
+    'copy number alteration HGSOC',
+    'TP53 mutation high grade serous',
+    'fallopian tube carcinogenesis STIC',
+    'clonal evolution chemotherapy resistance',
+    // Clinical trials
+    'SOLO-1 SOLO-2 olaparib maintenance',
+    'PRIMA niraparib ovarian',
+    'DUO-O veliparib bevacizumab',
+    'IMagyn050 atezolizumab ovarian',
+    'KEYNOTE-100 pembrolizumab ovarian',
+    'ARIEL3 rucaparib biomarker',
+    // Pathways & targets
+    'VEGF bevacizumab anti-angiogenic ovarian',
+    'PI3K AKT mTOR ovarian cancer',
+    'WNT signaling ovarian cancer',
+    'folate receptor alpha FOLR1',
+    'mesothelin ovarian peritoneal',
+    'MUC16 CA125 biomarker',
+    // Dissemination & metastasis
+    'peritoneal dissemination ovarian cancer',
+    'ascites immunosuppression ovarian',
+    'epithelial mesenchymal transition ovarian',
+    'integrin fibronectin peritoneal adhesion',
+    // Therapy
+    'cisplatin carboplatin response biomarker',
+    'immune checkpoint PD-L1 PD-1 ovarian',
+    'ADC antibody drug conjugate ovarian',
+    'CAR-T cell ovarian cancer',
+    'bispecific antibody ovarian',
   ];
 
   let activeSources = $state(new Set<SourceKey>(['pubmed']));
@@ -90,13 +124,16 @@
     try {
       const fetches: Promise<PaperResult[]>[] = [];
 
-      if (activeSources.has('pubmed')) {
-        if (query.trim()) {
-          fetches.push(searchPubMed(query, 15));
-        } else {
-          error = 'Enter a search term for PubMed.';
-        }
+      const q = query.trim();
+      const needsQuery = activeSources.has('pubmed') || activeSources.has('semanticscholar') || activeSources.has('europepmc');
+      if (needsQuery && !q) {
+        error = 'Enter a search term.';
+        loading = false;
+        return;
       }
+      if (activeSources.has('pubmed') && q)           fetches.push(searchPubMed(q, 12));
+      if (activeSources.has('semanticscholar') && q)  fetches.push(searchSemanticScholar(q, 10));
+      if (activeSources.has('europepmc') && q)        fetches.push(searchEuropePMC(q, 10));
       if (activeSources.has('biorxiv') || activeSources.has('medrxiv')) {
         fetches.push(fetchBioRxiv(14));
       }
@@ -367,6 +404,8 @@
   .source-chip.sc-gn.active  { background: var(--gn-bg);   color: var(--gn);   border-color: var(--gn); }
   .source-chip.sc-enzo.active{ background: var(--enzo-bg); color: var(--enzo); border-color: var(--enzo-bd); }
   .source-chip.sc-rd.active  { background: var(--rd-bg);   color: var(--rd);   border-color: var(--rd); }
+  .source-chip.sc-pu.active  { background: var(--pu-bg);   color: var(--pu);   border-color: var(--pu); }
+  .source-chip.sc-yw.active  { background: var(--yw-bg);   color: var(--yw);   border-color: var(--yw); }
   .source-disabled { opacity: 0.3; cursor: default; font-size: 0.72rem; }
 
   .search-row { display: flex; gap: 8px; align-items: flex-start; }

@@ -198,6 +198,8 @@ textarea { resize: vertical; line-height: 1.6; }
 .tag-enzo { background: var(--enzo-bg); color: var(--enzo); border-color: var(--enzo-bd); }
 .tag-gn { background: var(--gn-bg); color: var(--gn); }
 .tag-rd { background: var(--rd-bg); color: var(--rd); }
+.tag-pu { background: var(--pu-bg); color: var(--pu); }
+.tag-yw { background: var(--yw-bg); color: var(--yw); }
 
 /* ── Toast notifications ── */
 .toast {
