@@ -1,10 +1,11 @@
 import type {
   Note, JournalEntry, Task, AudioRecord,
-  ChatSession, CalendarEvent, AppSettings, PaperResult
+  ChatSession, CalendarEvent, AppSettings, PaperResult,
+  ReadingListItem, SavedSearch, PipelineRun, Protocol
 } from './types';
 import { loadEncFile, saveEncFile, PATHS, validateToken } from './github';
 
-type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo';
+type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline';
 
 class Store {
   // Auth
@@ -29,6 +30,14 @@ class Store {
 
   pinnedPapers = $state<PaperResult[]>([]);
   pinnedPapersSha = $state<string | null>(null);
+
+  readingList = $state<ReadingListItem[]>([]);
+  savedSearches = $state<SavedSearch[]>([]);
+  researchSha = $state<string | null>(null);
+
+  pipelineRuns = $state<PipelineRun[]>([]);
+  protocols = $state<Protocol[]>([]);
+  pipelinesSha = $state<string | null>(null);
 
   calEvents = $state<CalendarEvent[]>([]);
 
@@ -106,14 +115,16 @@ class Store {
     if (!this.tok) return;
     this.loadingMsg = 'Decrypting your research...';
 
-    const [n, j, t, c, a, pp, s] = await Promise.all([
+    const [n, j, t, c, a, pp, s, res, pip] = await Promise.all([
       loadEncFile<Note[]>(this.tok, PATHS.notes, []),
       loadEncFile<JournalEntry[]>(this.tok, PATHS.journal, []),
       loadEncFile<Task[]>(this.tok, PATHS.tasks, []),
       loadEncFile<ChatSession[]>(this.tok, PATHS.chat, []),
       loadEncFile<AudioRecord[]>(this.tok, PATHS.audio, []),
       loadEncFile<PaperResult[]>(this.tok, PATHS.pinned, []),
-      loadEncFile<AppSettings>(this.tok, PATHS.settings, this.settings)
+      loadEncFile<AppSettings>(this.tok, PATHS.settings, this.settings),
+      loadEncFile<{readingList: ReadingListItem[], savedSearches: SavedSearch[]}>(this.tok, PATHS.research, { readingList: [], savedSearches: [] }),
+      loadEncFile<{runs: PipelineRun[], protocols: Protocol[]}>(this.tok, PATHS.pipelines, { runs: [], protocols: [] })
     ]);
 
     this.notes = n.data; this.notesSha = n.sha;
@@ -129,6 +140,34 @@ class Store {
       workerUrl: loaded.workerUrl || this.settings.workerUrl,
     };
     this.settingsSha = s.sha;
+    this.readingList = res.data.readingList ?? [];
+    this.savedSearches = res.data.savedSearches ?? [];
+    this.researchSha = res.sha;
+    this.pipelineRuns = pip.data.runs ?? [];
+    this.protocols = pip.data.protocols ?? [];
+    this.pipelinesSha = pip.sha;
+  }
+
+  async saveResearch(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(
+      this.tok, PATHS.research,
+      { readingList: this.readingList, savedSearches: this.savedSearches },
+      this.researchSha,
+      'research: update'
+    );
+    this.researchSha = sha;
+  }
+
+  async savePipelines(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(
+      this.tok, PATHS.pipelines,
+      { runs: this.pipelineRuns, protocols: this.protocols },
+      this.pipelinesSha,
+      'pipelines: update'
+    );
+    this.pipelinesSha = sha;
   }
 
   async saveNotes(): Promise<void> {

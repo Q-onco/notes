@@ -7,13 +7,15 @@ const BRANCH = 'main';
 
 // Data file paths
 export const PATHS = {
-  notes:    'data/notes.enc',
-  journal:  'data/journal.enc',
-  tasks:    'data/tasks.enc',
-  chat:     'data/chat.enc',
-  audio:    'data/audio.enc',
-  pinned:   'data/pinned.enc',
-  settings: 'settings/keys.enc'
+  notes:     'data/notes.enc',
+  journal:   'data/journal.enc',
+  tasks:     'data/tasks.enc',
+  chat:      'data/chat.enc',
+  audio:     'data/audio.enc',
+  pinned:    'data/pinned.enc',
+  settings:  'settings/keys.enc',
+  research:  'data/research.enc',
+  pipelines: 'data/pipelines.enc',
 } as const;
 
 function headers(token: string) {

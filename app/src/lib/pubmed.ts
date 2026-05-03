@@ -176,6 +176,16 @@ export async function searchEuropePMC(query: string, max = 10): Promise<PaperRes
   }).filter(p => p.title);
 }
 
+export async function searchGoogleScholar(query: string, max = 10): Promise<PaperResult[]> {
+  const workerUrl = store.settings.workerUrl || WORKER_URL;
+  const res = await fetch(`${workerUrl}/scholar?q=${encodeURIComponent(query)}&max=${max}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string; hint?: string };
+    throw new Error(body.hint || body.error || 'Google Scholar search failed');
+  }
+  return res.json() as Promise<PaperResult[]>;
+}
+
 export async function fetchAllFeeds(): Promise<PaperResult[]> {
   const [pubmed, preprints, journals] = await Promise.allSettled([
     searchPubMed(DEFAULT_QUERY, 12),

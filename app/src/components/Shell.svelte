@@ -9,6 +9,7 @@
   import Tasks from './Tasks.svelte';
   import Calendar from './Calendar.svelte';
   import Research from './Research.svelte';
+  import Pipeline from './Pipeline.svelte';
   import Audio from './Audio.svelte';
   import Settings from './Settings.svelte';
   import Enzo from './Enzo.svelte';
@@ -277,6 +278,8 @@
         <Calendar {showToast} />
       {:else if store.view === 'research'}
         <Research {showToast} />
+      {:else if store.view === 'pipeline'}
+        <Pipeline {showToast} />
       {:else if store.view === 'audio'}
         <Audio {showToast} />
       {:else if store.view === 'settings'}
