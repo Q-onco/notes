@@ -2,6 +2,7 @@
   import { store } from '../lib/store.svelte';
   import { nanoid } from 'nanoid';
   import type { Note } from '../lib/types';
+  import { exportPapers } from '../lib/export';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -185,6 +186,53 @@
       </section>
 
     </div>
+
+    <!-- Pinned research papers -->
+    {#if store.pinnedPapers.length > 0}
+      <section class="card pinned-section">
+        <div class="card-head">
+          <h3>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="color: var(--enzo); margin-right: 5px; vertical-align: -1px;">
+              <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>
+            </svg>
+            Pinned papers
+            <span class="pin-count">{store.pinnedPapers.length}</span>
+          </h3>
+          <button class="btn btn-ghost btn-sm" onclick={() => exportPapers(store.pinnedPapers)}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export
+          </button>
+        </div>
+        <div class="pinned-list">
+          {#each store.pinnedPapers as paper (paper.id)}
+            <div class="pinned-row">
+              <div class="pinned-main">
+                <a
+                  class="pinned-title"
+                  href={paper.doi ? `https://doi.org/${paper.doi}` : paper.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >{paper.title}</a>
+                <div class="pinned-meta">
+                  <span class="source-badge source-{paper.source}">{paper.source === 'pubmed' ? 'PubMed' : paper.source === 'biorxiv' ? 'bioRxiv' : paper.source === 'medrxiv' ? 'medRxiv' : paper.source.charAt(0).toUpperCase() + paper.source.slice(1)}</span>
+                  <span class="text-xs text-mu">{paper.journal}{paper.year > 0 ? ` · ${paper.year}` : ''}</span>
+                </div>
+              </div>
+              <button
+                class="btn-icon unpin-btn"
+                onclick={async () => { await store.unpinPaper(paper.id); showToast('Unpinned'); }}
+                title="Unpin"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+          {/each}
+        </div>
+      </section>
+    {/if}
+
   </div>
 </div>
 
@@ -327,6 +375,54 @@
   .prompt-chip:hover { border-color: var(--enzo); background: var(--enzo-bg); color: var(--enzo); }
 
   .empty { padding: 8px 4px; }
+
+  /* Pinned papers */
+  .pinned-section { display: flex; flex-direction: column; gap: 10px; }
+  .pin-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--enzo-bg); color: var(--enzo); border: 1px solid var(--enzo-bd);
+    font-size: 0.68rem; font-weight: 700;
+    width: 18px; height: 18px; border-radius: 50%;
+    margin-left: 6px; vertical-align: 1px;
+  }
+  .pinned-list { display: flex; flex-direction: column; gap: 6px; }
+  .pinned-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--bd);
+    border-radius: var(--radius-sm);
+    background: var(--sf2);
+    min-width: 0;
+  }
+  .pinned-row:hover { border-color: var(--enzo-bd); background: var(--enzo-bg); }
+  .pinned-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .pinned-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--tx);
+    line-height: 1.4;
+    text-decoration: none;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .pinned-title:hover { color: var(--ac); text-decoration: underline; }
+  .pinned-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .source-badge {
+    font-size: 0.65rem; font-weight: 700; padding: 1px 6px; border-radius: 10px;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .source-pubmed  { background: var(--ac-bg);   color: var(--ac);   }
+  .source-biorxiv { background: var(--gn-bg);   color: var(--gn);   }
+  .source-medrxiv { background: var(--gn-bg);   color: var(--gn);   }
+  .source-nature  { background: var(--enzo-bg); color: var(--enzo); }
+  .source-cell    { background: var(--rd-bg);   color: var(--rd);   }
+  .unpin-btn { flex-shrink: 0; opacity: 0.4; margin-top: 1px; }
+  .pinned-row:hover .unpin-btn { opacity: 1; }
+  .unpin-btn:hover { color: var(--rd); background: var(--rd-bg); opacity: 1; }
 
   @media (max-width: 680px) {
     .stats-row { grid-template-columns: repeat(2, 1fr); }

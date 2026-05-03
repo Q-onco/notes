@@ -2,6 +2,7 @@
   import { store } from '../lib/store.svelte';
   import { nanoid } from 'nanoid';
   import type { Task } from '../lib/types';
+  import { exportTasks } from '../lib/export';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -85,6 +86,12 @@
       <h2>Tasks</h2>
       <p class="text-sm text-mu">{openCount} open · {doneCount} done</p>
     </div>
+    {#if store.tasks.length > 0}
+      <button class="btn btn-ghost btn-sm" onclick={() => exportTasks(store.tasks)}>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export
+      </button>
+    {/if}
   </div>
 
   <!-- Add task -->
@@ -174,6 +181,7 @@
     gap: 16px;
   }
 
+  .tasks-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
   .tasks-header h2 { margin-bottom: 2px; }
 
   .add-task-row {

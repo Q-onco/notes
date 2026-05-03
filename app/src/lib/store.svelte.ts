@@ -1,6 +1,6 @@
 import type {
   Note, JournalEntry, Task, AudioRecord,
-  ChatSession, CalendarEvent, AppSettings
+  ChatSession, CalendarEvent, AppSettings, PaperResult
 } from './types';
 import { loadEncFile, saveEncFile, PATHS, validateToken } from './github';
 
@@ -26,6 +26,9 @@ class Store {
 
   audioRecords = $state<AudioRecord[]>([]);
   audioSha = $state<string | null>(null);
+
+  pinnedPapers = $state<PaperResult[]>([]);
+  pinnedPapersSha = $state<string | null>(null);
 
   calEvents = $state<CalendarEvent[]>([]);
 
@@ -101,12 +104,13 @@ class Store {
     if (!this.tok) return;
     this.loadingMsg = 'Decrypting your research...';
 
-    const [n, j, t, c, a, s] = await Promise.all([
+    const [n, j, t, c, a, pp, s] = await Promise.all([
       loadEncFile<Note[]>(this.tok, PATHS.notes, []),
       loadEncFile<JournalEntry[]>(this.tok, PATHS.journal, []),
       loadEncFile<Task[]>(this.tok, PATHS.tasks, []),
       loadEncFile<ChatSession[]>(this.tok, PATHS.chat, []),
       loadEncFile<AudioRecord[]>(this.tok, PATHS.audio, []),
+      loadEncFile<PaperResult[]>(this.tok, PATHS.pinned, []),
       loadEncFile<AppSettings>(this.tok, PATHS.settings, this.settings)
     ]);
 
@@ -115,6 +119,7 @@ class Store {
     this.tasks = t.data; this.tasksSha = t.sha;
     this.chatSessions = c.data; this.chatSha = c.sha;
     this.audioRecords = a.data; this.audioSha = a.sha;
+    this.pinnedPapers = pp.data; this.pinnedPapersSha = pp.sha;
     this.settings = { ...this.settings, ...s.data }; this.settingsSha = s.sha;
   }
 
@@ -146,6 +151,27 @@ class Store {
     if (!this.tok) return;
     const sha = await saveEncFile(this.tok, PATHS.audio, this.audioRecords, this.audioSha, 'audio: update');
     this.audioSha = sha;
+  }
+
+  async savePinnedPapers(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(this.tok, PATHS.pinned, this.pinnedPapers, this.pinnedPapersSha, 'research: pinned update');
+    this.pinnedPapersSha = sha;
+  }
+
+  isPinned(id: string): boolean {
+    return this.pinnedPapers.some(p => p.id === id);
+  }
+
+  async pinPaper(paper: PaperResult): Promise<void> {
+    if (this.isPinned(paper.id)) return;
+    this.pinnedPapers = [paper, ...this.pinnedPapers];
+    await this.savePinnedPapers();
+  }
+
+  async unpinPaper(id: string): Promise<void> {
+    this.pinnedPapers = this.pinnedPapers.filter(p => p.id !== id);
+    await this.savePinnedPapers();
   }
 
   async saveSettings(): Promise<void> {
