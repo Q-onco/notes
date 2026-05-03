@@ -43,7 +43,8 @@
       journal: store.journal.filter(j => ts(j)).length,
       audio:   store.audioRecords.filter(a => ts(a)).length,
       chat:    store.chatSessions.filter(c => isSameDay(new Date(c.date).getTime(), year, month, day)).length,
-      events:  store.calEvents.filter(e => isSameDay(e.start, year, month, day)).length
+      events:  store.calEvents.filter(e => isSameDay(e.start, year, month, day)).length,
+      tasks:   store.tasks.filter(t => t.dueAt !== null && isSameDay(t.dueAt!, year, month, day)).length
     };
   }
 
@@ -52,7 +53,7 @@
   }
 
   const selectedItems = $derived(() => {
-    if (!selectedDay) return { notes: [], journal: [], audio: [], chat: [], events: [] };
+    if (!selectedDay) return { notes: [], journal: [], audio: [], chat: [], events: [], tasks: [] };
     const { y, m, d } = selectedDay;
     const ts = (item: { createdAt: number }) => isSameDay(item.createdAt, y, m, d);
     return {
@@ -60,7 +61,8 @@
       journal: store.journal.filter(j => ts(j)),
       audio:   store.audioRecords.filter(a => ts(a)),
       chat:    store.chatSessions.filter(c => isSameDay(new Date(c.date).getTime(), y, m, d)),
-      events:  store.calEvents.filter(e => isSameDay(e.start, y, m, d))
+      events:  store.calEvents.filter(e => isSameDay(e.start, y, m, d)),
+      tasks:   store.tasks.filter(t => t.dueAt !== null && isSameDay(t.dueAt!, y, m, d))
     };
   });
 
@@ -150,7 +152,7 @@
               class="cal-cell day-cell"
               class:today={isToday(cell.day)}
               class:selected={isSelected(cell.day)}
-              class:has-content={dots.notes + dots.journal + dots.audio + dots.chat + dots.events > 0}
+              class:has-content={dots.notes + dots.journal + dots.audio + dots.chat + dots.events + dots.tasks > 0}
               onclick={() => selectDay(cell.day)}
             >
               <span class="day-num">{cell.day}</span>
@@ -160,6 +162,7 @@
                 {#if dots.audio > 0}   <span class="dot dot-audio" title="{dots.audio} recording{dots.audio>1?'s':''}"></span> {/if}
                 {#if dots.chat > 0}    <span class="dot dot-chat"  title="{dots.chat} Enzo session{dots.chat>1?'s':''}"></span> {/if}
                 {#if dots.events > 0}  <span class="dot dot-event" title="{dots.events} event{dots.events>1?'s':''}"></span> {/if}
+                {#if dots.tasks > 0}   <span class="dot dot-task"  title="{dots.tasks} task{dots.tasks>1?'s':''}"></span>  {/if}
               </div>
             </button>
           {/if}
@@ -181,6 +184,7 @@
             {#if store.calEvents.length > 0}
               <span class="legend-item"><span class="dot dot-event"></span> Calendar</span>
             {/if}
+            <span class="legend-item"><span class="dot dot-task"></span> Tasks</span>
           </div>
         </div>
 
@@ -251,7 +255,26 @@
           </section>
         {/if}
 
-        {#if items.notes.length + items.journal.length + items.audio.length + items.chat.length + items.events.length === 0}
+        {#if items.tasks.length > 0}
+          <section class="detail-section">
+            <h4>Tasks due</h4>
+            {#each items.tasks as task}
+              <button
+                class="detail-item task-detail-item"
+                class:task-done={task.done}
+                onclick={async () => { task.done = !task.done; await store.saveTasks(); }}
+              >
+                <span class="item-time">
+                  <span class="task-pri-dot task-pri-{task.priority}"></span>
+                  {task.priority} priority{task.done ? ' · done' : ''}
+                </span>
+                <span class="item-title" class:task-strike={task.done}>{task.text}</span>
+              </button>
+            {/each}
+          </section>
+        {/if}
+
+        {#if items.notes.length + items.journal.length + items.audio.length + items.chat.length + items.events.length + items.tasks.length === 0}
           <p class="empty-day text-sm text-mu">Nothing recorded on this day.</p>
         {/if}
       </div>
@@ -342,6 +365,7 @@
   .dot-audio   { background: var(--pu); }
   .dot-chat    { background: var(--gn); }
   .dot-event   { background: var(--yw); }
+  .dot-task    { background: var(--rd); }
 
   /* Day detail panel */
   .day-detail {
@@ -387,4 +411,14 @@
   .item-meta { margin-top: 2px; }
 
   .empty-day { padding: 16px 0; }
+
+  .task-detail-item { cursor: pointer; }
+  .task-detail-item:hover { border-color: var(--rd); background: var(--rd-bg); }
+  .task-done { opacity: 0.6; }
+  .task-strike { text-decoration: line-through; color: var(--mu); }
+
+  .task-pri-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 4px; vertical-align: middle; }
+  .task-pri-high   { background: var(--rd); }
+  .task-pri-medium { background: var(--yw); }
+  .task-pri-low    { background: var(--gn); }
 </style>

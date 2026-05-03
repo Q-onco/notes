@@ -105,12 +105,12 @@
           class:active={store.currentNoteId === note.id && store.view === 'notes'}
           onclick={() => { store.currentNoteId = note.id; store.view = 'notes'; }}
         >
-          {#if note.pinned}
-            <span class="pin-icon" title="Pinned">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
-            </span>
-          {/if}
-          <span class="note-title">{note.title || 'Untitled'}</span>
+          <span class="note-title">
+            {#if note.pinned}
+              <svg class="pin-icon" width="10" height="10" viewBox="0 0 24 24" fill="currentColor" title="Pinned"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
+            {/if}
+            {note.title || 'Untitled'}
+          </span>
           <span class="note-time">{relTime(note.updatedAt)}</span>
         </button>
       {:else}
@@ -234,20 +234,19 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    padding-left: 14px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
   }
 
   .note-time {
     font-size: 0.7rem;
     color: var(--mu);
-    padding-left: 14px;
   }
 
   .pin-icon {
-    position: absolute;
-    left: 10px;
-    top: 9px;
     color: var(--enzo);
+    flex-shrink: 0;
   }
 
   .empty-hint {

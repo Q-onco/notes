@@ -217,7 +217,7 @@
 
   .task-check { accent-color: var(--ac); margin-top: 3px; flex-shrink: 0; }
   .task-content { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-  .task-text { font-size: 0.9rem; color: var(--tx); }
+  .task-text { font-size: 0.9rem; color: var(--tx); word-break: break-word; }
   .task-row.done .task-text { text-decoration: line-through; color: var(--mu); }
   .task-sub { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
@@ -249,9 +249,9 @@
   }
   .note-link:hover { text-decoration: underline; }
 
-  .task-del { opacity: 0; transition: opacity var(--transition); flex-shrink: 0; margin-top: 1px; }
+  .task-del { opacity: 0.4; transition: opacity var(--transition), color var(--transition), background var(--transition); flex-shrink: 0; margin-top: 1px; }
   .task-row:hover .task-del { opacity: 1; }
-  .task-del:hover { color: var(--rd); background: var(--rd-bg); }
+  .task-del:hover { color: var(--rd); background: var(--rd-bg); opacity: 1; }
 
   .empty-state { padding: 40px; text-align: center; }
 </style>

@@ -71,6 +71,7 @@ export interface AppSettings {
   groqKey: string;
   workerUrl: string;
   themeOverride: 'auto' | 'light' | 'dark';
+  groqModel: 'quick' | 'deep';
 }
 
 export interface EncryptedBlob {
