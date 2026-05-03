@@ -33,7 +33,8 @@ class Store {
     userName: 'Amritha',
     groqKey: '',
     workerUrl: '',
-    themeOverride: 'auto'
+    themeOverride: 'auto',
+    groqModel: 'deep'
   });
   settingsSha = $state<string | null>(null);
 

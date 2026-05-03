@@ -119,6 +119,7 @@
       <p class="text-mu">Select a note from the sidebar, or create a new one.</p>
     </div>
   {:else}
+    {#key note.id}
     <!-- Toolbar -->
     <div class="editor-toolbar">
       <div class="tab-group">
@@ -212,6 +213,7 @@
         <span>{note.audioIds.length} recording{note.audioIds.length > 1 ? 's' : ''}</span>
       {/if}
     </div>
+    {/key}
   {/if}
 </div>
 

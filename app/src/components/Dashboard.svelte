@@ -41,8 +41,6 @@
 
   function sendToEnzo(prompt: string) {
     store.enzoOpen = true;
-    store.view = 'enzo';
-    // Signal Enzo to pre-fill — use a writable signal
     store.enzoSearchQuery = prompt;
   }
 
@@ -284,7 +282,7 @@
     padding: 5px 4px;
   }
   .task-row input { accent-color: var(--ac); flex-shrink: 0; }
-  .task-row-text { font-size: 0.875rem; color: var(--tx); flex: 1; }
+  .task-row-text { font-size: 0.875rem; color: var(--tx); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .task-row-text.done { text-decoration: line-through; color: var(--mu); }
 
   .priority-dot {
