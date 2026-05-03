@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { searchPubMed, fetchBioRxiv, fetchNatureCell, fetchPubMedAbstract, searchSemanticScholar, searchEuropePMC, searchGoogleScholar } from '../lib/pubmed';
+  import { searchPubMed, fetchBioRxiv, fetchNatureCell, fetchPubMedAbstract, searchOpenAlex, searchEuropePMC } from '../lib/pubmed';
   import type { PaperResult, ReadingListItem, SavedSearch } from '../lib/types';
   import { store } from '../lib/store.svelte';
   import { exportPapers } from '../lib/export';
@@ -8,30 +8,27 @@
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
-  type SourceKey = 'pubmed' | 'biorxiv' | 'medrxiv' | 'nature' | 'cell' | 'semanticscholar' | 'europepmc' | 'scholar';
+  type SourceKey = 'pubmed' | 'biorxiv' | 'medrxiv' | 'nature' | 'cell' | 'openalex' | 'europepmc';
 
   const SOURCES: { key: SourceKey; label: string; cls: string; worker?: boolean }[] = [
-    { key: 'pubmed',         label: 'PubMed',           cls: 'sc-ac' },
-    { key: 'semanticscholar',label: 'Semantic Scholar', cls: 'sc-pu' },
-    { key: 'europepmc',      label: 'Europe PMC',       cls: 'sc-yw' },
-    { key: 'biorxiv',        label: 'bioRxiv',          cls: 'sc-gn' },
-    { key: 'medrxiv',        label: 'medRxiv',          cls: 'sc-gn' },
-    { key: 'nature',         label: 'Nature',           cls: 'sc-enzo', worker: true },
-    { key: 'cell',           label: 'Cell',             cls: 'sc-rd',   worker: true },
-    { key: 'scholar',        label: 'Google Scholar',   cls: 'sc-ac',   worker: true },
+    { key: 'pubmed',    label: 'PubMed',      cls: 'sc-ac' },
+    { key: 'openalex',  label: 'OpenAlex',    cls: 'sc-pu', worker: true },
+    { key: 'europepmc', label: 'Europe PMC',  cls: 'sc-yw' },
+    { key: 'biorxiv',   label: 'bioRxiv',     cls: 'sc-gn' },
+    { key: 'medrxiv',   label: 'medRxiv',     cls: 'sc-gn' },
+    { key: 'nature',    label: 'Nature',      cls: 'sc-enzo', worker: true },
+    { key: 'cell',      label: 'Cell',        cls: 'sc-rd',   worker: true },
   ];
 
   const SOURCE_LABELS: Record<string, string> = {
     pubmed: 'PubMed', biorxiv: 'bioRxiv', medrxiv: 'medRxiv',
     nature: 'Nature', cell: 'Cell',
-    semanticscholar: 'Semantic Scholar', europepmc: 'Europe PMC',
-    scholar: 'Google Scholar'
+    openalex: 'OpenAlex', europepmc: 'Europe PMC',
   };
   const SOURCE_CLS: Record<string, string> = {
     pubmed: 'tag-ac', biorxiv: 'tag-gn', medrxiv: 'tag-gn',
     nature: 'tag-enzo', cell: 'tag-rd',
-    semanticscholar: 'tag-pu', europepmc: 'tag-yw',
-    scholar: 'tag-ac'
+    openalex: 'tag-pu', europepmc: 'tag-yw',
   };
 
   const PRESET_TOPICS = [
@@ -174,16 +171,15 @@
       const fetches: Promise<PaperResult[]>[] = [];
 
       const q = query.trim();
-      const needsQuery = activeSources.has('pubmed') || activeSources.has('semanticscholar') || activeSources.has('europepmc') || activeSources.has('scholar');
+      const needsQuery = activeSources.has('pubmed') || activeSources.has('openalex') || activeSources.has('europepmc');
       if (needsQuery && !q) {
         error = 'Enter a search term.';
         loading = false;
         return;
       }
-      if (activeSources.has('pubmed') && q)            fetches.push(searchPubMed(q, 12));
-      if (activeSources.has('semanticscholar') && q)   fetches.push(searchSemanticScholar(q, 10));
-      if (activeSources.has('europepmc') && q)         fetches.push(searchEuropePMC(q, 10));
-      if (activeSources.has('scholar') && q)           fetches.push(searchGoogleScholar(q, 10));
+      if (activeSources.has('pubmed') && q)    fetches.push(searchPubMed(q, 12));
+      if (activeSources.has('openalex') && q)  fetches.push(searchOpenAlex(q, 10));
+      if (activeSources.has('europepmc') && q) fetches.push(searchEuropePMC(q, 10));
       if (activeSources.has('biorxiv') || activeSources.has('medrxiv')) {
         fetches.push(fetchBioRxiv(14));
       }
@@ -492,7 +488,7 @@ Format your response as:
         <input
           type="text"
           bind:value={query}
-          placeholder="Search PubMed, preprints, Google Scholar…"
+          placeholder="Search PubMed, OpenAlex, preprints…"
           onkeydown={(e) => e.key === 'Enter' && search()}
           class="search-input"
         />

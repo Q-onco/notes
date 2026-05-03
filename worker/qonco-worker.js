@@ -16,6 +16,7 @@
  *   GET  /pubmed   — PubMed search proxy (?q=...&max=15)
  *   GET  /biorxiv  — bioRxiv/medRxiv feed (?server=biorxiv&days=14)
  *   GET  /news     — Nature/Cell RSS (?sources=nature,cell)
+ *   GET  /openalex — OpenAlex academic search (?q=...&max=10)
  *   GET  /health   — health check
  */
 
@@ -28,6 +29,15 @@ const RSS_FEEDS = {
   nature: 'https://www.nature.com/subjects/cancer.rss',
   cell:   'https://www.cell.com/cell/rss',
 };
+
+function reconstructAbstract(invertedIndex) {
+  if (!invertedIndex) return '';
+  const words = [];
+  for (const [word, positions] of Object.entries(invertedIndex)) {
+    for (const pos of positions) words[pos] = word;
+  }
+  return words.filter(Boolean).join(' ');
+}
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 
@@ -230,37 +240,34 @@ export default {
       }
     }
 
-    // GET /scholar?q=...&max=10
-    if (path === '/scholar' && request.method === 'GET') {
-      if (!env.SERPAPI_KEY) {
-        return json({ error: 'SERPAPI_KEY not set', hint: 'Add SERPAPI_KEY to Cloudflare Worker secrets to enable Google Scholar' }, 503, origin);
-      }
+    // GET /openalex?q=...&max=10
+    if (path === '/openalex' && request.method === 'GET') {
       try {
         const q = url.searchParams.get('q') || '';
-        const max = Math.min(parseInt(url.searchParams.get('max') || '10'), 20);
+        const max = Math.min(parseInt(url.searchParams.get('max') || '10'), 25);
         const res = await fetch(
-          `https://serpapi.com/search?engine=google_scholar&q=${encodeURIComponent(q)}&num=${max}&api_key=${env.SERPAPI_KEY}&hl=en`,
+          `https://api.openalex.org/works?search=${encodeURIComponent(q)}&per-page=${max}&sort=relevance_score:desc&mailto=shiva.adam@gmail.com`,
           { headers: { 'User-Agent': 'QOncoResearch/1.0' } }
         );
-        if (!res.ok) return err(`SerpAPI ${res.status}`, res.status, origin);
+        if (!res.ok) return err(`OpenAlex ${res.status}`, res.status, origin);
         const data = await res.json();
-        const papers = (data.organic_results || []).map(p => {
-          const summary = (p.publication_info?.summary || '');
-          const yearMatch = summary.match(/\b(19|20)\d{2}\b/);
-          const year = yearMatch ? parseInt(yearMatch[0]) : 0;
-          const journalPart = summary.split(' - ').slice(-1)[0]?.trim() || 'Google Scholar';
-          const pdfResource = (p.resources || []).find(r => (r.title || '').toUpperCase().includes('PDF') || r.file_format === 'PDF');
+        const papers = (data.results || []).map(w => {
+          const doi = w.doi ? w.doi.replace('https://doi.org/', '') : '';
+          const abstract = w.abstract_inverted_index
+            ? reconstructAbstract(w.abstract_inverted_index)
+            : '';
+          const location = w.primary_location?.source;
           return {
-            id: p.result_id || p.link || p.title,
-            title: p.title || '',
-            authors: (p.publication_info?.authors || []).map(a => a.name || '').slice(0, 5),
-            abstract: p.snippet || '',
-            journal: journalPart,
-            year,
-            doi: '',
-            url: p.link || '',
-            source: 'scholar',
-            pdfUrl: pdfResource?.link,
+            id: w.id || doi || w.title,
+            title: w.title || '',
+            authors: (w.authorships || []).slice(0, 5).map(a => a.author?.display_name || ''),
+            abstract,
+            journal: location?.display_name || 'OpenAlex',
+            year: w.publication_year || 0,
+            doi,
+            url: doi ? `https://doi.org/${doi}` : (w.id || ''),
+            source: 'openalex',
+            pdfUrl: w.open_access?.oa_url || undefined,
           };
         });
         return json(papers, 200, origin);

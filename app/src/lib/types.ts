@@ -112,7 +112,7 @@ export interface PaperResult {
   year: number;
   doi: string;
   url: string;
-  source: 'pubmed' | 'biorxiv' | 'medrxiv' | 'nature' | 'cell' | 'semanticscholar' | 'europepmc' | 'scholar';
+  source: 'pubmed' | 'biorxiv' | 'medrxiv' | 'nature' | 'cell' | 'openalex' | 'europepmc';
   pdfUrl?: string;
 }
 
