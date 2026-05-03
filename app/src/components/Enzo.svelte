@@ -10,17 +10,10 @@
     '· oncology research AI',
     '· nose in the literature',
     '· tail wagging happily',
-    '· ready when you are',
     '· decoding the TME',
-    '· your loyal companion',
     '· scRNA-seq enthusiast',
     '· good girl, always',
     '· loves a good hypothesis',
-    '· reads fast, thinks deep',
-    '· on the scent of something',
-    '· biomarker hunter',
-    '· thinking about olaparib',
-    '· at your service',
     '· dreaming of spatial data',
   ];
 
@@ -31,7 +24,7 @@
     if (streaming) return;
     const t = setInterval(() => {
       statusIdx = (statusIdx + 1) % IDLE_STATUSES.length;
-    }, 4500);
+    }, 9000);
     return () => clearInterval(t);
   });
 
@@ -202,8 +195,10 @@
   <div class="enzo-head">
     <div class="enzo-title">
       <span class="enzo-avatar">E</span>
-      <span class="enzo-name-label">Enzo</span>
-      <span class="enzo-status text-xs text-mu" class:thinking={streaming}>{enzoStatus}</span>
+      <div class="enzo-name-stack">
+        <span class="enzo-name-label">Enzo</span>
+        <span class="enzo-status text-mu" class:thinking={streaming}>{enzoStatus}</span>
+      </div>
     </div>
     <div class="enzo-tabs">
       <button class="etab" class:active={tab === 'chat'} onclick={() => tab = 'chat'}>Chat</button>
@@ -336,9 +331,9 @@
     gap: 8px;
   }
 
-  .enzo-title { display: flex; align-items: center; gap: 7px; }
+  .enzo-title { display: flex; align-items: center; gap: 9px; }
   .enzo-avatar {
-    width: 26px; height: 26px;
+    width: 28px; height: 28px;
     background: var(--enzo);
     color: white;
     border-radius: 50%;
@@ -347,20 +342,26 @@
     font-weight: 800;
     flex-shrink: 0;
   }
-  .enzo-name-label { font-weight: 700; font-size: 0.875rem; color: var(--enzo); }
+  .enzo-name-stack { display: flex; flex-direction: column; gap: 1px; line-height: 1; }
+  .enzo-name-label { font-weight: 700; font-size: 0.875rem; color: var(--enzo); line-height: 1.3; }
   .enzo-status {
-    font-size: 0.72rem;
-    transition: opacity 0.4s ease;
-    animation: status-fade 4.5s ease infinite;
+    font-size: 0.68rem;
+    line-height: 1.4;
+    letter-spacing: 0.01em;
+    animation: status-wave 9s ease-in-out infinite;
   }
   .enzo-status.thinking {
     color: var(--enzo);
-    animation: none;
+    animation: thinking-pulse 2.4s ease-in-out infinite;
   }
-  @keyframes status-fade {
-    0%, 85%  { opacity: 1; }
-    90%, 95% { opacity: 0; }
-    100%     { opacity: 1; }
+  @keyframes status-wave {
+    0%, 70% { opacity: 0.8; }
+    83%     { opacity: 0.1; }
+    100%    { opacity: 0.8; }
+  }
+  @keyframes thinking-pulse {
+    0%, 100% { opacity: 0.5; }
+    50%      { opacity: 1; }
   }
 
   .enzo-tabs { display: flex; gap: 2px; background: var(--sf2); border-radius: var(--radius-sm); padding: 2px; }
