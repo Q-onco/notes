@@ -48,6 +48,7 @@ class Store {
   loadingMsg = $state('Loading...');
   error = $state<string | null>(null);
   enzoSearchQuery = $state('');
+  aiPending = $state(0); // count of in-flight AI requests
 
   // Derived
   get authenticated(): boolean { return this.tok !== null; }

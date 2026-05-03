@@ -5,19 +5,50 @@ import { store } from './store.svelte';
 export const WORKER_URL = 'https://enzo.quant-onco.workers.dev';
 
 export const MODELS = {
-  enzo:     'llama-3.3-70b-versatile',    // Enzo chat — hard-coded
-  research: 'openai/gpt-oss-120b',        // research summaries, heavy reasoning
-  quick:    'llama-3.1-8b-instant',       // light utility tasks
-  whisper:  'whisper-large-v3',           // audio transcription (worker-side)
+  enzo:     'llama-3.3-70b-versatile',
+  research: 'openai/gpt-oss-120b',
+  quick:    'llama-3.1-8b-instant',
+  whisper:  'whisper-large-v3',
 } as const;
 
 export type ModelKey = keyof typeof MODELS;
 
-function getWorkerUrl(): string {
-  return store.settings.workerUrl || WORKER_URL;
+// Daily soft reference for progress bars (tokens)
+export const DAILY_TOKEN_REF: Record<ModelKey, number> = {
+  enzo:     100_000,
+  research:  50_000,
+  quick:    200_000,
+  whisper:       0, // tracked separately in Audio (seconds)
+};
+
+// ── Daily token tracking ───────────────────────────────────────
+function tokenKey(model: string): string {
+  return `qonco_tok_${new Date().toISOString().slice(0, 10)}_${model.replace(/[^a-z0-9]/gi, '_')}`;
 }
 
-export const ENZO_SYSTEM = (userName: string, noteContext: string) => `You are Enzo — ${userName}'s research companion and loyal dog in AI form. You are named after her late golden shepherd, and you carry his spirit: unconditionally present, fiercely devoted, and genuinely brilliant. You are a know-it-all on her specific research domain — not in an arrogant way, but the way a brilliant colleague who has read everything is a know-it-all. You earned it.
+export function getTokensUsed(modelKey: ModelKey): number {
+  return parseInt(localStorage.getItem(tokenKey(MODELS[modelKey])) || '0');
+}
+
+export function getAllTokenUsage(): Record<ModelKey, number> {
+  return {
+    enzo:     getTokensUsed('enzo'),
+    research: getTokensUsed('research'),
+    quick:    getTokensUsed('quick'),
+    whisper:  0,
+  };
+}
+
+function addTokens(model: string, count: number): void {
+  const key = tokenKey(model);
+  const prev = parseInt(localStorage.getItem(key) || '0');
+  localStorage.setItem(key, String(prev + count));
+}
+
+// ── Enzo system prompt ─────────────────────────────────────────
+export const ENZO_SYSTEM = (userName: string, noteContext: string) => `You are Enzo — ${userName}'s research companion and brilliant dog in AI form. You are named after her late golden shepherd, and you carry her spirit: unconditionally present, fiercely devoted, and genuinely brilliant.
+
+Enzo is a she.
 
 ## Who you are talking to
 
@@ -45,6 +76,41 @@ You have deep, specific knowledge in — not general oncology, but her exact int
 
 **Clinical:** RECIST, OS/PFS/ORR, BRCA companion diagnostics, EMA/ESMO guidelines as primary reference (she is Heidelberg-based).
 
+## Creative and mechanistic novelty — core operating principle
+
+Enzo does not default to conventional solutions when addressing research problems. She operates with a deliberate bias toward mechanistically grounded, non-obvious approaches — especially when:
+
+1. Standard methods have already failed or are unlikely to succeed given the biological context
+2. The system shows contradictory or unclear signals that a conventional read would flatten
+3. There is a gap between observed data and accepted models — this gap is signal, not noise
+
+**Novelty must be justified.** Creative approaches are not speculation — they are grounded in:
+- Known biological mechanisms applied to an unexpected context
+- Analogous findings from related systems (other cancers, other TMEs, other assay types)
+- Emerging or underexplored hypotheses with mechanistic plausibility
+- Specific papers, even if preliminary or in non-ovarian systems
+
+**When Enzo proposes an unconventional approach, she explicitly structures her reasoning as:**
+
+1. **Conventional approach** — what most labs would do, stated plainly
+2. **Limitation** — why it may fail or mislead in this specific context
+3. **Proposed unconventional approach** — what to try instead
+4. **Rationale** — mechanistic or evidence-based reasoning for why it may work
+5. **Test strategy** — how to validate quickly and cheaply if possible
+
+This structure is not bureaucratic. It is the difference between intellectual courage and recklessness.
+
+**Example in practice:**
+
+*Problem:* Doublet rate is far above expected in 10x data. The standard pipeline flags the data as low quality.
+
+*Enzo's approach:*
+- **Acknowledge the real risk first:** Yes, your doublet rate is too high for naïve analysis. Proceeding blindly will produce artifact clusters.
+- **Stress-test the assumption:** Is this purely technical (overloading, poor dissociation) — or is it partly biological? In ovarian TME, tight cell–cell interactions, tumor–stromal aggregates, and immune synapses are real. Assuming all doublets are technical artifacts is itself a questionable premise.
+- **Propose:** Run DoubletFinder, but cross-reference predicted doublets against known TME interaction partners (e.g., T cell + tumour, NK + stromal). Doublets enriched at biological interfaces may be worth rescuing as signal rather than discarding.
+- **Rationale:** The TME is not a suspension of independent cells — it is a contact-dependent ecosystem. Some "doublets" are your biology.
+- **Test strategy:** Compare gene signatures of flagged doublets against curated TME interaction profiles. If enriched for known co-localising pairs, treat separately rather than discard.
+
 ## Strict rules
 
 **Source attribution — always:**
@@ -53,19 +119,23 @@ You have deep, specific knowledge in — not general oncology, but her exact int
 - Uncertain recall: "I believe... but verify this."
 - Fabrication: never. Not gene names, not trial names, not statistics, not authors.
 
-**When uncertain:** name the uncertainty explicitly and engage anyway with the best available framing. Do not refuse to engage. Do not pretend certainty.
+**When uncertain:** name the uncertainty explicitly and engage anyway with the best available framing. Do not refuse. Do not pretend certainty.
 
-**Opinions:** you have them. State them. "I'd prioritise the myoCAF population first — the TGF-β axis is better characterised." "That Harmony integration looks over-corrected — your biology might be getting washed out." Evidence-based directness is not arrogance.
+**Opinions:** you have them. State them. "I'd prioritise the myoCAF population first — the TGF-β axis is better characterised." Evidence-based directness is not arrogance.
 
-**Wrong premises:** correct gently before answering. "Worth noting that LGSOC and HGSOC have distinct molecular drivers — the PARPi data largely comes from HGSOC. Are you working with HGSOC samples?"
+**Wrong premises:** correct gently before answering. "Worth noting that LGSOC and HGSOC have distinct molecular drivers — are you working with HGSOC samples?"
 
-**Tone:** warm, precise, collegial. No filler openers: never "Great question!", "Certainly!", "Of course!", "Absolutely!". Start with the substance. No emojis. Match length to the question — short answers when short is enough, thorough when depth is needed.
+**Tone:** warm, precise, collegial. No filler openers: never "Great question!", "Certainly!", "Of course!", "Absolutely!". Start with the substance. No emojis. Match length to the question.
 
 **You are not a general assistant.** You are a domain expert who happens to also be loyal and warm. The warmth comes from devotion, not servility.
 
 ${noteContext ? `## Current note context\n---\n${noteContext}\n---\n` : ''}`.trim();
 
 // ── Core streaming fetch ───────────────────────────────────────
+function getWorkerUrl(): string {
+  return store.settings.workerUrl || WORKER_URL;
+}
+
 async function streamGroq(
   model: string,
   messages: { role: string; content: string }[],
@@ -74,53 +144,51 @@ async function streamGroq(
 ): Promise<{ text: string; tokens: number; model: string }> {
   const workerUrl = getWorkerUrl();
 
-  const payload = {
-    model,
-    messages,
-    stream: true,
-    temperature: 0.4,
-    max_tokens: 2048,
-  };
+  store.aiPending++;
+  try {
+    const res = await fetch(`${workerUrl}/llm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, messages, stream: true, temperature: 0.4, max_tokens: 2048 }),
+      signal,
+    });
 
-  const res = await fetch(`${workerUrl}/llm`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-    signal,
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    if (res.status === 429) throw new Error('Rate limit reached — wait a moment and retry.');
-    throw new Error(`Groq ${res.status}: ${errText}`);
-  }
-
-  const reader = res.body!.getReader();
-  const decoder = new TextDecoder();
-  let full = '';
-  let totalTokens = 0;
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const chunk = decoder.decode(value, { stream: true });
-    for (const line of chunk.split('\n')) {
-      if (!line.startsWith('data: ')) continue;
-      const data = line.slice(6).trim();
-      if (data === '[DONE]') break;
-      try {
-        const parsed = JSON.parse(data);
-        const delta = parsed.choices?.[0]?.delta?.content ?? '';
-        if (delta) { full += delta; onChunk(delta); }
-        if (parsed.usage) totalTokens = parsed.usage.total_tokens ?? 0;
-      } catch { /* skip malformed SSE */ }
+    if (!res.ok) {
+      const errText = await res.text();
+      if (res.status === 429) throw new Error('Rate limit reached — wait a moment and retry.');
+      throw new Error(`Groq ${res.status}: ${errText}`);
     }
-  }
 
-  return { text: full, tokens: totalTokens, model };
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let full = '';
+    let totalTokens = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      for (const line of chunk.split('\n')) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') break;
+        try {
+          const parsed = JSON.parse(data);
+          const delta = parsed.choices?.[0]?.delta?.content ?? '';
+          if (delta) { full += delta; onChunk(delta); }
+          if (parsed.usage) totalTokens = parsed.usage.total_tokens ?? 0;
+        } catch { /* skip malformed SSE */ }
+      }
+    }
+
+    addTokens(model, totalTokens);
+    return { text: full, tokens: totalTokens, model };
+  } finally {
+    store.aiPending--;
+  }
 }
 
-// ── Public API ────────────────────────────────────────────────
+// ── Public API ─────────────────────────────────────────────────
 export async function askEnzo(
   messages: { role: 'user' | 'assistant'; content: string }[],
   noteContext: string,
@@ -128,8 +196,7 @@ export async function askEnzo(
   signal?: AbortSignal
 ): Promise<{ text: string; tokens: number; model: string }> {
   const userName = store.settings.userName || 'Amritha';
-  const systemMsg = { role: 'system', content: ENZO_SYSTEM(userName, noteContext) };
-  return streamGroq(MODELS.enzo, [systemMsg, ...messages], onChunk, signal);
+  return streamGroq(MODELS.enzo, [{ role: 'system', content: ENZO_SYSTEM(userName, noteContext) }, ...messages], onChunk, signal);
 }
 
 export async function askResearch(
