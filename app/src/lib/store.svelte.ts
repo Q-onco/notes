@@ -4,7 +4,7 @@ import type {
 } from './types';
 import { loadEncFile, saveEncFile, PATHS, validateToken } from './github';
 
-type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'enzo';
+type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo';
 
 class Store {
   // Auth
@@ -123,7 +123,13 @@ class Store {
     this.chatSessions = c.data; this.chatSha = c.sha;
     this.audioRecords = a.data; this.audioSha = a.sha;
     this.pinnedPapers = pp.data; this.pinnedPapersSha = pp.sha;
-    this.settings = { ...this.settings, ...s.data }; this.settingsSha = s.sha;
+    const loaded = s.data as Partial<AppSettings>;
+    this.settings = {
+      ...this.settings,
+      ...loaded,
+      workerUrl: loaded.workerUrl || this.settings.workerUrl,
+    };
+    this.settingsSha = s.sha;
   }
 
   async saveNotes(): Promise<void> {

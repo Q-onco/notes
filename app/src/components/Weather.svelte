@@ -9,77 +9,131 @@
     try {
       cities = await fetchWeather();
     } catch {
-      // fail silently — weather is non-critical
+      // fail silently
     }
   }
 
   $effect(() => {
     load();
-    const timer = setInterval(load, 15 * 60 * 1000);
-    return () => clearInterval(timer);
+    const t = setInterval(load, 15 * 60 * 1000);
+    return () => clearInterval(t);
   });
 
-  function openCalendar() {
-    store.view = 'calendar';
+  function tempClass(c: number): string {
+    if (c <= 10) return 'cold';
+    if (c <= 20) return 'cool';
+    if (c <= 28) return 'warm';
+    return 'hot';
   }
 </script>
 
-<div class="weather-strip">
-  {#each cities as city, i}
-    <button
-      class="city-chip"
-      title="{city.desc} · Humidity {city.humidity}% · Wind {city.windKph} km/h · Click to open calendar"
-      onclick={openCalendar}
-    >
-      <span class="city-icon">{city.icon}</span>
-      <span class="city-name">{city.city}</span>
-      <span class="city-temp">{city.tempC}°C</span>
-      <span class="city-desc">{city.desc}</span>
-    </button>
-    {#if i < cities.length - 1}
-      <span class="sep">·</span>
-    {/if}
-  {/each}
-</div>
+{#if cities.length > 0}
+  <div class="wx-strip">
+    {#each cities as city, i}
+      <button
+        class="wx-card"
+        title="{city.desc} · {city.humidity}% humidity · {city.windKph} km/h wind"
+        onclick={() => store.view = 'calendar'}
+      >
+        <span class="wx-icon">{city.icon}</span>
+        <div class="wx-body">
+          <span class="wx-city">{city.city}</span>
+          <span class="wx-temp {tempClass(city.tempC)}">{city.tempC}°</span>
+        </div>
+        <span class="wx-desc">{city.desc}</span>
+      </button>
+      {#if i < cities.length - 1}
+        <div class="wx-divider"></div>
+      {/if}
+    {/each}
+  </div>
+{/if}
 
 <style>
-  .weather-strip {
+  .wx-strip {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 0.78rem;
-    color: var(--tx2);
+    gap: 2px;
+    background: var(--sf2);
+    border: 1px solid var(--bd);
+    border-radius: var(--radius);
+    padding: 3px 6px;
     flex: 1;
-    justify-content: center;
+    max-width: 400px;
     overflow: hidden;
   }
 
-  .city-chip {
+  .wx-card {
     display: flex;
     align-items: center;
-    gap: 5px;
-    white-space: nowrap;
+    gap: 7px;
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
     background: transparent;
     border: none;
-    padding: 3px 7px;
-    border-radius: var(--radius-sm);
     cursor: pointer;
     font-family: var(--font);
-    font-size: 0.78rem;
-    color: var(--tx2);
     transition: background var(--transition);
+    flex: 1;
+    min-width: 0;
   }
-  .city-chip:hover { background: var(--sf2); }
+  .wx-card:hover { background: var(--sf3); }
 
-  .city-icon { font-size: 14px; line-height: 1; }
-  .city-name { font-weight: 600; color: var(--tx); }
-  .city-temp { font-weight: 600; color: var(--ac); }
-  .city-desc { color: var(--mu); }
+  .wx-icon { font-size: 16px; line-height: 1; flex-shrink: 0; }
 
-  .sep { color: var(--bd2); font-size: 0.9em; }
+  .wx-body {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    line-height: 1.15;
+    flex-shrink: 0;
+  }
 
-  @media (max-width: 540px) {
-    .city-desc { display: none; }
-    .city-chip { padding: 3px 5px; gap: 3px; }
+  .wx-city {
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--mu);
+    white-space: nowrap;
+  }
+
+  .wx-temp {
+    font-size: 0.9rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  .wx-temp.cold  { color: var(--ac); }
+  .wx-temp.cool  { color: var(--gn); }
+  .wx-temp.warm  { color: var(--enzo); }
+  .wx-temp.hot   { color: var(--rd); }
+
+  .wx-desc {
+    font-size: 0.7rem;
+    color: var(--tx2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 72px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .wx-divider {
+    width: 1px;
+    height: 22px;
+    background: var(--bd);
+    flex-shrink: 0;
+    margin: 0 2px;
+  }
+
+  @media (max-width: 800px) {
+    .wx-desc { display: none; }
+    .wx-strip { max-width: 240px; }
+  }
+
+  @media (max-width: 600px) {
+    .wx-strip { display: none; }
   }
 </style>
