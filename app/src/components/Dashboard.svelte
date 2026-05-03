@@ -242,6 +242,8 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .card-head {
@@ -254,6 +256,8 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .note-row {

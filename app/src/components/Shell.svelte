@@ -34,6 +34,14 @@
     }
   }
 
+  // Close panels by default on small screens
+  $effect(() => {
+    if (window.innerWidth <= 540) {
+      store.sidebarOpen = false;
+      store.enzoOpen = false;
+    }
+  });
+
   function showToast(msg: string, type: 'success' | 'error' = 'success') {
     toastMsg = msg;
     toastType = type;
@@ -274,7 +282,23 @@
   }
 
   @media (max-width: 680px) {
-    .sidebar-panel { width: 180px; }
+    .sidebar-panel { width: 200px; }
     .enzo-panel { display: none; }
+  }
+
+  /* iPhone / small mobile — sidebar overlays instead of pushing content */
+  @media (max-width: 540px) {
+    .main-layout { position: relative; }
+    .sidebar-panel {
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      z-index: 50;
+      width: 260px;
+      box-shadow: var(--shadow-lg);
+    }
+    .enzo-panel { display: none; }
+    .top-bar { padding: 0 10px; }
   }
 </style>

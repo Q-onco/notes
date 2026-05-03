@@ -77,4 +77,9 @@
   .city-desc { color: var(--mu); }
 
   .sep { color: var(--bd2); font-size: 0.9em; }
+
+  @media (max-width: 540px) {
+    .city-desc { display: none; }
+    .city-chip { padding: 3px 5px; gap: 3px; }
+  }
 </style>
