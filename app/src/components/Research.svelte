@@ -1,36 +1,82 @@
 <script lang="ts">
-  import { searchPubMed, fetchBioRxiv, fetchNatureCell, fetchPubMedAbstract, searchSemanticScholar, searchEuropePMC } from '../lib/pubmed';
-  import type { PaperResult } from '../lib/types';
+  import { searchPubMed, fetchBioRxiv, fetchNatureCell, fetchPubMedAbstract, searchSemanticScholar, searchEuropePMC, searchGoogleScholar } from '../lib/pubmed';
+  import type { PaperResult, ReadingListItem, SavedSearch } from '../lib/types';
   import { store } from '../lib/store.svelte';
   import { exportPapers } from '../lib/export';
+  import { askResearch } from '../lib/groq';
+  import { nanoid } from 'nanoid';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
-  type SourceKey = 'pubmed' | 'biorxiv' | 'medrxiv' | 'nature' | 'cell' | 'semanticscholar' | 'europepmc';
+  type SourceKey = 'pubmed' | 'biorxiv' | 'medrxiv' | 'nature' | 'cell' | 'semanticscholar' | 'europepmc' | 'scholar';
 
   const SOURCES: { key: SourceKey; label: string; cls: string; worker?: boolean }[] = [
-    { key: 'pubmed',         label: 'PubMed',            cls: 'sc-ac' },
-    { key: 'semanticscholar',label: 'Semantic Scholar',  cls: 'sc-pu' },
-    { key: 'europepmc',      label: 'Europe PMC',        cls: 'sc-yw' },
-    { key: 'biorxiv',        label: 'bioRxiv',           cls: 'sc-gn' },
-    { key: 'medrxiv',        label: 'medRxiv',           cls: 'sc-gn' },
-    { key: 'nature',         label: 'Nature',            cls: 'sc-enzo', worker: true },
-    { key: 'cell',           label: 'Cell',              cls: 'sc-rd',   worker: true },
+    { key: 'pubmed',         label: 'PubMed',           cls: 'sc-ac' },
+    { key: 'semanticscholar',label: 'Semantic Scholar', cls: 'sc-pu' },
+    { key: 'europepmc',      label: 'Europe PMC',       cls: 'sc-yw' },
+    { key: 'biorxiv',        label: 'bioRxiv',          cls: 'sc-gn' },
+    { key: 'medrxiv',        label: 'medRxiv',          cls: 'sc-gn' },
+    { key: 'nature',         label: 'Nature',           cls: 'sc-enzo', worker: true },
+    { key: 'cell',           label: 'Cell',             cls: 'sc-rd',   worker: true },
+    { key: 'scholar',        label: 'Google Scholar',   cls: 'sc-ac',   worker: true },
   ];
 
   const SOURCE_LABELS: Record<string, string> = {
     pubmed: 'PubMed', biorxiv: 'bioRxiv', medrxiv: 'medRxiv',
     nature: 'Nature', cell: 'Cell',
-    semanticscholar: 'Semantic Scholar', europepmc: 'Europe PMC'
+    semanticscholar: 'Semantic Scholar', europepmc: 'Europe PMC',
+    scholar: 'Google Scholar'
   };
   const SOURCE_CLS: Record<string, string> = {
     pubmed: 'tag-ac', biorxiv: 'tag-gn', medrxiv: 'tag-gn',
     nature: 'tag-enzo', cell: 'tag-rd',
-    semanticscholar: 'tag-pu', europepmc: 'tag-yw'
+    semanticscholar: 'tag-pu', europepmc: 'tag-yw',
+    scholar: 'tag-ac'
   };
 
+  const PRESET_TOPICS = [
+    { cat: 'TME & Immune', color: 'ac', topics: [
+      'CD8 T cell exhaustion PD-1 TIM-3 ovarian cancer',
+      'CAF subtypes myoCAF iCAF apCAF TGF-β HGSOC',
+      'tumor associated macrophages MARCO IL-10 ovarian',
+      'NK cell dysfunction ascites peritoneal',
+      'regulatory T cells FOXP3 Treg suppression ovarian',
+      'B cell tertiary lymphoid structure TLS ovarian',
+      'immune exclusion phenotype spatial ovarian',
+    ]},
+    { cat: 'Single-cell & Spatial', color: 'pu', topics: [
+      'scRNA-seq tumor microenvironment cell type deconvolution',
+      'spatial transcriptomics Visium HGSOC',
+      'cell2location deconvolution spatial ovarian',
+      'cell-cell communication CellChat NicheNet ovarian TME',
+      'RNA velocity scVelo tumor trajectory',
+      'Xenium MERFISH single molecule ovarian cancer',
+    ]},
+    { cat: 'PARP / HR Resistance', color: 'rd', topics: [
+      'PARP inhibitor resistance reversion mutation BRCA',
+      'BRCAness HRD scoring LOH TAI LST',
+      'RAD51 53BP1 RIF1 homologous recombination',
+      'PARP1 trapping olaparib niraparib rucaparib',
+      'cGAS STING PARP inhibitor immunotherapy',
+      'platinum resistance ABCB1 NHEJ ovarian',
+    ]},
+    { cat: 'Clinical & Trials', color: 'enzo', topics: [
+      'SOLO-1 SOLO-2 olaparib maintenance BRCA',
+      'PRIMA niraparib HRD overall survival',
+      'DUO-O veliparib bevacizumab ovarian',
+      'IMagyn050 atezolizumab immune checkpoint',
+      'ARIEL3 rucaparib biomarker companion diagnostic',
+    ]},
+    { cat: 'Emerging & Targets', color: 'gn', topics: [
+      'liquid biopsy ctDNA ovarian cancer monitoring',
+      'organoid drug response ovarian cancer ex vivo',
+      'FOLR1 farletuzumab antibody drug conjugate',
+      'CAR-T cell therapy ovarian peritoneal',
+      'mesothelin MSLN ovarian target',
+    ]},
+  ];
+
   const CONCEPT_POOL = [
-    // TME & immune landscape
     'ovarian cancer tumor microenvironment',
     'CAF subtypes high grade serous ovarian',
     'T cell exhaustion ovarian cancer',
@@ -41,14 +87,12 @@
     'regulatory T cells Treg ovarian',
     'dendritic cell dysfunction tumor',
     'immune exclusion peritoneal metastasis',
-    // scRNA-seq & spatial
     'scRNA-seq tumor immune landscape',
     'spatial transcriptomics HGSOC',
     'single cell sequencing ascites',
     'cell-cell communication ligand receptor',
     'trajectory analysis pseudotime tumor',
     'clonotype TCR scRNA ovarian',
-    // PARP inhibitors & HR
     'PARP inhibitor resistance mechanisms',
     'olaparib niraparib rucaparib resistance',
     'PARP1 trapping catalytic inhibition',
@@ -56,33 +100,28 @@
     'RAD51 homologous recombination deficiency',
     '53BP1 RIF1 NHEJ pathway',
     'homologous recombination deficiency HRD',
-    // HGSOC biology
     'HGSOC platinum resistance',
     'BRCA1 BRCA2 ovarian cancer',
     'copy number alteration HGSOC',
     'TP53 mutation high grade serous',
     'fallopian tube carcinogenesis STIC',
     'clonal evolution chemotherapy resistance',
-    // Clinical trials
     'SOLO-1 SOLO-2 olaparib maintenance',
     'PRIMA niraparib ovarian',
     'DUO-O veliparib bevacizumab',
     'IMagyn050 atezolizumab ovarian',
     'KEYNOTE-100 pembrolizumab ovarian',
     'ARIEL3 rucaparib biomarker',
-    // Pathways & targets
     'VEGF bevacizumab anti-angiogenic ovarian',
     'PI3K AKT mTOR ovarian cancer',
     'WNT signaling ovarian cancer',
     'folate receptor alpha FOLR1',
     'mesothelin ovarian peritoneal',
     'MUC16 CA125 biomarker',
-    // Dissemination & metastasis
     'peritoneal dissemination ovarian cancer',
     'ascites immunosuppression ovarian',
     'epithelial mesenchymal transition ovarian',
     'integrin fibronectin peritoneal adhesion',
-    // Therapy
     'cisplatin carboplatin response biomarker',
     'immune checkpoint PD-L1 PD-1 ovarian',
     'ADC antibody drug conjugate ovarian',
@@ -97,6 +136,16 @@
   let error = $state('');
   let expandedId = $state<string | null>(null);
   let abstractText = $state<Record<string, string>>({});
+
+  // New state
+  let summaryLoading = $state<Record<string, boolean>>({});
+  let summaryText = $state<Record<string, string>>({});
+  let summaryStreaming = $state<Record<string, boolean>>({});
+  let researchTab = $state<'results' | 'reading-list'>('results');
+  let showPresets = $state(false);
+  let savingSearch = $state(false);
+  let saveSearchLabel = $state('');
+  let showSaveInput = $state(false);
 
   const conceptSuggestions = $derived(
     query.trim().length >= 2
@@ -125,15 +174,16 @@
       const fetches: Promise<PaperResult[]>[] = [];
 
       const q = query.trim();
-      const needsQuery = activeSources.has('pubmed') || activeSources.has('semanticscholar') || activeSources.has('europepmc');
+      const needsQuery = activeSources.has('pubmed') || activeSources.has('semanticscholar') || activeSources.has('europepmc') || activeSources.has('scholar');
       if (needsQuery && !q) {
         error = 'Enter a search term.';
         loading = false;
         return;
       }
-      if (activeSources.has('pubmed') && q)           fetches.push(searchPubMed(q, 12));
-      if (activeSources.has('semanticscholar') && q)  fetches.push(searchSemanticScholar(q, 10));
-      if (activeSources.has('europepmc') && q)        fetches.push(searchEuropePMC(q, 10));
+      if (activeSources.has('pubmed') && q)            fetches.push(searchPubMed(q, 12));
+      if (activeSources.has('semanticscholar') && q)   fetches.push(searchSemanticScholar(q, 10));
+      if (activeSources.has('europepmc') && q)         fetches.push(searchEuropePMC(q, 10));
+      if (activeSources.has('scholar') && q)           fetches.push(searchGoogleScholar(q, 10));
       if (activeSources.has('biorxiv') || activeSources.has('medrxiv')) {
         fetches.push(fetchBioRxiv(14));
       }
@@ -196,6 +246,141 @@
       showToast('Pinned to dashboard');
     }
   }
+
+  function isInReadingList(paperId: string): boolean {
+    return store.readingList.some(r => r.paper.id === paperId);
+  }
+
+  async function toggleReadingList(paper: PaperResult) {
+    if (isInReadingList(paper.id)) {
+      store.readingList = store.readingList.filter(r => r.paper.id !== paper.id);
+      showToast('Removed from reading list');
+    } else {
+      const item: ReadingListItem = {
+        id: nanoid(),
+        paper,
+        addedAt: Date.now(),
+        note: '',
+        read: false,
+        priority: 'medium'
+      };
+      store.readingList = [item, ...store.readingList];
+      showToast('Added to reading list');
+    }
+    await store.saveResearch();
+  }
+
+  async function summarisePaper(paper: PaperResult) {
+    const abstract = abstractText[paper.id] || paper.abstract || '';
+    if (!abstract && paper.source === 'pubmed') {
+      summaryLoading[paper.id] = true;
+      try {
+        const text = await fetchPubMedAbstract(paper.id);
+        abstractText[paper.id] = text;
+      } catch { /* continue anyway */ }
+      summaryLoading[paper.id] = false;
+    }
+    const abs = abstractText[paper.id] || paper.abstract || '(Abstract not available)';
+
+    summaryLoading[paper.id] = true;
+    summaryText[paper.id] = '';
+    summaryStreaming[paper.id] = true;
+
+    const prompt = `Provide a structured summary of this paper for an expert HGSOC researcher:
+
+Title: ${paper.title}
+Authors: ${paper.authors.join(', ')}
+Journal: ${paper.journal} (${paper.year})
+Abstract: ${abs}
+
+Format your response as:
+**Hypothesis:** [one sentence]
+**Methods:** [key methods, 2-3 sentences]
+**Key finding:** [most important result]
+**HGSOC relevance:** [direct relevance to high-grade serous ovarian cancer research]
+**Caveats:** [limitations or reasons to be cautious]`;
+
+    try {
+      await askResearch(
+        [{ role: 'user', content: prompt }],
+        (chunk) => { summaryText[paper.id] = (summaryText[paper.id] || '') + chunk; }
+      );
+    } catch (e) {
+      summaryText[paper.id] = `Error: ${(e as Error).message}`;
+    } finally {
+      summaryLoading[paper.id] = false;
+      summaryStreaming[paper.id] = false;
+    }
+  }
+
+  async function runSavedSearch(ss: SavedSearch) {
+    query = ss.query;
+    activeSources = new Set(ss.sources as SourceKey[]);
+    await search();
+    // Update lastRunAt + runCount
+    store.savedSearches = store.savedSearches.map(s =>
+      s.id === ss.id
+        ? { ...s, lastRunAt: Date.now(), runCount: s.runCount + 1 }
+        : s
+    );
+    await store.saveResearch();
+  }
+
+  async function saveCurrentSearch() {
+    if (!query.trim() || !saveSearchLabel.trim()) return;
+    savingSearch = true;
+    const newSearch: SavedSearch = {
+      id: nanoid(),
+      label: saveSearchLabel.trim(),
+      query: query.trim(),
+      sources: Array.from(activeSources),
+      color: 'ac',
+      createdAt: Date.now(),
+      lastRunAt: null,
+      runCount: 0,
+    };
+    store.savedSearches = [newSearch, ...store.savedSearches];
+    try {
+      await store.saveResearch();
+      showToast('Search saved');
+    } catch {
+      showToast('Failed to save search', 'error');
+    }
+    savingSearch = false;
+    showSaveInput = false;
+    saveSearchLabel = '';
+  }
+
+  async function deleteSavedSearch(id: string) {
+    store.savedSearches = store.savedSearches.filter(s => s.id !== id);
+    await store.saveResearch();
+  }
+
+  async function toggleReadItem(id: string) {
+    store.readingList = store.readingList.map(r =>
+      r.id === id ? { ...r, read: !r.read } : r
+    );
+    await store.saveResearch();
+  }
+
+  async function removeReadingItem(id: string) {
+    store.readingList = store.readingList.filter(r => r.id !== id);
+    await store.saveResearch();
+    showToast('Removed from reading list');
+  }
+
+  async function setReadingPriority(id: string, priority: 'high' | 'medium' | 'low') {
+    store.readingList = store.readingList.map(r =>
+      r.id === id ? { ...r, priority } : r
+    );
+    await store.saveResearch();
+  }
+
+  const readingListByPriority = $derived({
+    high: store.readingList.filter(r => r.priority === 'high'),
+    medium: store.readingList.filter(r => r.priority === 'medium'),
+    low: store.readingList.filter(r => r.priority === 'low'),
+  });
 </script>
 
 <div class="research">
@@ -205,6 +390,23 @@
       <p class="text-sm text-mu">Literature, preprints, and journal feeds</p>
     </div>
     <div class="header-actions">
+      <!-- Tab switcher -->
+      <div class="tab-row">
+        <button
+          class="tab-btn"
+          class:active={researchTab === 'results'}
+          onclick={() => researchTab = 'results'}
+        >
+          Results {#if papers.length > 0}<span class="tab-count">{papers.length}</span>{/if}
+        </button>
+        <button
+          class="tab-btn"
+          class:active={researchTab === 'reading-list'}
+          onclick={() => researchTab = 'reading-list'}
+        >
+          Reading list {#if store.readingList.length > 0}<span class="tab-count">{store.readingList.length}</span>{/if}
+        </button>
+      </div>
       {#if store.pinnedPapers.length > 0}
         <button class="btn btn-ghost btn-sm" onclick={() => exportPapers(store.pinnedPapers)}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -214,140 +416,337 @@
     </div>
   </div>
 
-  <!-- Source toggles -->
-  <div class="source-row">
-    <span class="source-label">Sources</span>
-    {#each SOURCES as src}
-      {#if !src.worker || store.settings.workerUrl}
-        <button
-          class="source-chip {src.cls}"
-          class:active={activeSources.has(src.key)}
-          onclick={() => toggleSource(src.key)}
-        >{src.label}</button>
-      {:else}
-        <button class="source-chip source-disabled" disabled title="Requires Worker URL in settings">
-          {src.label} 🔒
-        </button>
-      {/if}
-    {/each}
-  </div>
+  {#if researchTab === 'results'}
+    <!-- Source toggles -->
+    <div class="source-row">
+      <span class="source-label">Sources</span>
+      {#each SOURCES as src}
+        {#if !src.worker || store.settings.workerUrl}
+          <button
+            class="source-chip {src.cls}"
+            class:active={activeSources.has(src.key)}
+            onclick={() => toggleSource(src.key)}
+          >{src.label}</button>
+        {:else}
+          <button class="source-chip source-disabled" disabled title="Requires Worker URL in settings">
+            {src.label} 🔒
+          </button>
+        {/if}
+      {/each}
+    </div>
 
-  <!-- Search + concepts -->
-  <div class="search-row">
-    <div class="search-wrap">
-      <input
-        type="text"
-        bind:value={query}
-        placeholder="Search PubMed, preprints…"
-        onkeydown={(e) => e.key === 'Enter' && search()}
-        class="search-input"
-      />
-      {#if conceptSuggestions.length > 0}
-        <div class="concept-chips">
-          {#each conceptSuggestions as c}
-            <button class="concept-chip" onclick={() => { query = c; search(); }}>{c}</button>
+    <!-- Saved searches -->
+    {#if store.savedSearches.length > 0}
+      <div class="saved-row">
+        <span class="source-label">Saved</span>
+        <div class="saved-chips">
+          {#each store.savedSearches as ss (ss.id)}
+            <div class="saved-chip-wrap">
+              <button
+                class="saved-chip saved-chip-{ss.color}"
+                onclick={() => runSavedSearch(ss)}
+                title="Run: {ss.query}"
+              >{ss.label}</button>
+              <button class="saved-chip-del" onclick={() => deleteSavedSearch(ss.id)} title="Delete saved search">
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
+
+    <!-- Quick topic presets -->
+    <div class="presets-section">
+      <button class="presets-toggle" onclick={() => showPresets = !showPresets}>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+          style="transform: rotate({showPresets ? 90 : 0}deg); transition: transform 0.15s">
+          <polyline points="9 18 15 12 9 6"/>
+        </svg>
+        Quick topics
+      </button>
+      {#if showPresets}
+        <div class="presets-grid">
+          {#each PRESET_TOPICS as group}
+            <div class="preset-group">
+              <span class="preset-cat preset-cat-{group.color}">{group.cat}</span>
+              <div class="preset-chips">
+                {#each group.topics as topic}
+                  <button
+                    class="preset-chip preset-chip-{group.color}"
+                    onclick={() => { query = topic; search(); }}
+                  >{topic}</button>
+                {/each}
+              </div>
+            </div>
           {/each}
         </div>
       {/if}
     </div>
-    <button class="btn btn-primary btn-sm search-btn" onclick={search} disabled={loading}>
-      {loading ? 'Fetching…' : 'Search'}
-    </button>
-  </div>
 
-  {#if error}
-    <div class="error-box">{error}</div>
-  {/if}
+    <!-- Search bar -->
+    <div class="search-row">
+      <div class="search-wrap">
+        <input
+          type="text"
+          bind:value={query}
+          placeholder="Search PubMed, preprints, Google Scholar…"
+          onkeydown={(e) => e.key === 'Enter' && search()}
+          class="search-input"
+        />
+        {#if conceptSuggestions.length > 0}
+          <div class="concept-chips">
+            {#each conceptSuggestions as c}
+              <button class="concept-chip" onclick={() => { query = c; search(); }}>{c}</button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+      <button class="btn btn-primary btn-sm search-btn" onclick={search} disabled={loading}>
+        {loading ? 'Fetching…' : 'Search'}
+      </button>
+      {#if query.trim()}
+        {#if showSaveInput}
+          <div class="save-input-row">
+            <input
+              type="text"
+              bind:value={saveSearchLabel}
+              placeholder="Search label…"
+              class="save-label-input"
+              onkeydown={(e) => { if (e.key === 'Enter') saveCurrentSearch(); if (e.key === 'Escape') { showSaveInput = false; saveSearchLabel = ''; } }}
+            />
+            <button class="btn btn-primary btn-sm" onclick={saveCurrentSearch} disabled={savingSearch || !saveSearchLabel.trim()}>
+              {savingSearch ? '…' : 'Save'}
+            </button>
+            <button class="btn btn-ghost btn-sm" onclick={() => { showSaveInput = false; saveSearchLabel = ''; }}>Cancel</button>
+          </div>
+        {:else}
+          <button class="btn btn-ghost btn-sm" onclick={() => showSaveInput = true} title="Save this search">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
+              <polyline points="17 21 17 13 7 13 7 21"/>
+              <polyline points="7 3 7 8 15 8"/>
+            </svg>
+            Save search
+          </button>
+        {/if}
+      {/if}
+    </div>
 
-  {#if loading}
-    <div class="loading-row">
-      <span class="spinner-sm"></span>
-      <span class="text-sm text-mu">Fetching papers…</span>
+    {#if error}
+      <div class="error-box">{error}</div>
+    {/if}
+
+    {#if loading}
+      <div class="loading-row">
+        <span class="spinner-sm"></span>
+        <span class="text-sm text-mu">Fetching papers…</span>
+      </div>
+    {/if}
+
+    <div class="papers-list">
+      {#each papers as paper (paper.id)}
+        <article class="paper-card card">
+          <div class="paper-head">
+            <div class="paper-meta">
+              <span class="tag {SOURCE_CLS[paper.source] || ''}">{SOURCE_LABELS[paper.source] || paper.source}</span>
+              <span class="text-xs text-mu">{paper.journal}</span>
+              {#if paper.year > 0}<span class="text-xs text-mu">· {paper.year}</span>{/if}
+            </div>
+            <div class="paper-actions">
+              <!-- Reading list bookmark -->
+              <button
+                class="btn-icon bookmark-btn"
+                class:bookmarked={isInReadingList(paper.id)}
+                onclick={() => toggleReadingList(paper)}
+                title={isInReadingList(paper.id) ? 'Remove from reading list' : 'Add to reading list'}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill={isInReadingList(paper.id) ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2">
+                  <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/>
+                </svg>
+              </button>
+              <button
+                class="btn-icon pin-btn"
+                class:pinned={store.isPinned(paper.id)}
+                onclick={() => togglePin(paper)}
+                title={store.isPinned(paper.id) ? 'Unpin from dashboard' : 'Pin to dashboard'}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill={store.isPinned(paper.id) ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2">
+                  <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>
+                </svg>
+              </button>
+              <button class="btn-icon" onclick={() => sendToEnzo(paper)} title="Ask Enzo about this">
+                <span class="text-enzo text-xs" style="font-family:var(--mono);font-weight:700">E</span>
+              </button>
+              <!-- Summarise button -->
+              <button
+                class="btn-icon summarise-btn"
+                onclick={() => summarisePaper(paper)}
+                disabled={summaryLoading[paper.id]}
+                title="AI summary for HGSOC context"
+              >
+                {#if summaryLoading[paper.id]}
+                  <span class="spinner-xs"></span>
+                {:else}
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="16" y1="13" x2="8" y2="13"/>
+                    <line x1="16" y1="17" x2="8" y2="17"/>
+                    <polyline points="10 9 9 9 8 9"/>
+                  </svg>
+                {/if}
+              </button>
+              {#if paper.pdfUrl}
+                <a href={paper.pdfUrl} target="_blank" rel="noreferrer" class="btn-icon pdf-btn" title="Download PDF">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                  </svg>
+                  <span class="pdf-label">PDF</span>
+                </a>
+              {/if}
+              {#if paper.doi}
+                <a href="https://doi.org/{paper.doi}" target="_blank" rel="noreferrer" class="btn-icon" title="Open paper">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+                    <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                  </svg>
+                </a>
+              {:else if paper.url}
+                <a href={paper.url} target="_blank" rel="noreferrer" class="btn-icon" title="Open">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+                    <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                  </svg>
+                </a>
+              {/if}
+            </div>
+          </div>
+
+          <button class="paper-title-btn" onclick={() => loadAbstract(paper)}>
+            <h3 class="paper-title">{paper.title}</h3>
+          </button>
+
+          {#if paper.authors.length > 0}
+            <p class="paper-authors text-xs text-mu">
+              {paper.authors.slice(0, 5).join(', ')}{paper.authors.length > 5 ? ' et al.' : ''}
+            </p>
+          {/if}
+
+          {#if expandedId === paper.id}
+            <div class="abstract-box">
+              {#if abstractText[paper.id]}
+                <p class="text-sm">{abstractText[paper.id]}</p>
+              {:else if paper.abstract}
+                <p class="text-sm">{paper.abstract}</p>
+              {:else}
+                <p class="text-sm text-mu">Loading abstract…</p>
+              {/if}
+            </div>
+          {/if}
+
+          {#if summaryText[paper.id] || summaryStreaming[paper.id]}
+            <div class="summary-box">
+              <div class="summary-header">
+                <span class="summary-label">AI Summary</span>
+                {#if summaryStreaming[paper.id]}
+                  <span class="spinner-xs"></span>
+                {/if}
+              </div>
+              <div class="summary-body text-sm">{summaryText[paper.id] || ''}</div>
+            </div>
+          {/if}
+        </article>
+      {:else}
+        {#if !loading}
+          <div class="empty-state">
+            <p class="text-mu">
+              Toggle sources above, type a query (concepts appear as you type), then press Search.
+            </p>
+          </div>
+        {/if}
+      {/each}
+    </div>
+
+  {:else}
+    <!-- Reading list tab -->
+    <div class="reading-list">
+      {#if store.readingList.length === 0}
+        <div class="empty-state">
+          <p class="text-mu">No papers in your reading list yet. Bookmark papers from search results.</p>
+        </div>
+      {:else}
+        {#each (['high', 'medium', 'low'] as const) as priority}
+          {#if readingListByPriority[priority].length > 0}
+            <div class="rl-group">
+              <div class="rl-group-head">
+                <span class="rl-priority-dot rl-dot-{priority}"></span>
+                <span class="rl-group-label">{priority.charAt(0).toUpperCase() + priority.slice(1)} priority</span>
+                <span class="text-xs text-mu">({readingListByPriority[priority].length})</span>
+              </div>
+              {#each readingListByPriority[priority] as item (item.id)}
+                <div class="rl-item card" class:rl-read={item.read}>
+                  <div class="rl-item-head">
+                    <label class="rl-check">
+                      <input
+                        type="checkbox"
+                        checked={item.read}
+                        onchange={() => toggleReadItem(item.id)}
+                      />
+                      <span class="rl-check-label">Read</span>
+                    </label>
+                    <div class="rl-item-meta">
+                      <span class="tag {SOURCE_CLS[item.paper.source] || ''}">{SOURCE_LABELS[item.paper.source] || item.paper.source}</span>
+                      <span class="text-xs text-mu">{item.paper.journal}</span>
+                      {#if item.paper.year > 0}<span class="text-xs text-mu">· {item.paper.year}</span>{/if}
+                    </div>
+                    <div class="rl-item-actions">
+                      <select
+                        class="rl-priority-sel"
+                        value={item.priority}
+                        onchange={(e) => setReadingPriority(item.id, (e.target as HTMLSelectElement).value as 'high' | 'medium' | 'low')}
+                      >
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                      </select>
+                      {#if item.paper.doi}
+                        <a href="https://doi.org/{item.paper.doi}" target="_blank" rel="noreferrer" class="btn-icon" title="Open">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+                            <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                          </svg>
+                        </a>
+                      {:else if item.paper.url}
+                        <a href={item.paper.url} target="_blank" rel="noreferrer" class="btn-icon" title="Open">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+                            <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                          </svg>
+                        </a>
+                      {/if}
+                      <button class="btn-icon" onclick={() => removeReadingItem(item.id)} title="Remove">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                  <p class="rl-title" class:rl-title-done={item.read}>{item.paper.title}</p>
+                  {#if item.paper.authors.length > 0}
+                    <p class="text-xs text-mu">{item.paper.authors.slice(0, 4).join(', ')}{item.paper.authors.length > 4 ? ' et al.' : ''}</p>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
+        {/each}
+      {/if}
     </div>
   {/if}
-
-  <div class="papers-list">
-    {#each papers as paper (paper.id)}
-      <article class="paper-card card">
-        <div class="paper-head">
-          <div class="paper-meta">
-            <span class="tag {SOURCE_CLS[paper.source] || ''}">{SOURCE_LABELS[paper.source] || paper.source}</span>
-            <span class="text-xs text-mu">{paper.journal}</span>
-            {#if paper.year > 0}<span class="text-xs text-mu">· {paper.year}</span>{/if}
-          </div>
-          <div class="paper-actions">
-            <button
-              class="btn-icon pin-btn"
-              class:pinned={store.isPinned(paper.id)}
-              onclick={() => togglePin(paper)}
-              title={store.isPinned(paper.id) ? 'Unpin from dashboard' : 'Pin to dashboard'}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill={store.isPinned(paper.id) ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2">
-                <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>
-              </svg>
-            </button>
-            <button class="btn-icon" onclick={() => sendToEnzo(paper)} title="Ask Enzo about this">
-              <span class="text-enzo text-xs" style="font-family:var(--mono);font-weight:700">E</span>
-            </button>
-            {#if paper.pdfUrl}
-              <a href={paper.pdfUrl} target="_blank" rel="noreferrer" class="btn-icon pdf-btn" title="Download PDF">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                  <polyline points="14 2 14 8 20 8"/>
-                </svg>
-                <span class="pdf-label">PDF</span>
-              </a>
-            {/if}
-            {#if paper.doi}
-              <a href="https://doi.org/{paper.doi}" target="_blank" rel="noreferrer" class="btn-icon" title="Open paper">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
-                  <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
-                </svg>
-              </a>
-            {:else if paper.url}
-              <a href={paper.url} target="_blank" rel="noreferrer" class="btn-icon" title="Open">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
-                  <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
-                </svg>
-              </a>
-            {/if}
-          </div>
-        </div>
-
-        <button class="paper-title-btn" onclick={() => loadAbstract(paper)}>
-          <h3 class="paper-title">{paper.title}</h3>
-        </button>
-
-        {#if paper.authors.length > 0}
-          <p class="paper-authors text-xs text-mu">
-            {paper.authors.slice(0, 5).join(', ')}{paper.authors.length > 5 ? ' et al.' : ''}
-          </p>
-        {/if}
-
-        {#if expandedId === paper.id}
-          <div class="abstract-box">
-            {#if abstractText[paper.id]}
-              <p class="text-sm">{abstractText[paper.id]}</p>
-            {:else if paper.abstract}
-              <p class="text-sm">{paper.abstract}</p>
-            {:else}
-              <p class="text-sm text-mu">Loading abstract…</p>
-            {/if}
-          </div>
-        {/if}
-      </article>
-    {:else}
-      {#if !loading}
-        <div class="empty-state">
-          <p class="text-mu">
-            Toggle sources above, type a query (concepts appear as you type), then press Search.
-          </p>
-        </div>
-      {/if}
-    {/each}
-  </div>
 </div>
 
 <style>
@@ -368,7 +767,33 @@
     flex-wrap: wrap;
   }
   .research-header h2 { margin-bottom: 2px; }
-  .header-actions { display: flex; gap: 8px; align-items: center; }
+  .header-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  /* Tabs */
+  .tab-row { display: flex; gap: 2px; background: var(--sf2); border-radius: var(--radius-sm); padding: 2px; }
+  .tab-btn {
+    padding: 4px 12px;
+    border-radius: calc(var(--radius-sm) - 1px);
+    font-size: 0.78rem;
+    font-weight: 600;
+    background: transparent;
+    border: none;
+    color: var(--tx2);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    transition: all var(--transition);
+  }
+  .tab-btn.active { background: var(--sf); color: var(--tx); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .tab-count {
+    background: var(--ac-bg);
+    color: var(--ac);
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 8px;
+  }
 
   .source-row {
     display: flex;
@@ -408,10 +833,103 @@
   .source-chip.sc-yw.active  { background: var(--yw-bg);   color: var(--yw);   border-color: var(--yw); }
   .source-disabled { opacity: 0.3; cursor: default; font-size: 0.72rem; }
 
-  .search-row { display: flex; gap: 8px; align-items: flex-start; }
-  .search-wrap { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+  /* Saved searches */
+  .saved-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .saved-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .saved-chip-wrap { display: flex; align-items: center; }
+  .saved-chip {
+    padding: 3px 10px;
+    border-radius: 20px 0 0 20px;
+    font-size: 0.77rem;
+    font-weight: 600;
+    border: 1px solid var(--bd);
+    border-right: none;
+    cursor: pointer;
+    transition: all var(--transition);
+    background: var(--sf2);
+    color: var(--tx2);
+  }
+  .saved-chip:hover { opacity: 0.85; }
+  .saved-chip-ac   { background: var(--ac-bg);   color: var(--ac);   border-color: var(--ac); }
+  .saved-chip-gn   { background: var(--gn-bg);   color: var(--gn);   border-color: var(--gn); }
+  .saved-chip-pu   { background: var(--pu-bg);   color: var(--pu);   border-color: var(--pu); }
+  .saved-chip-yw   { background: var(--yw-bg);   color: var(--yw);   border-color: var(--yw); }
+  .saved-chip-enzo { background: var(--enzo-bg); color: var(--enzo); border-color: var(--enzo-bd); }
+  .saved-chip-rd   { background: var(--rd-bg);   color: var(--rd);   border-color: var(--rd); }
+  .saved-chip-del {
+    padding: 3px 6px;
+    border-radius: 0 20px 20px 0;
+    border: 1px solid var(--bd);
+    border-left: none;
+    background: var(--sf2);
+    color: var(--mu);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    transition: all var(--transition);
+  }
+  .saved-chip-del:hover { background: var(--rd-bg); color: var(--rd); border-color: var(--rd); }
+
+  /* Presets */
+  .presets-section { display: flex; flex-direction: column; gap: 8px; }
+  .presets-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.77rem;
+    font-weight: 600;
+    color: var(--mu);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: var(--radius-sm);
+    transition: color var(--transition);
+  }
+  .presets-toggle:hover { color: var(--ac); background: var(--ac-bg); }
+  .presets-grid { display: flex; flex-direction: column; gap: 10px; }
+  .preset-group { display: flex; flex-direction: column; gap: 5px; }
+  .preset-cat {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .preset-cat-ac   { color: var(--ac); }
+  .preset-cat-pu   { color: var(--pu); }
+  .preset-cat-rd   { color: var(--rd); }
+  .preset-cat-enzo { color: var(--enzo); }
+  .preset-cat-gn   { color: var(--gn); }
+  .preset-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .preset-chip {
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.72rem;
+    border: 1px solid var(--bd);
+    background: var(--sf2);
+    color: var(--tx2);
+    cursor: pointer;
+    transition: all var(--transition);
+    text-align: left;
+  }
+  .preset-chip-ac:hover   { background: var(--ac-bg);   color: var(--ac);   border-color: var(--ac); }
+  .preset-chip-pu:hover   { background: var(--pu-bg);   color: var(--pu);   border-color: var(--pu); }
+  .preset-chip-rd:hover   { background: var(--rd-bg);   color: var(--rd);   border-color: var(--rd); }
+  .preset-chip-enzo:hover { background: var(--enzo-bg); color: var(--enzo); border-color: var(--enzo-bd); }
+  .preset-chip-gn:hover   { background: var(--gn-bg);   color: var(--gn);   border-color: var(--gn); }
+
+  .search-row { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+  .search-wrap { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 8px; }
   .search-input { width: 100%; }
   .search-btn { flex-shrink: 0; align-self: flex-start; }
+
+  .save-input-row { display: flex; gap: 6px; align-items: center; }
+  .save-label-input { width: 160px; font-size: 0.82rem; padding: 5px 8px; }
 
   .concept-chips { display: flex; flex-wrap: wrap; gap: 5px; }
   .concept-chip {
@@ -445,6 +963,15 @@
     animation: spin 0.7s linear infinite;
     flex-shrink: 0;
   }
+  .spinner-xs {
+    width: 11px; height: 11px;
+    border: 1.5px solid var(--bd2);
+    border-top-color: var(--ac);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: inline-block;
+    flex-shrink: 0;
+  }
   @keyframes spin { to { transform: rotate(360deg); } }
 
   .papers-list { display: flex; flex-direction: column; gap: 10px; }
@@ -454,9 +981,17 @@
   .paper-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .paper-actions { display: flex; gap: 2px; align-items: center; }
 
+  .bookmark-btn { color: var(--mu); }
+  .bookmark-btn.bookmarked { color: var(--ac); }
+  .bookmark-btn:hover { color: var(--ac); background: var(--ac-bg); }
+
   .pin-btn { color: var(--mu); }
   .pin-btn.pinned { color: var(--enzo); }
   .pin-btn:hover { color: var(--enzo); background: var(--enzo-bg); }
+
+  .summarise-btn { color: var(--pu); }
+  .summarise-btn:hover { background: var(--pu-bg); }
+  .summarise-btn:disabled { opacity: 0.5; cursor: default; }
 
   .pdf-btn {
     display: inline-flex;
@@ -495,5 +1030,101 @@
   }
   .abstract-box p { line-height: 1.7; color: var(--tx2); }
 
+  /* Summary */
+  .summary-box {
+    background: var(--pu-bg);
+    border: 1px solid var(--pu);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+  }
+  .summary-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .summary-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--pu);
+  }
+  .summary-body {
+    color: var(--tx2);
+    line-height: 1.7;
+    white-space: pre-wrap;
+  }
+
   .empty-state { padding: 40px; text-align: center; }
+
+  /* Reading list */
+  .reading-list { display: flex; flex-direction: column; gap: 16px; }
+  .rl-group { display: flex; flex-direction: column; gap: 8px; }
+  .rl-group-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0;
+  }
+  .rl-priority-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .rl-dot-high   { background: var(--rd); }
+  .rl-dot-medium { background: var(--yw); }
+  .rl-dot-low    { background: var(--gn); }
+  .rl-group-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--mu);
+  }
+  .rl-item { display: flex; flex-direction: column; gap: 6px; transition: opacity var(--transition); }
+  .rl-item.rl-read { opacity: 0.55; }
+  .rl-item-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .rl-check {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .rl-check input { cursor: pointer; accent-color: var(--gn); }
+  .rl-check-label { font-size: 0.72rem; color: var(--mu); }
+  .rl-item-meta { display: flex; align-items: center; gap: 6px; flex: 1; flex-wrap: wrap; }
+  .rl-item-actions { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+  .rl-priority-sel {
+    font-size: 0.72rem;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--bd);
+    background: var(--sf2);
+    color: var(--tx2);
+    cursor: pointer;
+    font-family: var(--font);
+  }
+  .rl-title {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--tx);
+    line-height: 1.4;
+  }
+  .rl-title.rl-title-done {
+    text-decoration: line-through;
+    color: var(--mu);
+  }
+
+  @media (max-width: 640px) {
+    .research { padding: 16px; }
+    .save-label-input { width: 120px; }
+    .tab-btn { padding: 4px 8px; font-size: 0.72rem; }
+  }
 </style>

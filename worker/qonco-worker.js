@@ -230,6 +230,45 @@ export default {
       }
     }
 
+    // GET /scholar?q=...&max=10
+    if (path === '/scholar' && request.method === 'GET') {
+      if (!env.SERPAPI_KEY) {
+        return json({ error: 'SERPAPI_KEY not set', hint: 'Add SERPAPI_KEY to Cloudflare Worker secrets to enable Google Scholar' }, 503, origin);
+      }
+      try {
+        const q = url.searchParams.get('q') || '';
+        const max = Math.min(parseInt(url.searchParams.get('max') || '10'), 20);
+        const res = await fetch(
+          `https://serpapi.com/search?engine=google_scholar&q=${encodeURIComponent(q)}&num=${max}&api_key=${env.SERPAPI_KEY}&hl=en`,
+          { headers: { 'User-Agent': 'QOncoResearch/1.0' } }
+        );
+        if (!res.ok) return err(`SerpAPI ${res.status}`, res.status, origin);
+        const data = await res.json();
+        const papers = (data.organic_results || []).map(p => {
+          const summary = (p.publication_info?.summary || '');
+          const yearMatch = summary.match(/\b(19|20)\d{2}\b/);
+          const year = yearMatch ? parseInt(yearMatch[0]) : 0;
+          const journalPart = summary.split(' - ').slice(-1)[0]?.trim() || 'Google Scholar';
+          const pdfResource = (p.resources || []).find(r => (r.title || '').toUpperCase().includes('PDF') || r.file_format === 'PDF');
+          return {
+            id: p.result_id || p.link || p.title,
+            title: p.title || '',
+            authors: (p.publication_info?.authors || []).map(a => a.name || '').slice(0, 5),
+            abstract: p.snippet || '',
+            journal: journalPart,
+            year,
+            doi: '',
+            url: p.link || '',
+            source: 'scholar',
+            pdfUrl: pdfResource?.link,
+          };
+        });
+        return json(papers, 200, origin);
+      } catch (e) {
+        return err(e.message, 500, origin);
+      }
+    }
+
     return new Response('Not found', { status: 404 });
   },
 };

@@ -112,6 +112,80 @@ export interface PaperResult {
   year: number;
   doi: string;
   url: string;
-  source: 'pubmed' | 'biorxiv' | 'medrxiv' | 'nature' | 'cell' | 'semanticscholar' | 'europepmc';
+  source: 'pubmed' | 'biorxiv' | 'medrxiv' | 'nature' | 'cell' | 'semanticscholar' | 'europepmc' | 'scholar';
   pdfUrl?: string;
+}
+
+export interface SavedSearch {
+  id: string;
+  label: string;
+  query: string;
+  sources: string[];
+  color: 'ac' | 'gn' | 'pu' | 'yw' | 'enzo' | 'rd';
+  createdAt: number;
+  lastRunAt: number | null;
+  runCount: number;
+}
+
+export interface ReadingListItem {
+  id: string;
+  paper: PaperResult;
+  addedAt: number;
+  note: string;
+  read: boolean;
+  priority: 'high' | 'medium' | 'low';
+}
+
+export interface PipelineStep {
+  id: string;
+  name: string;
+  tool: string;
+  version: string;
+  params: string;      // free-text key:value lines
+  status: 'pending' | 'running' | 'done' | 'failed' | 'skipped';
+  notes: string;
+  completedAt: number | null;
+}
+
+export interface QCMetric {
+  key: string;
+  value: string;
+  flag: 'pass' | 'warn' | 'fail' | '';
+}
+
+export interface PipelineRun {
+  id: string;
+  title: string;
+  sampleId: string;
+  sampleDescription: string;
+  organism: string;
+  tissue: string;
+  condition: string;
+  pipelineType: 'scrna-seq' | 'spatial' | 'bulk-rna' | 'wes' | 'custom';
+  protocolId: string | null;
+  status: 'planned' | 'running' | 'qc-review' | 'completed' | 'failed' | 'archived';
+  steps: PipelineStep[];
+  qcMetrics: QCMetric[];
+  noteId: string | null;
+  journalIds: string[];
+  audioIds: string[];
+  paperDois: string[];
+  tags: string[];
+  notes: string;
+  createdAt: number;
+  updatedAt: number;
+  completedAt: number | null;
+}
+
+export interface Protocol {
+  id: string;
+  title: string;
+  type: 'scrna-seq' | 'spatial' | 'bulk-rna' | 'wes' | 'ifm' | 'flow' | 'ddpcr' | 'organoid' | 'custom';
+  version: string;
+  body: string;        // markdown
+  tags: string[];
+  source: string;      // DOI or URL
+  isTemplate: boolean;
+  createdAt: number;
+  updatedAt: number;
 }
