@@ -1,5 +1,6 @@
 <script lang="ts">
   import { store } from '../lib/store.svelte';
+  import { MODELS } from '../lib/groq';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -46,15 +47,33 @@
           bind:value={store.settings.workerUrl}
           placeholder="https://enzo.quant-onco.workers.dev"
         />
-        <p class="field-hint">Cloudflare Worker that proxies Groq, PubMed, bioRxiv, and Nature/Cell RSS. Required for Enzo chat.</p>
+        <p class="field-hint">Cloudflare Worker that proxies all AI calls, PubMed, bioRxiv, and Nature/Cell RSS. Auto-deploys from GitHub on push.</p>
       </div>
 
       <div class="field">
-        <label for="groq-model">AI model depth</label>
-        <select id="groq-model" bind:value={store.settings.groqModel}>
-          <option value="quick">Quick — llama-3.1-8b-instant (fast, lower cost)</option>
-          <option value="deep">Deep — llama-3.3-70b-versatile (best quality)</option>
-        </select>
+        <span class="field-label">Models (fixed per function)</span>
+        <div class="model-table">
+          <div class="model-row">
+            <span class="model-fn">Enzo chat</span>
+            <code class="model-id">{MODELS.enzo}</code>
+            <span class="model-note">70B · always</span>
+          </div>
+          <div class="model-row">
+            <span class="model-fn">Research &amp; summaries</span>
+            <code class="model-id">{MODELS.research}</code>
+            <span class="model-note">120B · on click</span>
+          </div>
+          <div class="model-row">
+            <span class="model-fn">Light tasks</span>
+            <code class="model-id">{MODELS.quick}</code>
+            <span class="model-note">8B · on click</span>
+          </div>
+          <div class="model-row">
+            <span class="model-fn">Transcription</span>
+            <code class="model-id">{MODELS.whisper}</code>
+            <span class="model-note">audio · on click</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -121,6 +140,48 @@
   .opt { font-size: 0.78rem; font-weight: 400; color: var(--mu); }
 
   .field-hint { font-size: 0.78rem; color: var(--mu); line-height: 1.5; }
+
+  .model-table {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    border: 1px solid var(--bd);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    font-size: 0.8rem;
+  }
+
+  .model-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--bd);
+    background: var(--sf);
+  }
+  .model-row:last-child { border-bottom: none; }
+  .model-row:nth-child(even) { background: var(--sf2); }
+
+  .model-fn {
+    width: 160px;
+    flex-shrink: 0;
+    color: var(--tx2);
+    font-weight: 500;
+  }
+
+  .model-id {
+    flex: 1;
+    color: var(--ac);
+    font-size: 0.75rem;
+    background: transparent;
+    padding: 0;
+  }
+
+  .model-note {
+    color: var(--mu);
+    font-size: 0.72rem;
+    white-space: nowrap;
+  }
 
   .theme-row { display: flex; gap: 8px; flex-wrap: wrap; }
 

@@ -75,11 +75,11 @@ export interface AlarmItem {
 
 export interface AppSettings {
   userName: string;
-  groqKey: string;
   workerUrl: string;
   themeOverride: 'auto' | 'light' | 'dark';
-  groqModel: 'quick' | 'deep';
   alarms?: AlarmItem[];
+  groqKey?: string;   // deprecated — kept for backward compat with saved data
+  groqModel?: string; // deprecated — models are now hard-coded per function
 }
 
 export interface EncryptedBlob {

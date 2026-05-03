@@ -34,10 +34,8 @@ class Store {
 
   settings = $state<AppSettings>({
     userName: 'Amritha',
-    groqKey: '',
     workerUrl: 'https://enzo.quant-onco.workers.dev',
     themeOverride: 'auto',
-    groqModel: 'deep'
   });
   settingsSha = $state<string | null>(null);
 

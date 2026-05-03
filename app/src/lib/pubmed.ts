@@ -1,5 +1,6 @@
 import type { PaperResult } from './types';
 import { store } from './store.svelte';
+import { WORKER_URL } from './groq';
 
 const NCBI = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
 const BIORXIV = 'https://api.biorxiv.org/details';
@@ -8,7 +9,7 @@ const DEFAULT_QUERY =
   'ovarian cancer tumor microenvironment OR scRNA-seq OR spatial transcriptomics OR PARP inhibitor OR immune checkpoint OR biomarker';
 
 export async function searchPubMed(query: string, max = 10): Promise<PaperResult[]> {
-  const workerUrl = store.settings.workerUrl;
+  const workerUrl = store.settings.workerUrl || WORKER_URL;
   if (workerUrl) {
     const res = await fetch(`${workerUrl}/pubmed?q=${encodeURIComponent(query)}&max=${max}`);
     if (!res.ok) throw new Error('PubMed search failed');
@@ -52,7 +53,7 @@ async function searchPubMedDirect(query: string, max: number): Promise<PaperResu
 }
 
 export async function fetchBioRxiv(days = 7): Promise<PaperResult[]> {
-  const workerUrl = store.settings.workerUrl;
+  const workerUrl = store.settings.workerUrl || WORKER_URL;
 
   const end = new Date();
   const start = new Date();
@@ -108,8 +109,7 @@ export async function fetchBioRxiv(days = 7): Promise<PaperResult[]> {
 }
 
 export async function fetchNatureCell(): Promise<PaperResult[]> {
-  const workerUrl = store.settings.workerUrl;
-  if (!workerUrl) return [];
+  const workerUrl = store.settings.workerUrl || WORKER_URL;
 
   try {
     const res = await fetch(`${workerUrl}/news?sources=nature,cell`);
