@@ -35,7 +35,7 @@ class Store {
   settings = $state<AppSettings>({
     userName: 'Amritha',
     groqKey: '',
-    workerUrl: '',
+    workerUrl: 'https://enzo.quant-onco.workers.dev',
     themeOverride: 'auto',
     groqModel: 'deep'
   });
@@ -92,12 +92,15 @@ class Store {
   logout(): void {
     this.tok = null;
     sessionStorage.removeItem('_qt');
+    localStorage.removeItem('qonco_device');
+    localStorage.setItem('_lo', '1');
     this.notes = [];
     this.journal = [];
     this.tasks = [];
     this.chatSessions = [];
     this.audioRecords = [];
     this.calEvents = [];
+    this.pinnedPapers = [];
   }
 
   async loadAll(): Promise<void> {

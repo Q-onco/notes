@@ -66,12 +66,20 @@ export interface CalendarEvent {
   source: 'apple';
 }
 
+export interface AlarmItem {
+  id: string;
+  time: string; // 'HH:MM' 24-hr
+  label: string;
+  enabled: boolean;
+}
+
 export interface AppSettings {
   userName: string;
   groqKey: string;
   workerUrl: string;
   themeOverride: 'auto' | 'light' | 'dark';
   groqModel: 'quick' | 'deep';
+  alarms?: AlarmItem[];
 }
 
 export interface EncryptedBlob {
@@ -105,4 +113,5 @@ export interface PaperResult {
   doi: string;
   url: string;
   source: 'pubmed' | 'biorxiv' | 'medrxiv' | 'nature' | 'cell';
+  pdfUrl?: string;
 }

@@ -84,16 +84,19 @@ export async function fetchBioRxiv(days = 7): Promise<PaperResult[]> {
         .slice(0, 8);
 
       for (const p of filtered) {
+        const doi = p.doi as string;
+        const serverHost = server === 'biorxiv' ? 'www.biorxiv.org' : 'www.medrxiv.org';
         all.push({
-          id: p.doi as string,
+          id: doi,
           title: p.title as string,
           authors: ((p.authors as string) ?? '').split('; ').slice(0, 4),
           abstract: (p.abstract as string) ?? '',
           journal: server === 'biorxiv' ? 'bioRxiv' : 'medRxiv',
           year: parseInt((p.date as string)?.slice(0, 4) ?? '0'),
-          doi: p.doi as string,
-          url: `https://doi.org/${p.doi}`,
-          source: server as 'biorxiv' | 'medrxiv'
+          doi,
+          url: `https://doi.org/${doi}`,
+          source: server as 'biorxiv' | 'medrxiv',
+          pdfUrl: `https://${serverHost}/content/${doi}.full.pdf`
         });
       }
     } catch {

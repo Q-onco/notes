@@ -33,8 +33,9 @@
     applyTheme();
   });
 
-  // Restore session on page load
+  // Restore session on page load — skip if user explicitly logged out
   $effect(() => {
+    if (localStorage.getItem('_lo')) return;
     const saved = sessionStorage.getItem('_qt');
     if (saved && !store.authenticated) {
       store.login(saved).catch(() => sessionStorage.removeItem('_qt'));
