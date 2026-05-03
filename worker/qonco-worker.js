@@ -246,7 +246,7 @@ export default {
         const q = url.searchParams.get('q') || '';
         const max = Math.min(parseInt(url.searchParams.get('max') || '10'), 25);
         const res = await fetch(
-          `https://api.openalex.org/works?search=${encodeURIComponent(q)}&per-page=${max}&sort=relevance_score:desc&mailto=shiva.adam@gmail.com`,
+          `https://api.openalex.org/works?search=${encodeURIComponent(q)}&per-page=${max}&sort=relevance_score:desc&mailto=quant.onco@gmail.com`,
           { headers: { 'User-Agent': 'QOncoResearch/1.0' } }
         );
         if (!res.ok) return err(`OpenAlex ${res.status}`, res.status, origin);
