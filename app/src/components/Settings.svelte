@@ -4,7 +4,6 @@
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
   let saving = $state(false);
-  let showGroqKey = $state(false);
 
   async function save() {
     saving = true;
@@ -48,39 +47,6 @@
           placeholder="https://enzo.quant-onco.workers.dev"
         />
         <p class="field-hint">Cloudflare Worker that proxies Groq, PubMed, bioRxiv, and Nature/Cell RSS. Required for Enzo chat.</p>
-      </div>
-
-      <div class="field">
-        <label for="groq-key">
-          Groq API key
-          <span class="opt">(direct fallback — not needed if Worker is set)</span>
-        </label>
-        <div class="pw-wrap">
-          <input
-            id="groq-key"
-            type={showGroqKey ? 'text' : 'password'}
-            bind:value={store.settings.groqKey}
-            placeholder="gsk_..."
-            autocomplete="off"
-          />
-          <button
-            class="btn-icon show-key-btn"
-            onclick={() => showGroqKey = !showGroqKey}
-            title={showGroqKey ? 'Hide' : 'Show'}
-          >
-            {#if showGroqKey}
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/>
-                <line x1="1" y1="1" x2="23" y2="23"/>
-              </svg>
-            {:else}
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                <circle cx="12" cy="12" r="3"/>
-              </svg>
-            {/if}
-          </button>
-        </div>
       </div>
 
       <div class="field">
@@ -155,18 +121,6 @@
   .opt { font-size: 0.78rem; font-weight: 400; color: var(--mu); }
 
   .field-hint { font-size: 0.78rem; color: var(--mu); line-height: 1.5; }
-
-  .pw-wrap { position: relative; }
-  .pw-wrap input { padding-right: 36px; }
-  .show-key-btn {
-    position: absolute;
-    right: 6px;
-    top: 50%;
-    transform: translateY(-50%);
-    padding: 4px;
-    color: var(--mu);
-  }
-  .show-key-btn:hover { color: var(--tx); background: transparent; }
 
   .theme-row { display: flex; gap: 8px; flex-wrap: wrap; }
 
