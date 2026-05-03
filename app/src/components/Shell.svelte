@@ -102,11 +102,18 @@
   }
 
   $effect(() => {
-    if (window.innerWidth <= 540) {
+    if (window.innerWidth <= 900) {
       store.sidebarOpen = false;
       store.enzoOpen = false;
     }
   });
+
+  const BOTTOM_NAV = [
+    { id: 'dashboard', label: 'Home',     icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
+    { id: 'notes',     label: 'Notes',    icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
+    { id: 'tasks',     label: 'Tasks',    icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4' },
+    { id: 'research',  label: 'Research', icon: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z' },
+  ];
 
   function showToast(msg: string, type: 'success' | 'error' = 'success') {
     toastMsg = msg;
@@ -241,7 +248,7 @@
         title="Toggle Enzo"
       >
         <span class="enzo-dot"></span>
-        Enzo
+        <span class="enzo-label">Enzo</span>
       </button>
       <button class="btn-icon help-btn" onclick={() => helpOpen = true} title="Help (?)">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -260,6 +267,9 @@
 
   <div class="main-layout">
     {#if store.sidebarOpen}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="panel-backdrop" onclick={() => store.sidebarOpen = false}></div>
       <aside class="sidebar-panel">
         <Sidebar />
       </aside>
@@ -288,11 +298,42 @@
     </main>
 
     {#if store.enzoOpen}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="panel-backdrop" onclick={() => store.enzoOpen = false}></div>
       <aside class="enzo-panel">
         <Enzo {showToast} />
       </aside>
     {/if}
   </div>
+
+  <nav class="bottom-nav" aria-label="Main navigation">
+    {#each BOTTOM_NAV as item}
+      <button
+        class="bn-item"
+        class:active={store.view === item.id}
+        onclick={() => { store.view = item.id as any; store.sidebarOpen = false; }}
+        aria-label={item.label}
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d={item.icon}/>
+        </svg>
+        <span class="bn-label">{item.label}</span>
+        {#if item.id === 'tasks' && store.activeTasks.length > 0}
+          <span class="bn-badge">{store.activeTasks.length}</span>
+        {/if}
+      </button>
+    {/each}
+    <button
+      class="bn-item bn-enzo"
+      class:active={store.enzoOpen}
+      onclick={() => { store.enzoOpen = !store.enzoOpen; store.sidebarOpen = false; }}
+      aria-label="Enzo AI"
+    >
+      <span class="bn-enzo-orb"></span>
+      <span class="bn-label">Enzo</span>
+    </button>
+  </nav>
 
   {#if toastMsg}
     <div class="toast {toastType}" role="alert">{toastMsg}</div>
@@ -554,6 +595,7 @@
     display: flex;
     flex: 1;
     overflow: hidden;
+    position: relative;
   }
 
   .sidebar-panel {
@@ -581,29 +623,124 @@
     background: var(--sf);
   }
 
+  /* ── Overlay backdrop (tablet + mobile) ── */
+  .panel-backdrop { display: none; }
+
+  /* ── Bottom nav (mobile only) ── */
+  .bottom-nav { display: none; }
+
+  /* ── Tablet: panels become overlays, content stays full-width ── */
   @media (max-width: 900px) {
-    .enzo-panel { width: 280px; }
-  }
+    .panel-backdrop {
+      display: block;
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.42);
+      backdrop-filter: blur(1px);
+      z-index: 49;
+    }
 
-  @media (max-width: 680px) {
-    .sidebar-panel { width: 200px; }
-    .enzo-panel { display: none; }
-  }
-
-  @media (max-width: 540px) {
-    .main-layout { position: relative; }
     .sidebar-panel {
       position: absolute;
       top: 0; left: 0;
       height: 100%;
-      z-index: 50;
       width: 260px;
+      z-index: 50;
       box-shadow: var(--shadow-lg);
+      border-right: 1px solid var(--bd);
     }
-    .enzo-panel { display: none; }
-    .top-bar { padding: 0 10px; }
-    .tz-seg { display: none; }
-    .tz-seg:first-of-type { display: inline; }
+
+    .enzo-panel {
+      position: absolute;
+      top: 0; right: 0;
+      height: 100%;
+      width: 340px;
+      max-width: 88vw;
+      z-index: 50;
+      box-shadow: var(--shadow-lg);
+      border-left: 1px solid var(--bd);
+    }
+  }
+
+  /* ── Mobile: bottom nav, trimmed top bar ── */
+  @media (max-width: 640px) {
+    .top-bar { padding: 0 10px; gap: 8px; }
+    .help-btn { display: none; }
+    .enzo-label { display: none; }
+    .tz-seg:not(:first-of-type) { display: none; }
     .tz-dot { display: none; }
+
+    .enzo-panel { width: 100%; max-width: 100%; }
+
+    .main-layout { padding-bottom: 60px; }
+
+    .bottom-nav {
+      display: flex;
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      height: calc(60px + env(safe-area-inset-bottom, 0px));
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      background: var(--sf);
+      border-top: 1px solid var(--bd);
+      z-index: 110;
+    }
+
+    .bn-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      background: transparent;
+      border: none;
+      color: var(--tx2);
+      cursor: pointer;
+      position: relative;
+      padding: 6px 4px 4px;
+      transition: color var(--transition);
+    }
+    .bn-item:active { opacity: 0.7; }
+    .bn-item.active { color: var(--ac); }
+    .bn-item.active svg { stroke: var(--ac); }
+
+    .bn-label {
+      font-size: 0.58rem;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+
+    .bn-badge {
+      position: absolute;
+      top: 4px;
+      right: calc(50% - 20px);
+      background: var(--ac);
+      color: #fff;
+      font-size: 0.55rem;
+      font-weight: 700;
+      padding: 1px 4px;
+      border-radius: 8px;
+      min-width: 14px;
+      text-align: center;
+      line-height: 1.4;
+    }
+
+    .bn-enzo { color: var(--enzo); }
+    .bn-enzo.active { color: var(--enzo); }
+    .bn-enzo-orb {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: var(--enzo-bg);
+      border: 1.5px solid var(--enzo-bd);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .bn-enzo-orb::after {
+      content: '';
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--gn);
+    }
   }
 </style>
