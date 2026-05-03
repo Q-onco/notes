@@ -10,6 +10,7 @@
   import Calendar from './Calendar.svelte';
   import Research from './Research.svelte';
   import Audio from './Audio.svelte';
+  import Settings from './Settings.svelte';
   import Enzo from './Enzo.svelte';
   import Weather from './Weather.svelte';
   import Help from './Help.svelte';
@@ -278,6 +279,8 @@
         <Research {showToast} />
       {:else if store.view === 'audio'}
         <Audio {showToast} />
+      {:else if store.view === 'settings'}
+        <Settings {showToast} />
       {/if}
     </main>
 

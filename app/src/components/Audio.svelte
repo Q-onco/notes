@@ -5,70 +5,139 @@
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
+  // ── Daily Whisper quota ─────────────────────────────────────
+  const DAILY_LIMIT = 7200; // 2 hours in seconds
+  const storageKey = () => `qonco_wh_${new Date().toISOString().slice(0, 10)}`;
+  const getUsed = () => parseInt(localStorage.getItem(storageKey()) || '0');
+  const addUsed = (secs: number) => {
+    const k = storageKey();
+    localStorage.setItem(k, String(getUsed() + secs));
+  };
+
+  let whisperUsed = $state(getUsed());
+  let whisperRemaining = $derived(Math.max(0, DAILY_LIMIT - whisperUsed));
+
+  // ── Recorder state ──────────────────────────────────────────
   let recording = $state(false);
-  let transcribing = $state(false);
   let durationSec = $state(0);
-  let draftTranscript = $state('');
+  let liveText = $state('');         // text accumulates during recording
+  let transcribingCount = $state(0); // pending async transcriptions
+  let draftTranscript = $state('');  // shown after stop for editing
   let linkNoteId = $state('');
-  let timer: ReturnType<typeof setInterval>;
 
-  let mediaRecorder: MediaRecorder | null = null;
-  let chunks: Blob[] = [];
   let stream: MediaStream | null = null;
+  let currentMR: MediaRecorder | null = null;
+  let chunkBuffer: Blob[] = [];
+  let chunkMime = '';
+  let isRecordingSession = false;
+  let durationTimer: ReturnType<typeof setInterval>;
+  let chunkTimer: ReturnType<typeof setTimeout>;
 
+  const CHUNK_SEC = 15;
+
+  // ── Recording ────────────────────────────────────────────────
   async function startRecording() {
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : 'audio/webm';
-      mediaRecorder = new MediaRecorder(stream, { mimeType });
-      chunks = [];
-      durationSec = 0;
-
-      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-      mediaRecorder.onstop = handleStop;
-      mediaRecorder.start(1000);
-      recording = true;
-
-      timer = setInterval(() => { durationSec++; }, 1000);
-    } catch (e) {
-      showToast('Microphone access denied', 'error');
+    if (!store.settings.workerUrl) {
+      showToast('No Worker URL — set it in Settings first', 'error');
+      return;
     }
-  }
-
-  async function stopRecording() {
-    if (!mediaRecorder) return;
-    clearInterval(timer);
-    mediaRecorder.stop();
-    stream?.getTracks().forEach(t => t.stop());
-    recording = false;
-  }
-
-  async function handleStop() {
-    const blob = new Blob(chunks, { type: chunks[0]?.type || 'audio/webm' });
-    const workerUrl = store.settings.workerUrl;
-
-    if (!workerUrl) {
-      draftTranscript = '[Set Worker URL in settings to enable transcription]';
-      showToast('No Worker URL set — transcript unavailable', 'error');
+    if (whisperRemaining <= 0) {
+      showToast('Daily transcription limit reached (2h)', 'error');
       return;
     }
 
-    transcribing = true;
+    liveText = '';
+    draftTranscript = '';
+    durationSec = 0;
+    transcribingCount = 0;
+    whisperUsed = getUsed();
+
     try {
-      const text = await transcribeAudio(blob, workerUrl);
-      draftTranscript = text;
-    } catch (e) {
-      draftTranscript = '';
-      showToast((e as Error).message, 'error');
-    } finally {
-      transcribing = false;
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      showToast('Microphone access denied', 'error');
+      return;
+    }
+
+    recording = true;
+    isRecordingSession = true;
+
+    durationTimer = setInterval(() => {
+      durationSec++;
+      whisperUsed = getUsed();
+      if (whisperUsed + durationSec >= DAILY_LIMIT) {
+        stopRecording();
+        showToast('Daily transcription limit reached (2h)', 'error');
+      }
+    }, 1000);
+
+    startChunk();
+  }
+
+  function startChunk() {
+    if (!stream || !isRecordingSession) return;
+
+    chunkMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : 'audio/webm';
+    chunkBuffer = [];
+
+    const mr = new MediaRecorder(stream, { mimeType: chunkMime });
+    mr.ondataavailable = (e) => { if (e.data.size > 0) chunkBuffer.push(e.data); };
+    mr.onstop = handleChunkStop;
+    mr.start(500);
+    currentMR = mr;
+
+    chunkTimer = setTimeout(() => {
+      if (currentMR?.state === 'recording') {
+        currentMR.stop();
+      }
+    }, CHUNK_SEC * 1000);
+  }
+
+  async function handleChunkStop() {
+    const blob = new Blob(chunkBuffer, { type: chunkMime });
+    chunkBuffer = [];
+
+    if (blob.size > 500 && store.settings.workerUrl) {
+      transcribingCount++;
+      try {
+        const text = await transcribeAudio(blob, store.settings.workerUrl);
+        const trimmed = text.trim();
+        if (trimmed) liveText = liveText ? liveText + ' ' + trimmed : trimmed;
+        addUsed(CHUNK_SEC);
+        whisperUsed = getUsed();
+      } catch {
+        // silent — individual chunk failures don't abort the session
+      } finally {
+        transcribingCount--;
+        if (!isRecordingSession && transcribingCount === 0) {
+          draftTranscript = liveText;
+        }
+      }
+    }
+
+    if (isRecordingSession) {
+      startChunk();
+    } else if (transcribingCount === 0) {
+      draftTranscript = liveText;
     }
   }
 
+  function stopRecording() {
+    if (!recording) return;
+    isRecordingSession = false;
+    recording = false;
+    clearTimeout(chunkTimer);
+    clearInterval(durationTimer);
+    if (currentMR?.state === 'recording') currentMR.stop();
+    stream?.getTracks().forEach(t => t.stop());
+  }
+
+  // ── Save / export ────────────────────────────────────────────
   async function saveRecording() {
-    if (!draftTranscript) return;
+    if (!draftTranscript.trim()) return;
+
     const rec = {
       id: nanoid(),
       createdAt: Date.now(),
@@ -76,16 +145,16 @@
       transcript: draftTranscript,
       noteId: linkNoteId || null,
       journalId: null,
-      sizeBytes: chunks.reduce((acc, c) => acc + c.size, 0)
+      sizeBytes: 0
     };
     store.audioRecords = [rec, ...store.audioRecords];
 
-    // Link to note if selected
     if (linkNoteId) {
       const note = store.notes.find(n => n.id === linkNoteId);
       if (note) {
+        const ts = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
         note.audioIds = [...note.audioIds, rec.id];
-        note.body += `\n\n---\n*Transcript (${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}):*\n\n${draftTranscript}`;
+        note.body += `\n\n---\n*Transcript (${ts}):*\n\n${draftTranscript}`;
         note.updatedAt = Date.now();
         await store.saveNotes();
       }
@@ -95,13 +164,34 @@
     showToast('Recording saved');
     draftTranscript = '';
     linkNoteId = '';
+    liveText = '';
     durationSec = 0;
   }
 
-  function fmtDuration(s: number): string {
-    const m = Math.floor(s / 60);
+  function exportMarkdown() {
+    if (!draftTranscript.trim()) return;
+    const date = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const md = `# Audio Transcript\n\n**Date:** ${date}  \n**Duration:** ${fmtDur(durationSec)}\n\n---\n\n${draftTranscript}\n`;
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `transcript-${new Date().toISOString().slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────
+  function fmtDur(s: number): string {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
     const sec = s % 60;
-    return `${m}:${String(sec).padStart(2, '0')}`;
+    if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+    return `${m}:${String(sec).padStart(2,'0')}`;
+  }
+
+  function pct(used: number, total: number): number {
+    return Math.min(100, Math.round((used / total) * 100));
   }
 
   function relTime(ts: number): string {
@@ -114,55 +204,110 @@
 
 <div class="audio-view">
   <div class="audio-header">
-    <h2>Audio recordings</h2>
-    <p class="text-sm text-mu">{store.audioRecords.length} recordings</p>
+    <h2>Audio &amp; Transcription</h2>
+    <p class="text-sm text-mu">{store.audioRecords.length} recording{store.audioRecords.length !== 1 ? 's' : ''}</p>
   </div>
 
-  <!-- Recorder -->
+  <!-- Daily quota bar -->
+  <div class="quota-bar-wrap">
+    <div class="quota-label">
+      <span class="text-xs text-mu">Whisper daily quota</span>
+      <span class="quota-nums text-xs">
+        {fmtDur(whisperUsed + (recording ? durationSec : 0))} used · <strong>{fmtDur(whisperRemaining - (recording ? durationSec : 0))}</strong> left
+      </span>
+    </div>
+    <div class="quota-track">
+      <div
+        class="quota-fill"
+        class:quota-warn={pct(whisperUsed, DAILY_LIMIT) > 75}
+        style="width: {pct(whisperUsed + (recording ? durationSec : 0), DAILY_LIMIT)}%"
+      ></div>
+    </div>
+  </div>
+
+  <!-- Recorder card -->
   <div class="recorder card">
-    <div class="recorder-inner">
-      <div class="rec-visual" class:active={recording}>
+    <div class="recorder-top">
+      <!-- Visualiser / status circle -->
+      <div class="rec-visual" class:active={recording} class:pending={transcribingCount > 0 && !recording}>
         {#if recording}
           <span class="rec-dot"></span>
-          <span class="rec-time">{fmtDuration(durationSec)}</span>
+        {:else if transcribingCount > 0}
+          <span class="spin-ring"></span>
         {:else}
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
+            <path d="M19 10v2a7 7 0 01-14 0v-2"/>
             <line x1="12" y1="19" x2="12" y2="23"/>
             <line x1="8" y1="23" x2="16" y2="23"/>
           </svg>
         {/if}
       </div>
 
-      {#if !recording}
-        <button class="btn btn-primary" onclick={startRecording}>Start recording</button>
-      {:else}
-        <button class="btn btn-danger" onclick={stopRecording}>Stop recording</button>
-      {/if}
+      <div class="rec-middle">
+        {#if recording}
+          <div class="rec-stats">
+            <span class="rec-time">{fmtDur(durationSec)}</span>
+            <span class="rec-remaining text-xs text-mu">
+              {fmtDur(Math.max(0, whisperRemaining - durationSec))} left today
+            </span>
+          </div>
+          <button class="btn btn-danger" onclick={stopRecording}>Stop</button>
+        {:else if transcribingCount > 0}
+          <span class="text-sm text-mu">Transcribing {transcribingCount} chunk{transcribingCount !== 1 ? 's' : ''}…</span>
+        {:else}
+          <div>
+            <button
+              class="btn btn-primary"
+              onclick={startRecording}
+              disabled={whisperRemaining <= 0}
+            >
+              Start recording
+            </button>
+            {#if whisperRemaining <= 0}
+              <p class="text-xs text-mu mt-1">Daily limit reached. Resets at midnight.</p>
+            {/if}
+          </div>
+        {/if}
+      </div>
     </div>
 
-    {#if transcribing}
-      <div class="transcribing-msg text-sm text-mu">Transcribing with Whisper...</div>
+    <!-- Live transcript during recording -->
+    {#if recording && liveText}
+      <div class="live-transcript">
+        <span class="live-label text-xs">Live transcript</span>
+        <p class="live-text">{liveText}</p>
+      </div>
     {/if}
 
-    {#if draftTranscript}
-      <div class="transcript-draft">
-        <label class="text-xs text-mu font-label" for="transcript-area">Transcript</label>
+    <!-- Draft for editing after stop -->
+    {#if draftTranscript !== '' && !recording && transcribingCount === 0}
+      <div class="draft-section">
+        <label class="draft-label text-xs text-mu" for="draft-area">
+          Transcript — edit before saving
+        </label>
         <textarea
-          id="transcript-area"
+          id="draft-area"
           bind:value={draftTranscript}
           rows={5}
-          class="transcript-area"
+          class="draft-area"
         ></textarea>
-        <div class="save-row">
+        <div class="draft-actions">
           <select bind:value={linkNoteId} class="note-select">
-            <option value="">Save standalone (no linked note)</option>
+            <option value="">Save standalone</option>
             {#each store.notes.filter(n => !n.archived) as note}
               <option value={note.id}>{note.title}</option>
             {/each}
           </select>
-          <button class="btn btn-primary" onclick={saveRecording}>Save transcript</button>
+          <button class="btn btn-ghost btn-sm" onclick={exportMarkdown} title="Export as Markdown">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Export .md
+          </button>
+          <button class="btn btn-primary btn-sm" onclick={saveRecording}>Save</button>
         </div>
       </div>
     {/if}
@@ -174,7 +319,7 @@
       <div class="rec-card card">
         <div class="rec-head">
           <div class="rec-meta">
-            <span class="rec-dur">{fmtDuration(rec.durationSec)}</span>
+            <span class="rec-dur">{fmtDur(rec.durationSec)}</span>
             <span class="text-xs text-mu">{relTime(rec.createdAt)}</span>
             {#if rec.noteId}
               {@const note = store.notes.find(n => n.id === rec.noteId)}
@@ -196,7 +341,7 @@
             onclick={async () => {
               store.audioRecords = store.audioRecords.filter(r => r.id !== rec.id);
               await store.saveAudio();
-              showToast('Recording deleted');
+              showToast('Deleted');
             }}
             title="Delete"
           >
@@ -211,7 +356,7 @@
       </div>
     {:else}
       <div class="empty-state">
-        <p class="text-mu">No recordings yet. Use the recorder above to capture spoken notes.</p>
+        <p class="text-mu text-sm">No recordings yet. Press Start recording above.</p>
       </div>
     {/each}
   </div>
@@ -224,53 +369,130 @@
     padding: 24px;
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 18px;
   }
 
+  /* ── Quota bar ── */
+  .quota-bar-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .quota-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .quota-nums { font-variant-numeric: tabular-nums; }
+  .quota-track {
+    height: 5px;
+    background: var(--sf3);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .quota-fill {
+    height: 100%;
+    background: var(--gn);
+    border-radius: 3px;
+    transition: width 1s linear, background var(--transition);
+  }
+  .quota-fill.quota-warn { background: var(--yw); }
+
+  /* ── Recorder card ── */
   .recorder { display: flex; flex-direction: column; gap: 14px; }
-  .recorder-inner { display: flex; align-items: center; gap: 20px; }
+  .recorder-top { display: flex; align-items: center; gap: 16px; }
 
   .rec-visual {
-    width: 60px; height: 60px;
+    width: 56px; height: 56px;
     border-radius: 50%;
     border: 2px solid var(--bd);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: flex; align-items: center; justify-content: center;
     color: var(--mu);
     flex-shrink: 0;
-    transition: border-color var(--transition);
+    transition: border-color var(--transition), background var(--transition);
   }
   .rec-visual.active {
     border-color: var(--rd);
     background: var(--rd-bg);
-    animation: pulse 1.2s ease-in-out infinite;
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  .rec-visual.pending {
+    border-color: var(--ac);
+    background: var(--ac-bg);
   }
   @keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(176,53,53,0.2); }
-    50%       { box-shadow: 0 0 0 10px rgba(176,53,53,0); }
+    0%, 100% { box-shadow: 0 0 0 0 rgba(176,53,53,0.25); }
+    50% { box-shadow: 0 0 0 10px rgba(176,53,53,0); }
   }
 
   .rec-dot {
-    width: 12px; height: 12px;
+    width: 14px; height: 14px;
     background: var(--rd);
     border-radius: 50%;
     animation: blink 1s ease-in-out infinite;
   }
-  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.25} }
 
-  .rec-time { font-size: 0.9rem; font-weight: 700; font-family: var(--mono); color: var(--rd); margin-left: 6px; }
+  .spin-ring {
+    width: 22px; height: 22px;
+    border: 2px solid var(--bd2);
+    border-top-color: var(--ac);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
-  .transcribing-msg { text-align: center; padding: 8px; }
+  .rec-middle { display: flex; flex-direction: column; gap: 6px; }
 
-  .transcript-draft { display: flex; flex-direction: column; gap: 10px; }
-  .font-label { display: block; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 2px; }
-  .transcript-area { font-size: 0.875rem; font-family: var(--mono); min-height: 100px; }
-  .save-row { display: flex; gap: 8px; }
+  .rec-stats { display: flex; flex-direction: column; gap: 1px; }
+  .rec-time {
+    font-size: 1.4rem;
+    font-weight: 700;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--rd);
+    line-height: 1;
+  }
+  .rec-remaining { font-variant-numeric: tabular-nums; }
+
+  /* ── Live transcript ── */
+  .live-transcript {
+    background: var(--sf2);
+    border: 1px solid var(--bd);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .live-label {
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--ac);
+  }
+  .live-text {
+    font-size: 0.875rem;
+    color: var(--tx);
+    line-height: 1.6;
+    max-height: 120px;
+    overflow-y: auto;
+  }
+
+  /* ── Draft ── */
+  .draft-section { display: flex; flex-direction: column; gap: 8px; }
+  .draft-label { display: block; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+  .draft-area { font-size: 0.875rem; font-family: var(--mono); min-height: 100px; }
+
+  .draft-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
   .note-select { flex: 1; font-size: 0.82rem; }
 
+  /* ── Recordings list ── */
   .recordings-list { display: flex; flex-direction: column; gap: 10px; }
-
   .rec-card { display: flex; flex-direction: column; gap: 8px; }
   .rec-head { display: flex; align-items: center; justify-content: space-between; }
   .rec-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
