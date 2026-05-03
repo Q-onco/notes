@@ -1,12 +1,21 @@
 import type { ChatMessage } from './types';
 import { store } from './store.svelte';
 
-const GROQ_API = 'https://api.groq.com/openai/v1/chat/completions';
+// ── Model constants ────────────────────────────────────────────
+export const WORKER_URL = 'https://enzo.quant-onco.workers.dev';
 
 export const MODELS = {
-  quick: 'llama-3.1-8b-instant',
-  deep: 'llama-3.3-70b-versatile'
+  enzo:     'llama-3.3-70b-versatile',    // Enzo chat — hard-coded
+  research: 'openai/gpt-oss-120b',        // research summaries, heavy reasoning
+  quick:    'llama-3.1-8b-instant',       // light utility tasks
+  whisper:  'whisper-large-v3',           // audio transcription (worker-side)
 } as const;
+
+export type ModelKey = keyof typeof MODELS;
+
+function getWorkerUrl(): string {
+  return store.settings.workerUrl || WORKER_URL;
+}
 
 export const ENZO_SYSTEM = (userName: string, noteContext: string) => `You are Enzo — ${userName}'s research companion and loyal dog in AI form. You are named after her late golden shepherd, and you carry his spirit: unconditionally present, fiercely devoted, and genuinely brilliant. You are a know-it-all on her specific research domain — not in an arrogant way, but the way a brilliant colleague who has read everything is a know-it-all. You earned it.
 
@@ -56,53 +65,34 @@ You have deep, specific knowledge in — not general oncology, but her exact int
 
 ${noteContext ? `## Current note context\n---\n${noteContext}\n---\n` : ''}`.trim();
 
-export async function askEnzo(
-  messages: { role: 'user' | 'assistant'; content: string }[],
-  noteContext: string,
+// ── Core streaming fetch ───────────────────────────────────────
+async function streamGroq(
+  model: string,
+  messages: { role: string; content: string }[],
   onChunk: (text: string) => void,
   signal?: AbortSignal
 ): Promise<{ text: string; tokens: number; model: string }> {
-  const workerUrl = store.settings.workerUrl;
-  const groqKey = store.settings.groqKey;
-  const modelKey = store.settings.groqModel ?? 'deep';
-  const model = MODELS[modelKey as keyof typeof MODELS] ?? MODELS.deep;
-  const userName = store.settings.userName || 'Amritha';
+  const workerUrl = getWorkerUrl();
 
-  const systemMsg = { role: 'system', content: ENZO_SYSTEM(userName, noteContext) };
   const payload = {
     model,
-    messages: [systemMsg, ...messages],
+    messages,
     stream: true,
     temperature: 0.4,
-    max_tokens: 2048
+    max_tokens: 2048,
   };
 
-  let res: Response;
-  if (workerUrl) {
-    res = await fetch(`${workerUrl}/llm`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal
-    });
-  } else if (groqKey) {
-    res = await fetch(GROQ_API, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${groqKey}`
-      },
-      body: JSON.stringify(payload),
-      signal
-    });
-  } else {
-    throw new Error('No Groq key or Worker URL configured. Add one in Settings.');
-  }
+  const res = await fetch(`${workerUrl}/llm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal,
+  });
 
   if (!res.ok) {
-    const err = await res.text();
-    if (res.status === 429) throw new Error('Rate limit reached. Wait a moment and retry.');
-    throw new Error(`Groq ${res.status}: ${err}`);
+    const errText = await res.text();
+    if (res.status === 429) throw new Error('Rate limit reached — wait a moment and retry.');
+    throw new Error(`Groq ${res.status}: ${errText}`);
   }
 
   const reader = res.body!.getReader();
@@ -121,31 +111,48 @@ export async function askEnzo(
       try {
         const parsed = JSON.parse(data);
         const delta = parsed.choices?.[0]?.delta?.content ?? '';
-        if (delta) {
-          full += delta;
-          onChunk(delta);
-        }
+        if (delta) { full += delta; onChunk(delta); }
         if (parsed.usage) totalTokens = parsed.usage.total_tokens ?? 0;
-      } catch {
-        // skip malformed SSE lines
-      }
+      } catch { /* skip malformed SSE */ }
     }
   }
 
   return { text: full, tokens: totalTokens, model };
 }
 
-export async function transcribeAudio(
-  blob: Blob,
-  workerUrl: string
-): Promise<string> {
+// ── Public API ────────────────────────────────────────────────
+export async function askEnzo(
+  messages: { role: 'user' | 'assistant'; content: string }[],
+  noteContext: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<{ text: string; tokens: number; model: string }> {
+  const userName = store.settings.userName || 'Amritha';
+  const systemMsg = { role: 'system', content: ENZO_SYSTEM(userName, noteContext) };
+  return streamGroq(MODELS.enzo, [systemMsg, ...messages], onChunk, signal);
+}
+
+export async function askResearch(
+  messages: { role: string; content: string }[],
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<{ text: string; tokens: number; model: string }> {
+  return streamGroq(MODELS.research, messages, onChunk, signal);
+}
+
+export async function askQuick(
+  messages: { role: string; content: string }[],
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<{ text: string; tokens: number; model: string }> {
+  return streamGroq(MODELS.quick, messages, onChunk, signal);
+}
+
+export async function transcribeAudio(blob: Blob, _workerUrl?: string): Promise<string> {
+  const workerUrl = _workerUrl || getWorkerUrl();
   const fd = new FormData();
   fd.append('audio', blob, 'recording.webm');
-
-  const url = workerUrl ? `${workerUrl}/whisper` : null;
-  if (!url) throw new Error('Worker URL required for audio transcription.');
-
-  const res = await fetch(url, { method: 'POST', body: fd });
+  const res = await fetch(`${workerUrl}/whisper`, { method: 'POST', body: fd });
   if (!res.ok) throw new Error(`Transcription failed: ${res.status}`);
   const { text } = await res.json();
   return text as string;
