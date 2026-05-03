@@ -13,6 +13,7 @@
     error = '';
     try {
       await store.login(token.trim());
+      localStorage.removeItem('_lo');
       if (trustDevice) {
         localStorage.setItem('qonco_device', token.trim());
       }
@@ -27,8 +28,9 @@
     if (e.key === 'Enter') handleLogin();
   }
 
-  // Try trusted device on mount
+  // Try trusted device on mount — but never if user explicitly logged out
   $effect(() => {
+    if (localStorage.getItem('_lo')) return;
     const saved = localStorage.getItem('qonco_device');
     if (saved && !store.authenticated) {
       token = saved;
