@@ -10,10 +10,29 @@
   import Audio from './Audio.svelte';
   import Enzo from './Enzo.svelte';
   import Weather from './Weather.svelte';
+  import Help from './Help.svelte';
 
   let toastMsg = $state('');
   let toastType = $state<'success' | 'error' | ''>('');
   let toastTimer: ReturnType<typeof setTimeout>;
+  let helpOpen = $state(false);
+
+  // Live clock
+  function fmtClock() {
+    return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  }
+  let clockTime = $state(fmtClock());
+  $effect(() => {
+    const t = setInterval(() => { clockTime = fmtClock(); }, 15000);
+    return () => clearInterval(t);
+  });
+
+  // ? key opens help
+  function onWindowKey(e: KeyboardEvent) {
+    if (e.key === '?' && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
+      helpOpen = true;
+    }
+  }
 
   function showToast(msg: string, type: 'success' | 'error' = 'success') {
     toastMsg = msg;
@@ -22,6 +41,12 @@
     toastTimer = setTimeout(() => { toastMsg = ''; toastType = ''; }, 3200);
   }
 </script>
+
+<svelte:window onkeydown={onWindowKey} />
+
+{#if helpOpen}
+  <Help onclose={() => helpOpen = false} />
+{/if}
 
 <div class="shell">
   <!-- Top weather strip -->
@@ -43,6 +68,13 @@
 
     <div class="top-right">
       <button
+        class="clock-btn"
+        onclick={() => store.view = 'calendar'}
+        title="Go to calendar"
+      >
+        {clockTime}
+      </button>
+      <button
         class="btn-icon theme-toggle"
         onclick={() => {
           const cur = store.settings.themeOverride;
@@ -61,6 +93,13 @@
       >
         <span class="enzo-dot"></span>
         Enzo
+      </button>
+      <button class="btn-icon help-btn" onclick={() => helpOpen = true} title="Help (?)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+          <line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
       </button>
       <button class="btn-icon logout-btn" onclick={() => store.logout()} title="Lock">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -173,6 +212,24 @@
     border-radius: 50%;
     display: inline-block;
   }
+
+  .clock-btn {
+    font-size: 0.78rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--tx2);
+    background: transparent;
+    border: 1px solid var(--bd);
+    border-radius: var(--radius-sm);
+    padding: 3px 9px;
+    letter-spacing: 0.04em;
+    transition: all var(--transition);
+    cursor: pointer;
+  }
+  .clock-btn:hover { border-color: var(--ac); color: var(--ac); background: var(--ac-bg); }
+
+  .help-btn { color: var(--mu); }
+  .help-btn:hover { color: var(--ac); background: var(--ac-bg); }
 
   .theme-toggle, .logout-btn {
     font-size: 15px;
