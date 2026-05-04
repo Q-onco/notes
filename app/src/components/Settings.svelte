@@ -270,6 +270,96 @@
     </div>
   </div>
 
+  <!-- ── AI Features ── -->
+  <div class="card settings-card">
+    <span class="section-title">AI features</span>
+    <p class="section-hint text-xs text-mu">Features not used daily default to <strong>off</strong> to avoid unnecessary token spend. Toggle on before a session, off after.</p>
+
+    <div class="ai-feature-row">
+      <div class="ai-feature-info">
+        <span class="ai-feature-label">Cover letter generator</span>
+        <span class="ai-feature-desc text-xs text-mu">WRITER — job-application cover letters. Enable during job-search sessions.</span>
+      </div>
+      <button
+        class="toggle-btn"
+        class:toggle-on={store.aiSettings.coverLetter}
+        onclick={() => { store.settings.ai = { ...store.aiSettings, coverLetter: !store.aiSettings.coverLetter }; }}
+        title={store.aiSettings.coverLetter ? 'On — click to disable' : 'Off — click to enable'}
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
+
+    <div class="ai-feature-row">
+      <div class="ai-feature-info">
+        <span class="ai-feature-label">WRITER bullet improver</span>
+        <span class="ai-feature-desc text-xs text-mu">CAR-format CV bullet rewrites. Enable during CV editing sessions.</span>
+      </div>
+      <button
+        class="toggle-btn"
+        class:toggle-on={store.aiSettings.writerBullets}
+        onclick={() => { store.settings.ai = { ...store.aiSettings, writerBullets: !store.aiSettings.writerBullets }; }}
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
+
+    <div class="ai-feature-row">
+      <div class="ai-feature-info">
+        <span class="ai-feature-label">Weekly digest</span>
+        <span class="ai-feature-desc text-xs text-mu">Enzo compiles a research week summary from your store data. Enable on Mondays.</span>
+      </div>
+      <button
+        class="toggle-btn"
+        class:toggle-on={store.aiSettings.weeklyDigest}
+        onclick={() => { store.settings.ai = { ...store.aiSettings, weeklyDigest: !store.aiSettings.weeklyDigest }; }}
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
+
+    <div class="ai-feature-row">
+      <div class="ai-feature-info">
+        <span class="ai-feature-label">Deep Read (Enzo Socratic)</span>
+        <span class="ai-feature-desc text-xs text-mu">5 critical questions per paper. Enable during focused reading sessions.</span>
+      </div>
+      <button
+        class="toggle-btn"
+        class:toggle-on={store.aiSettings.deepRead}
+        onclick={() => { store.settings.ai = { ...store.aiSettings, deepRead: !store.aiSettings.deepRead }; }}
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
+
+    <div class="ai-feature-row">
+      <div class="ai-feature-info">
+        <span class="ai-feature-label">AI reading note</span>
+        <span class="ai-feature-desc text-xs text-mu">Structured note (Claims · Methods · Limits · Relevance) auto-generated from abstract.</span>
+      </div>
+      <button
+        class="toggle-btn"
+        class:toggle-on={store.aiSettings.readingNote}
+        onclick={() => { store.settings.ai = { ...store.aiSettings, readingNote: !store.aiSettings.readingNote }; }}
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
+
+    <div class="field">
+      <label for="reading-goal">Weekly reading goal <span class="hint-label">(papers)</span></label>
+      <input
+        id="reading-goal"
+        type="number"
+        min="1"
+        max="20"
+        style="width: 80px;"
+        value={store.settings.weeklyReadingGoal ?? 3}
+        oninput={(e) => { store.settings.weeklyReadingGoal = parseInt((e.target as HTMLInputElement).value) || 3; }}
+      />
+    </div>
+  </div>
+
   <!-- ── Sync & Storage ── -->
   <div class="card settings-card">
     <span class="section-title">Sync &amp; storage</span>
@@ -467,6 +557,31 @@
     font-size: 0.72rem; font-weight: 600; color: var(--tx2);
     white-space: nowrap;
   }
+
+  /* ── AI Feature toggles ── */
+  .ai-feature-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 0; border-bottom: 1px solid var(--bd);
+  }
+  .ai-feature-row:last-of-type { border-bottom: none; }
+  .ai-feature-info { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+  .ai-feature-label { font-size: 0.87rem; font-weight: 500; color: var(--tx); }
+  .ai-feature-desc { line-height: 1.4; }
+
+  .toggle-btn {
+    width: 40px; height: 22px; border-radius: 11px; flex-shrink: 0;
+    background: var(--bd2); border: none; cursor: pointer;
+    position: relative; transition: background 0.2s;
+    padding: 0;
+  }
+  .toggle-btn.toggle-on { background: var(--ac); }
+  .toggle-knob {
+    position: absolute; top: 3px; left: 3px;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #fff; transition: left 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  }
+  .toggle-on .toggle-knob { left: 21px; }
 
   /* ── Danger zone ── */
   .danger-card { border-color: var(--rd); }

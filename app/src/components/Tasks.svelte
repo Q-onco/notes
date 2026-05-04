@@ -16,6 +16,7 @@
   let newText = $state('');
   let newPriority = $state<Task['priority']>('medium');
   let newDue = $state('');
+  let newRepeat = $state<Task['repeat']>(undefined);
   let filter = $state<'all' | 'open' | 'done'>('open');
   let saving = $state(false);
 
@@ -46,20 +47,41 @@
         noteId: null,
         createdAt: Date.now(),
         dueAt: newDue ? new Date(newDue).getTime() : null,
-        priority: newPriority
+        priority: newPriority,
+        repeat: newRepeat,
       }, ...store.tasks];
       await store.saveTasks();
       newText = '';
       newDue = '';
       newPriority = 'medium';
+      newRepeat = undefined;
       showToast('Task added');
     } finally {
       saving = false;
     }
   }
 
+  function nextDueDate(task: Task): number | null {
+    if (!task.dueAt || !task.repeat) return null;
+    const ms = { daily: 86400000, weekly: 7 * 86400000, monthly: 30 * 86400000 }[task.repeat];
+    return task.dueAt + ms;
+  }
+
   async function toggleTask(task: Task) {
     task.done = !task.done;
+    if (task.done && task.repeat) {
+      const next: Task = {
+        id: nanoid(),
+        text: task.text,
+        done: false,
+        noteId: task.noteId,
+        createdAt: Date.now(),
+        dueAt: nextDueDate(task),
+        priority: task.priority,
+        repeat: task.repeat,
+      };
+      store.tasks = [next, ...store.tasks];
+    }
     await store.saveTasks();
   }
 
@@ -117,6 +139,12 @@
         <option value="low">Low</option>
       </select>
       <input type="date" bind:value={newDue} class="due-input" />
+      <select bind:value={newRepeat} class="priority-select" title="Repeat">
+        <option value={undefined}>No repeat</option>
+        <option value="daily">Daily</option>
+        <option value="weekly">Weekly</option>
+        <option value="monthly">Monthly</option>
+      </select>
       <button class="btn btn-primary btn-sm" onclick={addTask} disabled={saving || !newText.trim()}>Add</button>
     </div>
   </div>
@@ -144,6 +172,9 @@
           <span class="task-text">{task.text}</span>
           <div class="task-sub">
             <span class="priority-badge priority-{task.priority}">{task.priority}</span>
+            {#if task.repeat}
+              <span class="repeat-badge">↻ {task.repeat}</span>
+            {/if}
             {#if task.dueAt}
               <span class="due-badge" class:overdue={task.dueAt < Date.now() && !task.done}>
                 {fmtDue(task.dueAt)}
@@ -267,6 +298,7 @@
 
   .due-badge { font-size: 0.72rem; color: var(--mu); }
   .due-badge.overdue { color: var(--rd); font-weight: 600; }
+  .repeat-badge { font-size: 0.68rem; color: var(--gn); font-weight: 600; background: var(--gn-bg, color-mix(in srgb, var(--gn) 12%, transparent)); border-radius: 8px; padding: 1px 6px; }
 
   .note-link {
     display: inline-flex;

@@ -34,6 +34,25 @@
       .sort((a, b) => b.createdAt - a.createdAt)
   );
 
+  // ── Streak counter ────────────────────────────────────────────
+  const streak = $derived((() => {
+    const days = new Set(store.journal.map(e => new Date(e.createdAt).toISOString().slice(0, 10)));
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    let count = 0;
+    let d = new Date(today);
+    // allow today or yesterday to start the streak
+    const todayKey = today.toISOString().slice(0, 10);
+    const hasTodayOrYesterday = days.has(todayKey) || days.has(new Date(today.getTime() - 86400000).toISOString().slice(0, 10));
+    if (!hasTodayOrYesterday) return 0;
+    if (!days.has(todayKey)) d.setDate(d.getDate() - 1);
+    while (days.has(d.toISOString().slice(0, 10))) {
+      count++;
+      d.setDate(d.getDate() - 1);
+    }
+    return count;
+  })());
+
   // ── Heatmap ───────────────────────────────────────────────────
   const heatmap = $derived((() => {
     const counts = new Map<string, number>();
@@ -204,7 +223,10 @@
   <div class="journal-header">
     <div>
       <h2>Journal</h2>
-      <p class="text-sm text-mu">{store.journal.length} entries</p>
+      <p class="text-sm text-mu">
+        {store.journal.length} entries
+        {#if streak > 0}<span class="streak-badge">{streak}-day streak</span>{/if}
+      </p>
     </div>
     <div class="header-actions">
       {#if viewMode === 'list'}
@@ -532,6 +554,19 @@
     align-items: center;
     gap: 12px;
     padding: 20px 0 8px;
+  }
+
+  /* ── Streak ── */
+  .streak-badge {
+    display: inline-block;
+    margin-left: 8px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--ac);
+    background: var(--ac-bg);
+    border: 1px solid var(--ac);
+    border-radius: 20px;
+    padding: 1px 8px;
   }
 
   /* ── Active toggle ── */

@@ -374,6 +374,112 @@ Produce the same number of bullets or fewer. Max 2 lines per bullet.`
   return streamGroq(MODELS.research, messages, onChunk, signal);
 }
 
+export async function generateWeeklyDigest(
+  data: {
+    papersRead: { title: string; journal: string }[];
+    papersAdded: { title: string }[];
+    journalEntries: { date: string; body: string; mood: string }[];
+    tasksDone: string[];
+    tasksOpen: string[];
+  },
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<{ text: string; tokens: number; model: string }> {
+  const messages = [
+    {
+      role: 'system',
+      content: `You are Enzo — Dr. Amritha's research companion. Generate a concise weekly research digest. Be warm but scientifically precise. Use markdown. Max 400 words.`
+    },
+    {
+      role: 'user',
+      content: `Generate a weekly digest from this data:
+
+**Papers read this week:** ${data.papersRead.length ? data.papersRead.map(p => `"${p.title}" (${p.journal})`).join('; ') : 'None'}
+**Added to reading list:** ${data.papersAdded.length ? data.papersAdded.map(p => p.title).join('; ') : 'None'}
+**Journal entries (${data.journalEntries.length}):** ${data.journalEntries.map(e => `[${e.date}, ${e.mood}] ${e.body.slice(0, 120)}`).join(' | ')}
+**Tasks completed:** ${data.tasksDone.length ? data.tasksDone.join('; ') : 'None'}
+**Still open:** ${data.tasksOpen.slice(0, 5).join('; ')}
+
+Produce:
+## This week
+2–3 sentence summary of scientific progress and mood arc.
+
+## Key themes
+Bullet the 2–3 most recurring scientific concepts or questions.
+
+## Next week
+2–3 specific, actionable research suggestions based on open tasks and unresolved questions in the journal.`
+    }
+  ];
+  return streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
+export async function deepReadPaper(
+  title: string,
+  abstract: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<{ text: string; tokens: number; model: string }> {
+  const messages = [
+    {
+      role: 'system',
+      content: `You are Enzo in Deep Read mode. You are a brilliant, critical scientific reader specialising in HGSOC, TME, scRNA-seq, spatial transcriptomics, and PARP inhibitor biology. Your job is NOT to summarise — the user has already read the abstract. Your job is to ask 5 pointed, Socratic questions that force the reader to engage critically with the paper's design, statistics, controls, assumptions, and clinical relevance to ovarian cancer research. Each question should be a genuine intellectual challenge — not softballs. Number them. Be terse and precise.`
+    },
+    {
+      role: 'user',
+      content: `**Paper:** ${title}\n\n**Abstract:**\n${abstract}\n\nAsk your 5 critical questions.`
+    }
+  ];
+  return streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
+export async function generateReadingNote(
+  paper: { title: string; authors: string[]; journal: string; year: number; abstract?: string; doi?: string },
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<{ text: string; tokens: number; model: string }> {
+  const citation = [
+    paper.authors.slice(0, 3).join(', ') + (paper.authors.length > 3 ? ' et al.' : ''),
+    `(${paper.year}).`,
+    paper.title + '.',
+    paper.journal + '.',
+    paper.doi ? `https://doi.org/${paper.doi}` : ''
+  ].filter(Boolean).join(' ');
+
+  const messages = [
+    {
+      role: 'system',
+      content: `You are Enzo. Generate a structured reading note for a paper relevant to HGSOC/TME/scRNA-seq/PARPi research. Be concise and precise. Use markdown. Output ONLY the note content — no preamble.`
+    },
+    {
+      role: 'user',
+      content: `Generate a structured reading note for this paper:
+
+**Title:** ${paper.title}
+**Citation:** ${citation}
+**Abstract:** ${paper.abstract || 'Not available'}
+
+Use exactly this structure:
+
+## Key Claims
+- (2–3 bullets: the main findings the authors assert)
+
+## Methods
+- (2–3 bullets: experimental design, key techniques, cohort)
+
+## Limitations
+- (2–3 bullets: what the paper cannot answer, missing controls, cohort caveats)
+
+## HGSOC Relevance
+1–2 sentences: how this connects to ovarian cancer TME, PARPi resistance, or scRNA-seq work.
+
+## Questions Raised
+- (2–3 bullets: specific follow-up questions this paper opens)`
+    }
+  ];
+  return streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
 export async function transcribeAudio(blob: Blob, _workerUrl?: string): Promise<string> {
   const workerUrl = _workerUrl || getWorkerUrl();
   const fd = new FormData();

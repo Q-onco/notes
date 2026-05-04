@@ -1,8 +1,8 @@
 import type {
   Note, JournalEntry, Task, AudioRecord,
-  ChatSession, CalendarEvent, AppSettings, PaperResult,
+  ChatSession, CalendarEvent, AppSettings, AiFeatureSettings, PaperResult,
   ReadingListItem, SavedSearch, PipelineRun, Protocol,
-  SavedJob, ResearcherProfile,
+  SavedJob, ResearcherProfile, Hypothesis,
   CvProfile, CoverLetter, JobContact, JobEmailTemplate, SalaryEntry, JobDeadline
 } from './types';
 import { loadEncFile, saveEncFile, PATHS, validateToken } from './github';
@@ -51,6 +51,7 @@ class Store {
 
   pipelineRuns = $state<PipelineRun[]>([]);
   protocols = $state<Protocol[]>([]);
+  hypotheses = $state<Hypothesis[]>([]);
   pipelinesSha = $state<string | null>(null);
 
   calEvents = $state<CalendarEvent[]>([]);
@@ -115,6 +116,17 @@ class Store {
 
   // Derived
   get authenticated(): boolean { return this.tok !== null; }
+
+  get aiSettings(): AiFeatureSettings {
+    return {
+      coverLetter:   false,
+      writerBullets: false,
+      weeklyDigest:  false,
+      deepRead:      false,
+      readingNote:   false,
+      ...this.settings.ai,
+    };
+  }
   get currentNote(): Note | null {
     return this.notes.find(n => n.id === this.currentNoteId) ?? null;
   }
@@ -180,7 +192,7 @@ class Store {
       loadEncFile<PaperResult[]>(this.tok, PATHS.pinned, []),
       loadEncFile<AppSettings>(this.tok, PATHS.settings, this.settings),
       loadEncFile<{readingList: ReadingListItem[], savedSearches: SavedSearch[]}>(this.tok, PATHS.research, { readingList: [], savedSearches: [] }),
-      loadEncFile<{runs: PipelineRun[], protocols: Protocol[]}>(this.tok, PATHS.pipelines, { runs: [], protocols: [] }),
+      loadEncFile<{runs: PipelineRun[], protocols: Protocol[], hypotheses: Hypothesis[]}>(this.tok, PATHS.pipelines, { runs: [], protocols: [], hypotheses: [] }),
       loadEncFile<SavedJob[]>(this.tok, PATHS.jobs, []),
       loadEncFile<{contacts: JobContact[], templates: JobEmailTemplate[], salaries: SalaryEntry[], deadlines: JobDeadline[]}>(this.tok, PATHS.jobExt, { contacts: [], templates: [], salaries: [], deadlines: [] }),
       loadEncFile<CvProfile>(this.tok, PATHS.cv, this.cvProfile),
@@ -206,6 +218,7 @@ class Store {
     this.researchSha = res.sha;
     this.pipelineRuns = pip.data.runs ?? [];
     this.protocols = pip.data.protocols ?? [];
+    this.hypotheses = pip.data.hypotheses ?? [];
     this.pipelinesSha = pip.sha;
     this.savedJobs = jb.data; this.jobsSha = jb.sha;
     this.jobContacts = jbx.data.contacts ?? [];
@@ -233,7 +246,7 @@ class Store {
     if (!this.tok) return;
     const sha = await saveEncFile(
       this.tok, PATHS.pipelines,
-      { runs: this.pipelineRuns, protocols: this.protocols },
+      { runs: this.pipelineRuns, protocols: this.protocols, hypotheses: this.hypotheses },
       this.pipelinesSha,
       'pipelines: update'
     );

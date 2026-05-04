@@ -791,6 +791,7 @@
                       </div>
 
                       <!-- Generate cover letter shortcut -->
+                      {#if store.aiSettings.coverLetter}
                       <div class="expand-section">
                         <button class="btn btn-ghost btn-sm" onclick={() => {
                           clSelectedJobId = job.id;
@@ -803,6 +804,11 @@
                           Generate cover letter for this role →
                         </button>
                       </div>
+                      {:else}
+                      <div class="expand-section">
+                        <span class="text-xs text-mu">Enable "Cover letter generator" in Settings → AI features to generate letters.</span>
+                      </div>
+                      {/if}
                     {/if}
                     <a class="btn btn-ghost btn-sm" href={job.listing.url} target="_blank" rel="noreferrer">View original posting →</a>
                   </div>
@@ -980,6 +986,7 @@
                       {/each}
                       <div class="bullet-actions">
                         <button class="btn btn-ghost btn-xs" onclick={() => addExpBullet(exp)}>+ Add bullet</button>
+                        {#if store.aiSettings.writerBullets}
                         <button
                           class="btn btn-ghost btn-xs writer-improve-btn"
                           onclick={() => improveExpEntry(exp)}
@@ -991,6 +998,7 @@
                             <span class="writer-w-badge">W</span> Improve with WRITER
                           {/if}
                         </button>
+                        {/if}
                       </div>
                     </div>
 
@@ -1242,7 +1250,10 @@
                 {/if}
               </div>
               <div class="cl-generate-row">
-                <button class="btn btn-primary" onclick={generateLetter} disabled={clGenerating || !clJobTitle || !clCompany}>
+                {#if !store.aiSettings.coverLetter}
+                  <p class="text-xs text-mu">Enable "Cover letter generator" in <button class="text-link" onclick={() => store.view = 'settings'}>Settings → AI features</button>.</p>
+                {/if}
+                <button class="btn btn-primary" onclick={generateLetter} disabled={clGenerating || !clJobTitle || !clCompany || !store.aiSettings.coverLetter}>
                   {clGenerating ? 'Writing…' : 'Generate cover letter'}
                 </button>
                 {#if clGenerating}
