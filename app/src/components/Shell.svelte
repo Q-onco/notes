@@ -22,6 +22,10 @@
   let toastTimer: ReturnType<typeof setTimeout>;
   let helpOpen = $state(false);
   let clockOpen = $state(false);
+  let searchOpen = $state(false);
+  let searchQuery = $state('');
+  let searchSelected = $state(0);
+  let searchInputEl = $state<HTMLInputElement | undefined>(undefined);
   let newAlarmTime = $state('');
   let newAlarmLabel = $state('');
   const firedToday = new Set<string>();
@@ -92,13 +96,86 @@
     store.saveSettings();
   }
 
+  type SearchResult = { type: string; id: string; title: string; preview: string; section: string; icon: string };
+
+  const searchResults = $derived((() => {
+    if (!searchQuery.trim() || searchQuery.length < 2) return [] as SearchResult[];
+    const q = searchQuery.toLowerCase();
+    const results: SearchResult[] = [];
+
+    for (const note of store.notes) {
+      if (note.archived) continue;
+      if (note.title.toLowerCase().includes(q) || note.body.toLowerCase().includes(q)) {
+        results.push({ type: 'note', id: note.id, title: note.title || 'Untitled note', preview: note.body.replace(/[#*`_\[\]]/g, '').slice(0, 90), section: 'notes', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' });
+      }
+    }
+
+    for (const entry of store.journal) {
+      if (entry.body.toLowerCase().includes(q) || entry.contextTag.toLowerCase().includes(q)) {
+        const d = new Date(entry.createdAt).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+        results.push({ type: 'journal', id: entry.id, title: `Journal · ${d}`, preview: entry.body.replace(/[#*`_]/g, '').slice(0, 90), section: 'journal', icon: 'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z' });
+      }
+    }
+
+    for (const task of store.tasks) {
+      if (!task.done && task.text.toLowerCase().includes(q)) {
+        results.push({ type: 'task', id: task.id, title: task.text, preview: task.noteId ? 'Linked to note' : '', section: 'tasks', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4' });
+      }
+    }
+
+    for (const session of store.chatSessions) {
+      let matched = false;
+      for (const msg of session.messages) {
+        if (msg.content.toLowerCase().includes(q)) {
+          const d = new Date(session.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+          results.push({ type: 'enzo', id: session.date, title: `Enzo · ${d}`, preview: msg.content.slice(0, 90), section: 'enzo', icon: 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z' });
+          matched = true;
+          break;
+        }
+      }
+      if (matched && results.length >= 20) break;
+    }
+
+    return results.slice(0, 20);
+  })());
+
+  function openSearch() {
+    searchOpen = true;
+    searchQuery = '';
+    searchSelected = 0;
+    setTimeout(() => searchInputEl?.focus(), 30);
+  }
+
+  function navigateToResult(result: SearchResult) {
+    searchOpen = false;
+    if (result.section === 'enzo') {
+      store.enzoOpen = true;
+    } else {
+      store.view = result.section as typeof store.view;
+    }
+    if (result.type === 'note') store.currentNoteId = result.id;
+    if (result.type === 'journal') store.selectedJournalId = result.id;
+  }
+
   function onWindowKey(e: KeyboardEvent) {
-    if (e.key === '?' && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
-      helpOpen = true;
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      openSearch();
+      return;
     }
     if (e.key === 'Escape') {
+      if (searchOpen) { searchOpen = false; return; }
       helpOpen = false;
       clockOpen = false;
+    }
+    if (searchOpen) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); searchSelected = Math.min(searchSelected + 1, searchResults.length - 1); }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); searchSelected = Math.max(searchSelected - 1, 0); }
+      if (e.key === 'Enter' && searchResults[searchSelected]) { navigateToResult(searchResults[searchSelected]); }
+      return;
+    }
+    if (e.key === '?' && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
+      helpOpen = true;
     }
   }
 
@@ -131,6 +208,58 @@
     onclose={() => helpOpen = false}
     onnavigate={(section) => { store.view = section as typeof store.view; helpOpen = false; }}
   />
+{/if}
+
+{#if searchOpen}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="search-backdrop" onclick={() => searchOpen = false}></div>
+  <div class="search-overlay" role="dialog" aria-label="Global search" aria-modal="true">
+    <div class="search-input-row">
+      <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input
+        class="search-global-input"
+        bind:value={searchQuery}
+        bind:this={searchInputEl}
+        placeholder="Search notes, journal, tasks, Enzo…"
+        autocomplete="off"
+        oninput={() => searchSelected = 0}
+      />
+      <kbd class="search-esc" onclick={() => searchOpen = false}>Esc</kbd>
+    </div>
+
+    {#if searchResults.length > 0}
+      <div class="search-results" role="listbox">
+        {#each searchResults as result, i}
+          <button
+            class="search-result"
+            class:search-result-active={i === searchSelected}
+            role="option"
+            aria-selected={i === searchSelected}
+            onclick={() => navigateToResult(result)}
+            onmouseenter={() => searchSelected = i}
+          >
+            <span class="sr-section-pill">{result.section}</span>
+            <svg class="sr-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d={result.icon}/></svg>
+            <div class="sr-body">
+              <span class="sr-title">{result.title}</span>
+              {#if result.preview}
+                <span class="sr-preview">{result.preview}</span>
+              {/if}
+            </div>
+            <svg class="sr-enter" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 01-4 4H4"/></svg>
+          </button>
+        {/each}
+      </div>
+    {:else if searchQuery.length >= 2}
+      <div class="search-empty">No results for <em>"{searchQuery}"</em></div>
+    {:else}
+      <div class="search-hint">
+        <span>Notes · Journal · Tasks · Enzo</span>
+        <span class="search-hint-keys"><kbd>↑↓</kbd> navigate · <kbd>↵</kbd> open</span>
+      </div>
+    {/if}
+  </div>
 {/if}
 
 <div class="shell">
@@ -253,6 +382,11 @@
       >
         <span class="enzo-dot"></span>
         <span class="enzo-label">Enzo</span>
+      </button>
+      <button class="search-trigger" onclick={openSearch} title="Search (Ctrl+K)">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <span class="search-trigger-label">Search</span>
+        <kbd class="search-trigger-kbd">⌘K</kbd>
       </button>
       <button class="btn-icon help-btn" onclick={() => helpOpen = true} title="Help (?)">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -563,6 +697,170 @@
     font-size: 0.82rem;
     min-width: 0;
     padding: 5px 8px;
+  }
+
+  /* ── Search trigger ── */
+  .search-trigger {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--tx2);
+    background: var(--sf2);
+    border: 1px solid var(--bd);
+    border-radius: var(--radius-sm);
+    padding: 4px 9px;
+    cursor: pointer;
+    transition: all var(--transition);
+    white-space: nowrap;
+  }
+  .search-trigger:hover { border-color: var(--ac); color: var(--ac); background: var(--ac-bg); }
+  .search-trigger-label { display: none; }
+  @media (min-width: 900px) { .search-trigger-label { display: inline; } }
+  .search-trigger-kbd {
+    font-size: 0.62rem;
+    color: var(--mu);
+    background: var(--sf);
+    border: 1px solid var(--bd);
+    border-radius: 3px;
+    padding: 0 4px;
+    font-family: var(--mono);
+    line-height: 1.5;
+  }
+
+  /* ── Search overlay ── */
+  .search-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    backdrop-filter: blur(2px);
+    z-index: 200;
+  }
+  .search-overlay {
+    position: fixed;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(620px, 94vw);
+    background: var(--sf);
+    border: 1px solid var(--bd);
+    border-radius: var(--radius);
+    box-shadow: 0 24px 64px rgba(0,0,0,0.28);
+    z-index: 201;
+    overflow: hidden;
+  }
+  .search-input-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--bd);
+  }
+  .search-icon { color: var(--mu); flex-shrink: 0; }
+  .search-global-input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    font-size: 1rem;
+    color: var(--tx);
+    font-family: var(--font);
+    outline: none;
+    padding: 0;
+    min-width: 0;
+  }
+  .search-global-input::placeholder { color: var(--mu); }
+  .search-esc {
+    font-size: 0.62rem;
+    color: var(--mu);
+    background: var(--sf2);
+    border: 1px solid var(--bd);
+    border-radius: 3px;
+    padding: 2px 6px;
+    cursor: pointer;
+    font-family: var(--mono);
+    flex-shrink: 0;
+  }
+  .search-esc:hover { background: var(--bd); }
+
+  .search-results {
+    max-height: 360px;
+    overflow-y: auto;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .search-result {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    transition: background var(--transition);
+    width: 100%;
+  }
+  .search-result:hover, .search-result-active { background: var(--sf2); }
+  .sr-section-pill {
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--ac);
+    background: var(--ac-bg);
+    padding: 2px 6px;
+    border-radius: 10px;
+    flex-shrink: 0;
+    min-width: 44px;
+    text-align: center;
+  }
+  .sr-icon { color: var(--mu); flex-shrink: 0; }
+  .sr-body { flex: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .sr-title {
+    font-size: 0.87rem;
+    font-weight: 500;
+    color: var(--tx);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sr-preview {
+    font-size: 0.75rem;
+    color: var(--mu);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sr-enter { color: var(--mu); opacity: 0; flex-shrink: 0; }
+  .search-result:hover .sr-enter, .search-result-active .sr-enter { opacity: 1; color: var(--ac); }
+
+  .search-empty {
+    padding: 24px 18px;
+    font-size: 0.87rem;
+    color: var(--mu);
+    text-align: center;
+  }
+  .search-hint {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 18px;
+    font-size: 0.75rem;
+    color: var(--mu);
+  }
+  .search-hint-keys { display: flex; gap: 8px; align-items: center; }
+  .search-hint-keys kbd {
+    font-size: 0.62rem;
+    background: var(--sf2);
+    border: 1px solid var(--bd);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-family: var(--mono);
+    color: var(--tx2);
   }
 
   /* ── Rest of topbar ── */
