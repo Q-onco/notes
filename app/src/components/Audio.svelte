@@ -2,6 +2,7 @@
   import { store } from '../lib/store.svelte';
   import { transcribeAudio } from '../lib/groq';
   import { nanoid } from 'nanoid';
+  import type { Note } from '../lib/types';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -227,6 +228,42 @@
     },
   ];
 
+  // ── Transcript actions ───────────────────────────────────────
+  async function saveTranscriptAsNote(rec: typeof EXAMPLE_RECORDS[0]) {
+    if (rec.id.startsWith('_')) return;
+    const date = new Date(rec.createdAt).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    const time = new Date(rec.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    const note: Note = {
+      id: nanoid(),
+      title: `Transcript — ${new Date(rec.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+      body: `# Transcript\n\n**Date:** ${date}  \n**Time:** ${time}  \n**Duration:** ${fmtDur(rec.durationSec)}\n\n---\n\n${rec.transcript}\n`,
+      tags: ['audio', 'transcript'],
+      createdAt: rec.createdAt,
+      updatedAt: Date.now(),
+      pinned: false,
+      archived: false,
+      audioIds: [rec.id]
+    };
+    store.notes = [note, ...store.notes];
+    store.currentNoteId = note.id;
+    await store.saveNotes();
+    store.view = 'notes';
+    showToast('Transcript saved as note');
+  }
+
+  function sendTranscriptToEnzo(rec: typeof EXAMPLE_RECORDS[0]) {
+    if (rec.id.startsWith('_')) return;
+    const date = new Date(rec.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    store.enzoSearchQuery = `I recorded the following on ${date} (${fmtDur(rec.durationSec)}). Analyse it — identify the key scientific points, questions raised, and any concrete action items:\n\n${rec.transcript}`;
+    store.enzoOpen = true;
+  }
+
+  function sendDraftToEnzo() {
+    if (!draftTranscript.trim()) return;
+    store.enzoSearchQuery = `I just recorded the following (${fmtDur(durationSec)}). Analyse it — identify key scientific points, questions, and action items:\n\n${draftTranscript}`;
+    store.enzoOpen = true;
+  }
+
   // ── Selected audio highlight from Calendar click-through ──────
   $effect(() => {
     if (store.selectedAudioId) {
@@ -358,13 +395,12 @@
               <option value={note.id}>{note.title}</option>
             {/each}
           </select>
+          <button class="btn btn-ghost btn-sm" onclick={sendDraftToEnzo} title="Send to Enzo for analysis">
+            <span class="text-enzo" style="font-family:var(--mono);font-weight:700;font-size:0.78rem">E</span>
+            Ask Enzo
+          </button>
           <button class="btn btn-ghost btn-sm" onclick={exportMarkdown} title="Export as Markdown">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-              <polyline points="7 10 12 15 17 10"/>
-              <line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
-            Export .md
+            .md
           </button>
           <button class="btn btn-primary btn-sm" onclick={saveRecording}>Save</button>
         </div>
@@ -395,6 +431,16 @@
               {/if}
             {/if}
           </div>
+          {#if !rec.id.startsWith('_')}
+            <button class="btn-icon rec-action-btn" onclick={() => saveTranscriptAsNote(rec)} title="Save as note">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+              </svg>
+            </button>
+            <button class="btn-icon rec-action-btn" onclick={() => sendTranscriptToEnzo(rec)} title="Ask Enzo">
+              <span class="text-enzo" style="font-family:var(--mono);font-weight:700;font-size:0.72rem">E</span>
+            </button>
+          {/if}
           <button
             class="btn-icon"
             onclick={async () => {
@@ -589,6 +635,8 @@
     border-radius: var(--radius-sm);
     padding: 10px;
   }
+  .rec-action-btn { color: var(--mu); }
+  .rec-action-btn:hover { color: var(--ac); background: var(--ac-bg); }
 
   .empty-state { padding: 40px; text-align: center; }
 </style>

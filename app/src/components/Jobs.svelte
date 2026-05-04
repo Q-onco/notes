@@ -328,17 +328,37 @@
   function buildCvSummary(): string {
     const cv = store.cvProfile;
     const parts: string[] = [];
-    if (cv.summary) parts.push(cv.summary);
+    if (cv.fullName) parts.push(`Name: ${cv.fullName}`);
+    if (cv.location) parts.push(`Location: ${cv.location}`);
+    if (cv.orcid) parts.push(`ORCID: ${cv.orcid}`);
+    if (cv.summary) parts.push(`\nProfile:\n${cv.summary}`);
     if (cv.experience.length) {
-      parts.push('Experience: ' + cv.experience.slice(0, 3).map(e => `${e.role} at ${e.organisation} (${e.startDate}–${e.endDate || 'present'})`).join('; '));
+      parts.push('\nExperience:\n' + cv.experience.map(e =>
+        `- ${e.role} at ${e.organisation} (${e.startDate}–${e.endDate || 'present'})` +
+        (e.bullets?.length ? '\n' + e.bullets.slice(0, 3).map((b: string) => `  · ${b}`).join('\n') : '')
+      ).join('\n'));
+    }
+    if (cv.education.length) {
+      parts.push('\nEducation:\n' + cv.education.map((e: { degree: string; institution: string; endDate: string }) =>
+        `- ${e.degree}, ${e.institution} (${e.endDate})`
+      ).join('\n'));
     }
     if (cv.publications.length) {
-      parts.push(`Publications: ${cv.publications.length} papers including ${cv.publications.slice(0, 2).map(p => p.title).join('; ')}`);
+      parts.push('\nPublications:\n' + cv.publications.slice(0, 6).map((p: { title: string; journal: string; year: string | number; firstAuthor?: boolean }) =>
+        `- ${p.title}. ${p.journal} (${p.year})${p.firstAuthor ? ' [first author]' : ''}`
+      ).join('\n'));
     }
     if (cv.skillGroups.length) {
-      parts.push('Skills: ' + cv.skillGroups.map(g => `${g.category}: ${g.skills.slice(0, 4).join(', ')}`).join('; '));
+      parts.push('\nSkills:\n' + cv.skillGroups.map((g: { category: string; skills: string[] }) =>
+        `- ${g.category}: ${g.skills.join(', ')}`
+      ).join('\n'));
     }
-    return parts.join('\n\n') || 'Postdoctoral researcher specialising in HGSOC, tumour microenvironment, scRNA-seq, spatial transcriptomics, and PARP inhibitor resistance.';
+    if (cv.awards.length) {
+      parts.push('\nAwards:\n' + cv.awards.slice(0, 4).map((a: { title: string; year: string | number }) =>
+        `- ${a.title} (${a.year})`
+      ).join('\n'));
+    }
+    return parts.join('\n') || 'Postdoctoral researcher specialising in HGSOC, tumour microenvironment, scRNA-seq, spatial transcriptomics, and PARP inhibitor resistance.';
   }
 
   async function generateLetter() {
@@ -346,8 +366,16 @@
     clGenerating = true;
     clContent = '';
     clAbort = new AbortController();
+    const recentLetters = store.coverLetters.slice(0, 2).map(l => ({
+      company: l.company, role: l.role, content: l.content
+    }));
     try {
-      await generateCoverLetter(clJobTitle, clCompany, clJobDesc, buildCvSummary(), (chunk) => { clContent += chunk; }, clAbort.signal);
+      await generateCoverLetter(
+        clJobTitle, clCompany, clJobDesc, buildCvSummary(),
+        (chunk) => { clContent += chunk; },
+        clAbort.signal,
+        recentLetters
+      );
     } catch (e) {
       if ((e as Error).name !== 'AbortError') showToast('Generation failed: ' + (e as Error).message, 'error');
     } finally { clGenerating = false; clAbort = null; }
@@ -1136,12 +1164,26 @@
                   <textarea rows={5} bind:value={clJobDesc} placeholder="Paste the job description here…"></textarea>
                 </div>
               </div>
+              <div class="cl-cv-hint">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/>
+                  <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+                </svg>
+                {#if store.cvProfile.experience.length > 0 || store.cvProfile.publications.length > 0}
+                  CV data loaded — {store.cvProfile.experience.length} roles, {store.cvProfile.publications.length} publications
+                {:else}
+                  No CV data yet — <button class="text-link" onclick={() => tab = 'cv'}>fill in the CV builder</button> to improve letter quality
+                {/if}
+              </div>
               <div class="cl-generate-row">
                 <button class="btn btn-primary" onclick={generateLetter} disabled={clGenerating || !clJobTitle || !clCompany}>
-                  {clGenerating ? 'Enzo is writing…' : 'Generate with Enzo'}
+                  {clGenerating ? 'Writing…' : 'Generate cover letter'}
                 </button>
                 {#if clGenerating}
                   <button class="btn btn-ghost btn-sm" onclick={() => clAbort?.abort()}>Stop</button>
+                {/if}
+                {#if store.coverLetters.length > 0}
+                  <span class="text-xs text-mu">Will reference {Math.min(2, store.coverLetters.length)} previous letter{store.coverLetters.length > 1 ? 's' : ''} to avoid repetition</span>
                 {/if}
               </div>
               {#if clContent}
@@ -1621,7 +1663,14 @@
   .cl-preview { line-height: 1.5; }
   .cl-compose { display: flex; flex-direction: column; gap: 14px; }
   .back-btn { align-self: flex-start; margin-bottom: 4px; }
-  .cl-generate-row { display: flex; gap: 8px; align-items: center; }
+  .cl-cv-hint {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.78rem; color: var(--tx2);
+    background: var(--sf2); border: 1px solid var(--bd);
+    border-radius: var(--radius-sm); padding: 7px 12px;
+  }
+  .cl-cv-hint svg { color: var(--ac); flex-shrink: 0; }
+  .cl-generate-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .cl-textarea { font-family: var(--mono); font-size: 0.85rem; line-height: 1.7; width: 100%; box-sizing: border-box; }
   .cl-save-row { display: flex; gap: 8px; justify-content: flex-end; }
   .cl-view-letter { display: flex; flex-direction: column; gap: 14px; }

@@ -20,14 +20,6 @@
     { id: '_ej2', body: 'Reviewed SOLO-2 extension data. The PFS benefit in HRD-positive patients is striking but the tail-off at 36 months raises questions about acquired resistance mechanisms.', createdAt: Date.now() - 172800000 },
   ];
 
-  const QUICK_PROMPTS = [
-    'Summarise my latest note',
-    'What tasks are pending?',
-    'Suggest next analysis steps',
-    'Draft an abstract for my current work',
-    'What papers should I read this week?'
-  ];
-
   function newNote() {
     const note: Note = {
       id: nanoid(),
@@ -65,6 +57,47 @@
   const recentJournal = $derived(
     [...store.journal].sort((a, b) => b.createdAt - a.createdAt).slice(0, 3)
   );
+
+  // Week activity
+  const weekMs = 7 * 86400000;
+  const weekStart = $derived(Date.now() - weekMs);
+  const papersThisWeek = $derived(store.readingList.filter(r => r.addedAt > weekStart).length);
+  const journalThisWeek = $derived(store.journal.filter(e => e.createdAt > weekStart).length);
+  const notesThisWeek = $derived(store.notes.filter(n => n.updatedAt > weekStart && !n.archived).length);
+
+  // Upcoming deadlines from job tracker
+  const nextDeadline = $derived(
+    store.savedJobs
+      .filter(j => j.listing.deadline && j.listing.deadline > Date.now())
+      .sort((a, b) => (a.listing.deadline ?? 0) - (b.listing.deadline ?? 0))[0] ?? null
+  );
+
+  const jobsActive = $derived(
+    store.savedJobs.filter(j => j.status !== 'rejected' && j.status !== 'offer').length
+  );
+
+  // Dynamic Enzo prompts — contextual to actual data
+  const quickPrompts = $derived((() => {
+    const prompts: string[] = [];
+    const latestJournal = [...store.journal].sort((a, b) => b.createdAt - a.createdAt)[0];
+    if (latestJournal) {
+      const d = new Date(latestJournal.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+      prompts.push(`My journal entry from ${d}: "${latestJournal.body.slice(0, 80)}…" — what should I focus on next?`);
+    }
+    if (store.activeTasks.length > 0) {
+      prompts.push(`I have ${store.activeTasks.length} open tasks. Given my research context, what should I prioritise today?`);
+    }
+    if (store.pinnedPapers.length > 0) {
+      prompts.push(`I have ${store.pinnedPapers.length} pinned papers. Identify the common themes and any methodological gaps I should address.`);
+    }
+    if (nextDeadline) {
+      const daysLeft = Math.ceil(((nextDeadline.listing.deadline ?? 0) - Date.now()) / 86400000);
+      prompts.push(`I have ${daysLeft} days until my ${nextDeadline.listing.company} application deadline. Help me plan my remaining preparation.`);
+    }
+    prompts.push('What are the most important open questions in spatial transcriptomics of HGSOC right now?');
+    prompts.push('Suggest an experiment to probe PARPi resistance mechanisms in my HGSOC cohort.');
+    return prompts.slice(0, 5);
+  })());
 </script>
 
 <div class="dashboard">
@@ -90,20 +123,51 @@
       <button class="stat-card" onclick={() => store.view = 'notes'}>
         <span class="stat-value">{store.notes.filter(n => !n.archived).length}</span>
         <span class="stat-label">Notes</span>
+        {#if notesThisWeek > 0}<span class="stat-week">+{notesThisWeek} this week</span>{/if}
       </button>
       <button class="stat-card" onclick={() => store.view = 'journal'}>
         <span class="stat-value">{store.journal.length}</span>
-        <span class="stat-label">Journal entries</span>
+        <span class="stat-label">Journal</span>
+        {#if journalThisWeek > 0}<span class="stat-week">+{journalThisWeek} this week</span>{/if}
       </button>
       <button class="stat-card" onclick={() => store.view = 'tasks'}>
         <span class="stat-value">{store.activeTasks.length}</span>
         <span class="stat-label">Open tasks</span>
+        {#if tasksTotal > 0}<span class="stat-week">{taskPct}% done</span>{/if}
+      </button>
+      <button class="stat-card" onclick={() => store.view = 'research'}>
+        <span class="stat-value">{store.readingList.length}</span>
+        <span class="stat-label">Reading list</span>
+        {#if papersThisWeek > 0}<span class="stat-week">+{papersThisWeek} this week</span>{/if}
+      </button>
+      <button class="stat-card" onclick={() => store.view = 'jobs'}>
+        <span class="stat-value">{jobsActive}</span>
+        <span class="stat-label">Active jobs</span>
+        {#if nextDeadline}
+          <span class="stat-week stat-deadline">
+            {Math.ceil(((nextDeadline.listing.deadline ?? 0) - Date.now()) / 86400000)}d · {nextDeadline.listing.company}
+          </span>
+        {/if}
       </button>
       <button class="stat-card" onclick={() => store.view = 'audio'}>
         <span class="stat-value">{store.audioRecords.length}</span>
         <span class="stat-label">Recordings</span>
       </button>
     </div>
+
+    <!-- Upcoming deadline banner -->
+    {#if nextDeadline}
+      <div class="deadline-banner">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </svg>
+        <span>
+          <strong>{nextDeadline.listing.company}</strong> — {nextDeadline.listing.title} ·
+          {Math.ceil(((nextDeadline.listing.deadline ?? 0) - Date.now()) / 86400000)} days left
+        </span>
+        <button class="btn btn-ghost btn-sm deadline-go" onclick={() => store.view = 'jobs'}>Go →</button>
+      </div>
+    {/if}
 
     <!-- Main grid -->
     <div class="dash-grid">
@@ -182,9 +246,9 @@
           <button class="btn btn-enzo btn-sm" onclick={() => store.enzoOpen = true}>Open</button>
         </div>
         <div class="prompt-chips">
-          {#each QUICK_PROMPTS as prompt}
+          {#each quickPrompts as prompt}
             <button class="prompt-chip" onclick={() => sendToEnzo(prompt)}>
-              {prompt}
+              {prompt.length > 90 ? prompt.slice(0, 90) + '…' : prompt}
             </button>
           {/each}
         </div>
@@ -265,8 +329,8 @@
 
   .stats-row {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 10px;
   }
 
   .stat-card {
@@ -284,6 +348,21 @@
 
   .stat-value { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.03em; color: var(--tx); }
   .stat-label { font-size: 0.75rem; color: var(--mu); }
+  .stat-week { font-size: 0.68rem; color: var(--gn); font-weight: 600; }
+  .stat-deadline { color: var(--yw) !important; }
+
+  .deadline-banner {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--yw-bg, rgba(255,200,0,.08));
+    border: 1px solid var(--yw);
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    color: var(--tx2);
+    font-size: 0.85rem;
+  }
+  .deadline-banner svg { color: var(--yw); flex-shrink: 0; }
+  .deadline-banner strong { color: var(--tx); }
+  .deadline-go { margin-left: auto; flex-shrink: 0; }
 
   .dash-grid {
     display: grid;
@@ -441,6 +520,9 @@
   .pinned-row:hover .unpin-btn { opacity: 1; }
   .unpin-btn:hover { color: var(--rd); background: var(--rd-bg); opacity: 1; }
 
+  @media (max-width: 900px) {
+    .stats-row { grid-template-columns: repeat(3, 1fr); }
+  }
   @media (max-width: 680px) {
     .stats-row { grid-template-columns: repeat(2, 1fr); }
     .dash-grid { grid-template-columns: 1fr; }

@@ -2,7 +2,7 @@
   import { store } from '../lib/store.svelte';
   import { askEnzo } from '../lib/groq';
   import { nanoid } from 'nanoid';
-  import type { ChatSession, ChatMessage } from '../lib/types';
+  import type { ChatSession, ChatMessage, Note } from '../lib/types';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -31,6 +31,7 @@
   let tab = $state<'chat' | 'history'>('chat');
   let inputText = $state('');
   let streaming = $state(false);
+  let useJournalContext = $state(true);
   let streamBuffer = $state('');
   let abortController: AbortController | null = null;
   let messagesEl = $state<HTMLDivElement | undefined>(undefined);
@@ -94,6 +95,17 @@
         ? `${store.currentNote.title}\n\n${store.currentNote.body.slice(0, 2000)}`
         : '';
 
+      const journalContext = useJournalContext && store.journal.length > 0
+        ? [...store.journal]
+            .sort((a, b) => b.createdAt - a.createdAt)
+            .slice(0, 3)
+            .map(e => {
+              const d = new Date(e.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+              return `[${d}] ${e.body.slice(0, 300)}${e.body.length > 300 ? '…' : ''}`;
+            })
+            .join('\n\n')
+        : '';
+
       const history = session.messages
         .filter(m => m.id !== assistantId)
         .slice(-10)
@@ -110,7 +122,8 @@
           }
           scrollToBottom();
         },
-        abortController.signal
+        abortController.signal,
+        journalContext
       );
 
       const idx = session.messages.findIndex(m => m.id === assistantId);
@@ -188,6 +201,33 @@
   function fmtTime(ts: number) {
     return new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   }
+
+  async function saveSessionAsNote(session: ChatSession) {
+    const dateStr = fmtDate(session.date);
+    const lines = session.messages.map(m =>
+      `**${m.role === 'user' ? store.settings.userName || 'You' : 'Enzo'}** *(${fmtTime(m.timestamp)})*\n\n${m.content}`
+    ).join('\n\n---\n\n');
+
+    const note: Note = {
+      id: nanoid(),
+      title: `Enzo — ${dateStr}`,
+      body: `# Enzo conversation — ${dateStr}\n\n${lines}`,
+      tags: ['enzo', 'conversation'],
+      createdAt: new Date(session.date).getTime(),
+      updatedAt: Date.now(),
+      pinned: false,
+      archived: false,
+      audioIds: []
+    };
+    store.notes = [note, ...store.notes];
+    store.currentNoteId = note.id;
+    await store.saveNotes();
+    store.view = 'notes';
+    store.enzoOpen = false;
+    showToast('Conversation saved as note');
+  }
+
+  const hasJournal = $derived(store.journal.length > 0);
 </script>
 
 <div class="enzo-panel">
@@ -244,13 +284,28 @@
       {/if}
     </div>
 
-    <!-- Note context indicator -->
-    {#if store.currentNote}
+    <!-- Context bar -->
+    {#if store.currentNote || hasJournal}
       <div class="context-bar text-xs text-mu">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-        </svg>
-        Context: {store.currentNote.title}
+        {#if store.currentNote}
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+          {store.currentNote.title}
+        {/if}
+        {#if hasJournal}
+          <button
+            class="journal-ctx-btn"
+            class:active={useJournalContext}
+            onclick={() => useJournalContext = !useJournalContext}
+            title={useJournalContext ? 'Journal context on — click to disable' : 'Journal context off — click to enable'}
+          >
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/>
+            </svg>
+            Journal {useJournalContext ? 'on' : 'off'}
+          </button>
+        {/if}
       </div>
     {/if}
 
@@ -301,13 +356,24 @@
       {:else}
         <div class="sessions-list">
           {#each filteredHistory as session (session.id)}
-            <button class="session-item" onclick={() => selectedDate = session.date}>
-              <span class="session-date">{fmtDate(session.date)}</span>
-              <span class="session-count text-xs text-mu">{session.messages.length} messages</span>
-              {#if session.noteContext}
-                <span class="session-ctx text-xs text-mu">re: {session.noteContext}</span>
-              {/if}
-            </button>
+            <div class="session-item-wrap">
+              <button class="session-item" onclick={() => selectedDate = session.date}>
+                <span class="session-date">{fmtDate(session.date)}</span>
+                <span class="session-count text-xs text-mu">{session.messages.length} messages</span>
+                {#if session.noteContext}
+                  <span class="session-ctx text-xs text-mu">re: {session.noteContext}</span>
+                {/if}
+              </button>
+              <button
+                class="session-save-btn btn-icon"
+                onclick={() => saveSessionAsNote(session)}
+                title="Save conversation as note"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+              </button>
+            </div>
           {:else}
             <p class="text-sm text-mu" style="padding: 16px;">No conversations yet.</p>
           {/each}
@@ -504,4 +570,30 @@
   .history-session { flex: 1; overflow: hidden; display: flex; flex-direction: column; padding: 10px 12px; gap: 10px; }
   .back-btn { align-self: flex-start; }
   .history-msgs { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+
+  .session-item-wrap { display: flex; align-items: stretch; gap: 0; }
+  .session-item-wrap .session-item { flex: 1; border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+  .session-save-btn {
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    border: 1px solid var(--bd);
+    border-left: none;
+    background: var(--sf);
+    opacity: 0;
+    flex-shrink: 0;
+    transition: opacity var(--transition), background var(--transition);
+  }
+  .session-item-wrap:hover .session-save-btn { opacity: 1; }
+  .session-save-btn:hover { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); opacity: 1; }
+
+  .journal-ctx-btn {
+    display: inline-flex; align-items: center; gap: 3px;
+    padding: 1px 7px; border-radius: 20px;
+    border: 1px solid var(--bd); background: var(--sf2);
+    color: var(--mu); font-size: 0.65rem; font-weight: 600;
+    cursor: pointer; font-family: var(--font);
+    transition: all var(--transition);
+    letter-spacing: 0.02em;
+  }
+  .journal-ctx-btn.active { border-color: var(--gn); color: var(--gn); background: var(--gn-bg); }
+  .journal-ctx-btn:hover { border-color: var(--gn); color: var(--gn); }
 </style>

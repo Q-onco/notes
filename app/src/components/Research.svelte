@@ -1,6 +1,6 @@
 <script lang="ts">
   import { searchPubMed, fetchBioRxiv, fetchNatureCell, fetchPubMedAbstract, searchOpenAlex, searchEuropePMC } from '../lib/pubmed';
-  import type { PaperResult, ReadingListItem, SavedSearch } from '../lib/types';
+  import type { PaperResult, ReadingListItem, SavedSearch, Note } from '../lib/types';
   import { store } from '../lib/store.svelte';
   import { exportPapers, exportPapersDocx } from '../lib/export';
   import { askResearch } from '../lib/groq';
@@ -307,6 +307,35 @@ Format your response as:
       summaryLoading[paper.id] = false;
       summaryStreaming[paper.id] = false;
     }
+  }
+
+  async function saveAsNote(paper: PaperResult) {
+    const abstract = abstractText[paper.id] || paper.abstract || '';
+    const authors = paper.authors.slice(0, 6).join(', ') + (paper.authors.length > 6 ? ' et al.' : '');
+    const citation = [
+      authors,
+      paper.year > 0 ? `(${paper.year})` : '',
+      `${paper.title}.`,
+      paper.journal ? `*${paper.journal}*.` : '',
+      paper.doi ? `DOI: ${paper.doi}` : ''
+    ].filter(Boolean).join(' ');
+
+    const note: Note = {
+      id: nanoid(),
+      title: paper.title.slice(0, 90),
+      body: `# ${paper.title}\n\n## Citation\n${citation}\n\n## Abstract\n${abstract || '_Abstract not available — open the paper to read it._'}\n\n## Notes\n\n`,
+      tags: ['paper', paper.source],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      pinned: false,
+      archived: false,
+      audioIds: []
+    };
+    store.notes = [note, ...store.notes];
+    store.currentNoteId = note.id;
+    await store.saveNotes();
+    store.view = 'notes';
+    showToast('Paper saved as note');
   }
 
   async function runSavedSearch(ss: SavedSearch) {
@@ -639,6 +668,11 @@ Format your response as:
               </button>
               <button class="btn-icon" onclick={() => sendToEnzo(paper)} title="Ask Enzo about this">
                 <span class="text-enzo text-xs" style="font-family:var(--mono);font-weight:700">E</span>
+              </button>
+              <button class="btn-icon save-note-btn" onclick={() => saveAsNote(paper)} title="Save as note">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
               </button>
               <!-- Summarise button -->
               <button
@@ -1112,6 +1146,8 @@ Format your response as:
   .summarise-btn { color: var(--pu); }
   .summarise-btn:hover { background: var(--pu-bg); }
   .summarise-btn:disabled { opacity: 0.5; cursor: default; }
+  .save-note-btn { color: var(--mu); }
+  .save-note-btn:hover { color: var(--ac); background: var(--ac-bg); }
 
   .pdf-btn {
     display: inline-flex;
