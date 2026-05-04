@@ -1,10 +1,18 @@
 import type { JobListing } from './types';
 import { store } from './store.svelte';
 
+const WORKER_URL = 'https://enzo.quant-onco.workers.dev';
+
+function getWorkerUrl(): string {
+  return store.settings.workerUrl || WORKER_URL;
+}
+
 export async function fetchJobFeed(): Promise<JobListing[]> {
-  const base = store.settings.workerUrl;
-  const res = await fetch(`${base}/jobs-rss`);
-  if (!res.ok) throw new Error(`Job feed error: ${res.status}`);
+  const base = getWorkerUrl();
+  const res = await fetch(`${base}/jobs-rss`, {
+    signal: AbortSignal.timeout(12000)
+  });
+  if (!res.ok) throw new Error(`Job feed ${res.status}`);
   const data = await res.json() as JobListing[];
   return data;
 }

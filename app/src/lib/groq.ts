@@ -215,6 +215,42 @@ export async function askQuick(
   return streamGroq(MODELS.quick, messages, onChunk, signal);
 }
 
+export async function generateCoverLetter(
+  jobTitle: string,
+  company: string,
+  jobDescription: string,
+  cvSummary: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<{ text: string; tokens: number; model: string }> {
+  const messages = [
+    {
+      role: 'system',
+      content: `You are Enzo, Dr. Amritha Sathyanarayanan's expert research companion. Generate a compelling, personalised cover letter.
+Rules:
+- Tone: confident, specific, research-expert — not generic or sycophantic
+- Structure: 3–4 tight paragraphs (opening hook, research fit, technical strengths, closing with clear next step)
+- Draw directly from the provided CV summary and match it to the job description
+- Be specific about her expertise: HGSOC, TME, scRNA-seq, spatial transcriptomics, PARPi resistance, biomarker discovery
+- No clichés ("I am writing to express my interest…"), no hollow openers
+- Length: ~400–500 words. Professional but not stiff. Output in Markdown.`
+    },
+    {
+      role: 'user',
+      content: `Generate a cover letter for:
+
+**Position:** ${jobTitle} at ${company}
+
+**Job description:**
+${jobDescription.slice(0, 2000)}
+
+**My CV summary:**
+${cvSummary.slice(0, 2000)}`
+    }
+  ];
+  return streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
 export async function transcribeAudio(blob: Blob, _workerUrl?: string): Promise<string> {
   const workerUrl = _workerUrl || getWorkerUrl();
   const fd = new FormData();

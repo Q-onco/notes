@@ -7,17 +7,20 @@ const BRANCH = 'main';
 
 // Data file paths
 export const PATHS = {
-  notes:     'data/notes.enc',
-  journal:   'data/journal.enc',
-  tasks:     'data/tasks.enc',
-  chat:      'data/chat.enc',
-  audio:     'data/audio.enc',
-  pinned:    'data/pinned.enc',
-  settings:  'settings/keys.enc',
-  research:  'data/research.enc',
-  pipelines: 'data/pipelines.enc',
-  jobs:      'data/jobs.enc',
-  profile:   'settings/profile.enc',
+  notes:        'data/notes.enc',
+  journal:      'data/journal.enc',
+  tasks:        'data/tasks.enc',
+  chat:         'data/chat.enc',
+  audio:        'data/audio.enc',
+  pinned:       'data/pinned.enc',
+  settings:     'settings/keys.enc',
+  research:     'data/research.enc',
+  pipelines:    'data/pipelines.enc',
+  jobs:         'data/jobs.enc',
+  jobExt:       'data/jobs-ext.enc',
+  cv:           'data/cv.enc',
+  coverLetters: 'data/coverletters.enc',
+  profile:      'settings/profile.enc',
 } as const;
 
 function headers(token: string) {

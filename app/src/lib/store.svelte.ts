@@ -2,7 +2,8 @@ import type {
   Note, JournalEntry, Task, AudioRecord,
   ChatSession, CalendarEvent, AppSettings, PaperResult,
   ReadingListItem, SavedSearch, PipelineRun, Protocol,
-  SavedJob, ResearcherProfile
+  SavedJob, ResearcherProfile,
+  CvProfile, CoverLetter, JobContact, JobEmailTemplate, SalaryEntry, JobDeadline
 } from './types';
 import { loadEncFile, saveEncFile, PATHS, validateToken } from './github';
 
@@ -57,8 +58,42 @@ class Store {
   savedJobs = $state<SavedJob[]>([]);
   jobsSha = $state<string | null>(null);
 
+  jobContacts = $state<JobContact[]>([]);
+  emailTemplates = $state<JobEmailTemplate[]>([]);
+  salaryEntries = $state<SalaryEntry[]>([]);
+  jobDeadlines = $state<JobDeadline[]>([]);
+  jobExtSha = $state<string | null>(null);
+
+  cvProfile = $state<CvProfile>({
+    fullName: 'Dr. Amritha Sathyanarayanan',
+    pronouns: 'she/her',
+    email: 'quant.onco@gmail.com',
+    phone: '',
+    location: 'Heidelberg, Germany',
+    orcid: '0000-0003-3477-3768',
+    linkedin: '',
+    website: '',
+    summary: 'Postdoctoral researcher specialising in ovarian cancer tumour microenvironment, single-cell RNA-seq, spatial transcriptomics, and PARP inhibitor resistance mechanisms at Heidelberg University.',
+    experience: [],
+    education: [],
+    publications: [],
+    skillGroups: [],
+    conferences: [],
+    awards: [],
+    languages: ['English', 'Tamil', 'German (basic)'],
+    updatedAt: Date.now(),
+  });
+  cvSha = $state<string | null>(null);
+
+  coverLetters = $state<CoverLetter[]>([]);
+  coverLettersSha = $state<string | null>(null);
+
   profile = $state<ResearcherProfile>({ ...DEFAULT_PROFILE });
   profileSha = $state<string | null>(null);
+
+  // Cross-section navigation state
+  selectedJournalId = $state<string | null>(null);
+  selectedAudioId = $state<string | null>(null);
 
   settings = $state<AppSettings>({
     userName: 'Amritha',
@@ -136,7 +171,7 @@ class Store {
     if (!this.tok) return;
     this.loadingMsg = 'Decrypting your research...';
 
-    const [n, j, t, c, a, pp, s, res, pip, jb, prf] = await Promise.all([
+    const [n, j, t, c, a, pp, s, res, pip, jb, jbx, cv, cl, prf] = await Promise.all([
       loadEncFile<Note[]>(this.tok, PATHS.notes, []),
       loadEncFile<JournalEntry[]>(this.tok, PATHS.journal, []),
       loadEncFile<Task[]>(this.tok, PATHS.tasks, []),
@@ -147,6 +182,9 @@ class Store {
       loadEncFile<{readingList: ReadingListItem[], savedSearches: SavedSearch[]}>(this.tok, PATHS.research, { readingList: [], savedSearches: [] }),
       loadEncFile<{runs: PipelineRun[], protocols: Protocol[]}>(this.tok, PATHS.pipelines, { runs: [], protocols: [] }),
       loadEncFile<SavedJob[]>(this.tok, PATHS.jobs, []),
+      loadEncFile<{contacts: JobContact[], templates: JobEmailTemplate[], salaries: SalaryEntry[], deadlines: JobDeadline[]}>(this.tok, PATHS.jobExt, { contacts: [], templates: [], salaries: [], deadlines: [] }),
+      loadEncFile<CvProfile>(this.tok, PATHS.cv, this.cvProfile),
+      loadEncFile<CoverLetter[]>(this.tok, PATHS.coverLetters, []),
       loadEncFile<ResearcherProfile>(this.tok, PATHS.profile, DEFAULT_PROFILE),
     ]);
 
@@ -170,6 +208,13 @@ class Store {
     this.protocols = pip.data.protocols ?? [];
     this.pipelinesSha = pip.sha;
     this.savedJobs = jb.data; this.jobsSha = jb.sha;
+    this.jobContacts = jbx.data.contacts ?? [];
+    this.emailTemplates = jbx.data.templates ?? [];
+    this.salaryEntries = jbx.data.salaries ?? [];
+    this.jobDeadlines = jbx.data.deadlines ?? [];
+    this.jobExtSha = jbx.sha;
+    this.cvProfile = { ...this.cvProfile, ...cv.data }; this.cvSha = cv.sha;
+    this.coverLetters = cl.data; this.coverLettersSha = cl.sha;
     this.profile = { ...DEFAULT_PROFILE, ...prf.data }; this.profileSha = prf.sha;
   }
 
@@ -235,6 +280,30 @@ class Store {
     if (!this.tok) return;
     const sha = await saveEncFile(this.tok, PATHS.jobs, this.savedJobs, this.jobsSha, 'jobs: update');
     this.jobsSha = sha;
+  }
+
+  async saveJobExt(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(this.tok, PATHS.jobExt, {
+      contacts: this.jobContacts,
+      templates: this.emailTemplates,
+      salaries: this.salaryEntries,
+      deadlines: this.jobDeadlines,
+    }, this.jobExtSha, 'jobs: extended data update');
+    this.jobExtSha = sha;
+  }
+
+  async saveCv(): Promise<void> {
+    if (!this.tok) return;
+    this.cvProfile.updatedAt = Date.now();
+    const sha = await saveEncFile(this.tok, PATHS.cv, this.cvProfile, this.cvSha, 'cv: update');
+    this.cvSha = sha;
+  }
+
+  async saveCoverLetters(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(this.tok, PATHS.coverLetters, this.coverLetters, this.coverLettersSha, 'cv: cover letter update');
+    this.coverLettersSha = sha;
   }
 
   async saveProfile(): Promise<void> {

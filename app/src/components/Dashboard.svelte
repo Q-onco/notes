@@ -296,7 +296,8 @@
     flex-direction: column;
     gap: 12px;
     min-width: 0;
-    overflow: hidden;
+    overflow: visible;
+    box-sizing: border-box;
   }
 
   .card-head {
@@ -337,8 +338,17 @@
     align-items: center;
     gap: 8px;
     padding: 5px 4px;
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
   }
-  .task-row input { accent-color: var(--ac); flex-shrink: 0; }
+  .task-row input[type="checkbox"] {
+    accent-color: var(--ac);
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    margin: 0;
+  }
   .task-row-text { font-size: 0.875rem; color: var(--tx); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .task-row-text.done { text-decoration: line-through; color: var(--mu); }
 

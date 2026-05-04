@@ -36,6 +36,8 @@
     return cells;
   });
 
+  const activeEvents = $derived(store.calEvents.length > 0 ? store.calEvents : EXAMPLE_EVENTS);
+
   function dayDots(day: number) {
     const ts = (item: { createdAt: number }) => isSameDay(item.createdAt, year, month, day);
     return {
@@ -43,7 +45,7 @@
       journal: store.journal.filter(j => ts(j)).length,
       audio:   store.audioRecords.filter(a => ts(a)).length,
       chat:    store.chatSessions.filter(c => isSameDay(new Date(c.date).getTime(), year, month, day)).length,
-      events:  store.calEvents.filter(e => isSameDay(e.start, year, month, day)).length,
+      events:  activeEvents.filter(e => isSameDay(e.start, year, month, day)).length,
       tasks:   store.tasks.filter(t => t.dueAt !== null && isSameDay(t.dueAt!, year, month, day)).length
     };
   }
@@ -53,16 +55,18 @@
   }
 
   const selectedItems = $derived(() => {
-    if (!selectedDay) return { notes: [], journal: [], audio: [], chat: [], events: [], tasks: [] };
+    if (!selectedDay) return { notes: [], journal: [], audio: [], chat: [], events: [], tasks: [], exampleEvents: false };
     const { y, m, d } = selectedDay;
     const ts = (item: { createdAt: number }) => isSameDay(item.createdAt, y, m, d);
+    const evSrc = store.calEvents.length > 0 ? store.calEvents : EXAMPLE_EVENTS;
     return {
-      notes:   store.notes.filter(n => ts(n) && !n.archived),
-      journal: store.journal.filter(j => ts(j)),
-      audio:   store.audioRecords.filter(a => ts(a)),
-      chat:    store.chatSessions.filter(c => isSameDay(new Date(c.date).getTime(), y, m, d)),
-      events:  store.calEvents.filter(e => isSameDay(e.start, y, m, d)),
-      tasks:   store.tasks.filter(t => t.dueAt !== null && isSameDay(t.dueAt!, y, m, d))
+      notes:         store.notes.filter(n => ts(n) && !n.archived),
+      journal:       store.journal.filter(j => ts(j)),
+      audio:         store.audioRecords.filter(a => ts(a)),
+      chat:          store.chatSessions.filter(c => isSameDay(new Date(c.date).getTime(), y, m, d)),
+      events:        evSrc.filter(e => isSameDay(e.start, y, m, d)),
+      tasks:         store.tasks.filter(t => t.dueAt !== null && isSameDay(t.dueAt!, y, m, d)),
+      exampleEvents: store.calEvents.length === 0,
     };
   });
 
@@ -105,6 +109,38 @@
   function fmtTime(ts: number) {
     return new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   }
+
+  // Example events shown when no .ics imported
+  const now = new Date();
+  const EXAMPLE_EVENTS: CalendarEvent[] = [
+    {
+      uid: '_ex_esmo',
+      summary: 'ESMO abstract submission deadline',
+      start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 3, 23, 59).getTime(),
+      end:   new Date(now.getFullYear(), now.getMonth(), now.getDate() + 3, 23, 59).getTime(),
+      location: 'online',
+      description: 'Ovarian cancer TME abstract — ESMO 2026',
+      source: 'apple',
+    },
+    {
+      uid: '_ex_labmtg',
+      summary: 'NCT Lab meeting — scRNA-seq results',
+      start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 10, 0).getTime(),
+      end:   new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 11, 30).getTime(),
+      location: 'INF 224, Heidelberg',
+      description: 'Present HGSOC TME batch 3 clustering results',
+      source: 'apple',
+    },
+    {
+      uid: '_ex_review',
+      summary: 'Research committee review',
+      start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 14, 14, 0).getTime(),
+      end:   new Date(now.getFullYear(), now.getMonth(), now.getDate() + 14, 16, 0).getTime(),
+      location: 'Dept. Gynaecological Oncology',
+      description: 'Quarterly progress review',
+      source: 'apple',
+    },
+  ];
 </script>
 
 <div class="calendar-view">
@@ -125,6 +161,9 @@
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         Import .ics
       </button>
+      {#if store.calEvents.length === 0}
+        <span class="example-notice text-xs text-mu">· example events shown</span>
+      {/if}
       {#if store.calEvents.length > 0}
         <button class="btn btn-ghost btn-sm" onclick={exportAll}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -190,7 +229,7 @@
 
         {#if items.events.length > 0}
           <section class="detail-section">
-            <h4>Calendar events</h4>
+            <h4>Calendar events {#if items.exampleEvents}<span class="example-badge">· example</span>{/if}</h4>
             {#each items.events as ev}
               <div class="detail-item event-item">
                 <span class="item-time">{fmtTime(ev.start)}</span>
@@ -220,11 +259,14 @@
           <section class="detail-section">
             <h4>Journal</h4>
             {#each items.journal as entry}
-              <div class="detail-item">
+              <button
+                class="detail-item"
+                onclick={() => { store.selectedJournalId = entry.id; store.view = 'journal'; }}
+              >
                 <span class="item-time">{fmtTime(entry.createdAt)}</span>
                 <span class="item-title">{entry.body.slice(0, 60)}{entry.body.length > 60 ? '…' : ''}</span>
                 {#if entry.mood}<span class="tag text-xs">{entry.mood}</span>{/if}
-              </div>
+              </button>
             {/each}
           </section>
         {/if}
@@ -233,10 +275,13 @@
           <section class="detail-section">
             <h4>Recordings</h4>
             {#each items.audio as rec}
-              <div class="detail-item">
+              <button
+                class="detail-item"
+                onclick={() => { store.selectedAudioId = rec.id; store.view = 'audio'; }}
+              >
                 <span class="item-time">{fmtTime(rec.createdAt)}</span>
                 <span class="item-title">{Math.round(rec.durationSec)}s — {rec.transcript.slice(0, 50)}{rec.transcript.length > 50 ? '…' : ''}</span>
-              </div>
+              </button>
             {/each}
           </section>
         {/if}
@@ -245,12 +290,15 @@
           <section class="detail-section">
             <h4>Enzo sessions</h4>
             {#each items.chat as session}
-              <div class="detail-item">
+              <button
+                class="detail-item"
+                onclick={() => { store.view = 'enzo'; store.enzoOpen = true; }}
+              >
                 <span class="item-time">{session.messages.length} messages</span>
                 {#if session.noteContext}
                   <span class="item-title text-mu">re: {session.noteContext}</span>
                 {/if}
-              </div>
+              </button>
             {/each}
           </section>
         {/if}
@@ -421,4 +469,7 @@
   .task-pri-high   { background: var(--rd); }
   .task-pri-medium { background: var(--yw); }
   .task-pri-low    { background: var(--gn); }
+
+  .example-notice { font-style: italic; }
+  .example-badge { font-size: 0.6rem; font-weight: 700; color: var(--mu); text-transform: uppercase; letter-spacing: 0.05em; margin-left: 4px; }
 </style>

@@ -243,3 +243,151 @@ export interface ResearcherProfile {
   publications: { title: string; doi: string; year: number }[];
   notes: string;
 }
+
+// ── CV Builder ────────────────────────────────────────────────────────────────
+
+export interface CvExperience {
+  id: string;
+  role: string;
+  organisation: string;
+  location: string;
+  startDate: string;   // 'YYYY-MM' or 'YYYY'
+  endDate: string;     // '' = Present
+  bullets: string[];
+}
+
+export interface CvEducation {
+  id: string;
+  degree: string;
+  institution: string;
+  location: string;
+  year: string;
+  gpa?: string;
+  notes?: string;
+}
+
+export interface CvPublication {
+  id: string;
+  authors: string;
+  title: string;
+  journal: string;
+  year: number;
+  doi: string;
+  highlight?: boolean;
+}
+
+export interface CvSkillGroup {
+  id: string;
+  category: string;
+  skills: string[];
+}
+
+export interface CvConference {
+  id: string;
+  title: string;
+  event: string;
+  location: string;
+  year: number;
+  type: 'oral' | 'poster' | 'workshop' | 'invited';
+}
+
+export interface CvAward {
+  id: string;
+  title: string;
+  issuer: string;
+  year: number;
+  description?: string;
+}
+
+export interface CvProfile {
+  // Personal
+  fullName: string;
+  pronouns: string;
+  email: string;
+  phone: string;
+  location: string;
+  orcid: string;
+  linkedin: string;
+  website: string;
+  summary: string;
+  // Sections
+  experience: CvExperience[];
+  education: CvEducation[];
+  publications: CvPublication[];
+  skillGroups: CvSkillGroup[];
+  conferences: CvConference[];
+  awards: CvAward[];
+  // Misc
+  languages: string[];
+  updatedAt: number;
+}
+
+export interface CoverLetter {
+  id: string;
+  jobId: string;            // SavedJob.id or '' for standalone
+  company: string;
+  role: string;
+  content: string;          // markdown
+  generatedAt: number;
+  editedAt: number;
+  note: string;
+}
+
+// ── Extended Job features ─────────────────────────────────────────────────────
+
+export interface JobContact {
+  id: string;
+  name: string;
+  role: string;
+  company: string;
+  email: string;
+  linkedin: string;
+  notes: string;
+  metAt: string;
+  lastContactAt: number | null;
+}
+
+export interface JobEmailTemplate {
+  id: string;
+  label: string;
+  subject: string;
+  body: string;
+  category: 'cold-outreach' | 'follow-up' | 'thank-you' | 'networking' | 'referral' | 'custom';
+  createdAt: number;
+}
+
+export interface SalaryEntry {
+  id: string;
+  company: string;
+  role: string;
+  region: string;
+  salaryMin: number;
+  salaryMax: number;
+  currency: string;
+  type: 'offer' | 'estimate' | 'glassdoor' | 'linkedin';
+  notes: string;
+  year: number;
+}
+
+export interface JobDeadline {
+  id: string;
+  jobId: string;
+  label: string;
+  dueAt: number;
+  done: boolean;
+}
+
+// ── Settings extension ────────────────────────────────────────────────────────
+
+export interface AppSettings {
+  userName: string;
+  workerUrl: string;
+  themeOverride: 'auto' | 'light' | 'dark';
+  accentColor?: 'blue' | 'green' | 'purple' | 'teal' | 'rose';
+  institution?: string;
+  department?: string;
+  orcid?: string;
+  alarms?: AlarmItem[];
+  groqKey?: string;
+  groqModel?: string;
+}

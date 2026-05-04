@@ -126,6 +126,51 @@
       addTag();
     }
   }
+
+  // ── Markdown toolbar ──────────────────────────────────────────
+  let bodyEl = $state<HTMLTextAreaElement | undefined>(undefined);
+
+  function mdInsert(prefix: string, suffix = '', placeholder = 'text') {
+    if (!bodyEl || !note) return;
+    const start = bodyEl.selectionStart;
+    const end   = bodyEl.selectionEnd;
+    const sel   = bodyEl.value.slice(start, end);
+    const replacement = prefix + (sel || placeholder) + suffix;
+    bodyEl.setRangeText(replacement, start, end, 'select');
+    bodyEl.focus();
+    note.body = bodyEl.value;
+    note.updatedAt = Date.now();
+    autoSave();
+  }
+
+  function mdBlock(prefix: string) {
+    if (!bodyEl || !note) return;
+    const start = bodyEl.selectionStart;
+    // find line start
+    const lineStart = bodyEl.value.lastIndexOf('\n', start - 1) + 1;
+    bodyEl.setRangeText(prefix, lineStart, lineStart, 'end');
+    bodyEl.focus();
+    note.body = bodyEl.value;
+    note.updatedAt = Date.now();
+    autoSave();
+  }
+
+  const MD_TOOLS = [
+    { label: 'B',    title: 'Bold',          action: () => mdInsert('**', '**', 'bold text') },
+    { label: 'I',    title: 'Italic',        action: () => mdInsert('*', '*', 'italic text') },
+    { label: 'H1',   title: 'Heading 1',     action: () => mdBlock('# ') },
+    { label: 'H2',   title: 'Heading 2',     action: () => mdBlock('## ') },
+    { label: 'H3',   title: 'Heading 3',     action: () => mdBlock('### ') },
+    { label: 'UL',   title: 'Bullet list',   action: () => mdBlock('- ') },
+    { label: 'OL',   title: 'Ordered list',  action: () => mdBlock('1. ') },
+    { label: '[ ]',  title: 'Task',          action: () => mdBlock('- [ ] ') },
+    { label: '`',    title: 'Inline code',   action: () => mdInsert('`', '`', 'code') },
+    { label: '```',  title: 'Code block',    action: () => mdInsert('```\n', '\n```', 'code') },
+    { label: '>',    title: 'Blockquote',    action: () => mdBlock('> ') },
+    { label: '—',    title: 'Divider',       action: () => mdInsert('\n\n---\n\n', '', '') },
+    { label: '⊞',    title: 'Table',         action: () => mdInsert('\n| Col A | Col B |\n|-------|-------|\n| val   | val   |\n', '', '') },
+    { label: '🔗',   title: 'Link',          action: () => mdInsert('[', '](url)', 'link text') },
+  ];
 </script>
 
 <div class="editor">
@@ -222,11 +267,21 @@
       />
     </div>
 
+    <!-- MD toolbar (edit mode only) -->
+    {#if tab === 'edit'}
+      <div class="md-toolbar">
+        {#each MD_TOOLS as tool}
+          <button class="md-btn" onclick={tool.action} title={tool.title}>{tool.label}</button>
+        {/each}
+      </div>
+    {/if}
+
     <!-- Content -->
     <div class="content-area">
       {#if tab === 'edit'}
         <textarea
           class="body-editor"
+          bind:this={bodyEl}
           value={note.body}
           oninput={updateBody}
           placeholder="Write in Markdown — tasks with - [ ] are tracked automatically."
@@ -379,6 +434,34 @@
     align-items: center;
     gap: 4px;
   }
+
+  .md-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 12px;
+    border-bottom: 1px solid var(--bd);
+    background: var(--sf);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+
+  .md-btn {
+    padding: 3px 7px;
+    border-radius: var(--radius-sm);
+    font-size: 0.72rem;
+    font-weight: 700;
+    font-family: var(--mono);
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--tx2);
+    cursor: pointer;
+    transition: all var(--transition);
+    line-height: 1.4;
+    min-width: 24px;
+    text-align: center;
+  }
+  .md-btn:hover { background: var(--sf2); border-color: var(--bd); color: var(--tx); }
   .save-indicator { color: var(--mu); margin-right: 8px; }
   .btn-icon.active { color: var(--enzo); }
   .btn-icon.danger:hover { color: var(--rd); background: var(--rd-bg); }
