@@ -200,8 +200,67 @@
     if (d < 86400000) return `${Math.floor(d / 3600000)}h ago`;
     return new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   }
+
+  // ── Master toggle ─────────────────────────────────────────────
+  const SESSION_KEY = 'qonco_audio_on';
+  let enabled = $state(sessionStorage.getItem(SESSION_KEY) === '1');
+  function enable() { enabled = true; sessionStorage.setItem(SESSION_KEY, '1'); }
+
+  const EXAMPLE_RECORDS = [
+    {
+      id: '_ea1',
+      createdAt: Date.now() - 86400000,
+      durationSec: 312,
+      transcript: 'Lab meeting notes. Discussed the batch 3 HGSOC scRNA-seq results — the doublet rate in samples OV-23-14A and OV-23-17B is higher than expected, possibly due to the fresh tumour dissociation protocol. Suggested switching to cold active protease dissociation for the next cohort. Also discussed the unexpected CXCL12-high cluster — could be CAF-like or endothelial. Need to cross-reference with the Hornburg Nature Cancer paper signatures. Action item: re-run DoubletFinder with lower expected doublet rate and check against known TME interaction pairs.',
+      noteId: null,
+      journalId: null,
+      sizeBytes: 0,
+    },
+    {
+      id: '_ea2',
+      createdAt: Date.now() - 172800000,
+      durationSec: 185,
+      transcript: 'Quick note on the Visium spatial data — the cell2location deconvolution run with n_cells_per_location equals 10 is converging but slowly. Trying 8 and 12 to see which fits better. The CD8 T cell signal is very sparse in the stromal rim sections — consistent with the immune-excluded phenotype. Worth comparing to the matched scRNA-seq to see if there is a spatial sorting artefact or genuine biology.',
+      noteId: null,
+      journalId: null,
+      sizeBytes: 0,
+    },
+  ];
+
+  // ── Selected audio highlight from Calendar click-through ──────
+  $effect(() => {
+    if (store.selectedAudioId) {
+      // briefly highlight - actual scroll would need DOM ref
+      store.selectedAudioId = null;
+    }
+  });
 </script>
 
+{#if !enabled}
+  <div class="landing">
+    <div class="landing-inner">
+      <div class="landing-icon">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
+          <path d="M19 10v2a7 7 0 01-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="23"/>
+          <line x1="8" y1="23" x2="16" y2="23"/>
+        </svg>
+      </div>
+      <h2>Audio &amp; Transcription</h2>
+      <p class="text-mu">Record meeting notes, lab observations, and spoken thoughts — transcribed in real time via Groq Whisper. Transcripts link to notes and appear in your calendar.</p>
+      <ul class="landing-features">
+        <li>Live streaming transcription (15-second chunks, Whisper large-v3)</li>
+        <li>Edit transcript before saving</li>
+        <li>Link recordings to specific notes</li>
+        <li>2-hour daily transcription quota (resets at midnight)</li>
+        <li>Export transcripts as Markdown files</li>
+      </ul>
+      <button class="btn btn-primary landing-btn" onclick={enable}>Enable for this session</button>
+      <p class="text-xs text-mu">Requires Worker URL set in Settings. Stays active until you close this tab.</p>
+    </div>
+  </div>
+{:else}
 <div class="audio-view">
   <div class="audio-header">
     <h2>Audio &amp; Transcription</h2>
@@ -315,7 +374,7 @@
 
   <!-- Recordings list -->
   <div class="recordings-list">
-    {#each store.audioRecords as rec (rec.id)}
+    {#each store.audioRecords.length > 0 ? store.audioRecords : EXAMPLE_RECORDS as rec (rec.id)}
       <div class="rec-card card">
         <div class="rec-head">
           <div class="rec-meta">
@@ -359,10 +418,28 @@
         <p class="text-mu text-sm">No recordings yet. Press Start recording above.</p>
       </div>
     {/each}
+    {#if store.audioRecords.length === 0}
+      <p class="text-xs text-mu" style="text-align:center;padding:8px;font-style:italic">· example recordings shown above</p>
+    {/if}
   </div>
 </div>
+{/if}
 
 <style>
+  .landing {
+    height: 100%; display: flex; align-items: center; justify-content: center; padding: 32px; background: var(--bg);
+  }
+  .landing-inner {
+    max-width: 480px; display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center;
+  }
+  .landing-icon { color: var(--pu); opacity: 0.8; }
+  .landing-inner h2 { font-size: 1.4rem; font-weight: 700; }
+  .landing-inner p { color: var(--tx2); line-height: 1.6; max-width: 400px; }
+  .landing-features { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; text-align: left; width: 100%; max-width: 380px; }
+  .landing-features li { font-size: 0.82rem; color: var(--tx2); padding: 6px 10px; background: var(--sf); border: 1px solid var(--bd); border-radius: var(--radius-sm); display: flex; align-items: center; gap: 8px; }
+  .landing-features li::before { content: '→'; color: var(--pu); font-size: 0.75rem; }
+  .landing-btn { margin-top: 6px; padding: 10px 28px; }
+
   .audio-view {
     height: 100%;
     overflow-y: auto;

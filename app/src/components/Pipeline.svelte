@@ -390,8 +390,41 @@
     completed: completedRuns.length,
     protocols: store.protocols.length,
   });
+
+  // ── Master toggle ─────────────────────────────────────────────
+  const SESSION_KEY = 'qonco_pipeline_on';
+  let enabled = $state(sessionStorage.getItem(SESSION_KEY) === '1');
+  function enable() { enabled = true; sessionStorage.setItem(SESSION_KEY, '1'); }
+
+  // Example runs displayed when no real runs exist
+  const EXAMPLE_RUNS = [
+    { id: '_ep1', title: 'HGSOC TME scRNA-seq — cohort batch 3', pipelineType: 'scrna-seq', sampleId: 'AMR-23-BT3', status: 'qc-review', updatedAt: Date.now() - 86400000 },
+    { id: '_ep2', title: 'Visium spatial — pre/post PARPi paired', pipelineType: 'spatial',   sampleId: 'AMR-24-SP1', status: 'running',   updatedAt: Date.now() - 3600000  },
+  ] as const;
 </script>
 
+{#if !enabled}
+  <div class="landing">
+    <div class="landing-inner">
+      <div class="landing-icon">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/>
+        </svg>
+      </div>
+      <h2>Pipeline Tracker</h2>
+      <p class="text-mu">Track analysis runs for scRNA-seq, spatial transcriptomics, WES, and bulk RNA-seq. Step-by-step progress, QC metrics, protocol templates, and linked resources — all in one place.</p>
+      <ul class="landing-features">
+        <li>Structured run tracking with pre-configured step templates</li>
+        <li>QC metric logging with pass/warn/fail flags</li>
+        <li>Protocol library with Markdown bodies</li>
+        <li>Link runs to notes, papers, audio recordings</li>
+        <li>Status management: planned → running → QC review → completed</li>
+      </ul>
+      <button class="btn btn-primary landing-btn" onclick={enable}>Enable for this session</button>
+      <p class="text-xs text-mu">Stays active until you close this tab.</p>
+    </div>
+  </div>
+{:else}
 <div class="pipeline" class:sidebar-closed={!leftOpen}>
   <!-- Mobile toggle -->
   <button class="mobile-sidebar-toggle btn-icon" onclick={() => leftOpen = !leftOpen} title="Toggle sidebar">
@@ -425,6 +458,19 @@
         {#if panelTab === 'runs'}
           {#if store.pipelineRuns.length === 0}
             <p class="left-empty">No runs yet. Click + New Run to start.</p>
+            {#each EXAMPLE_RUNS as ex}
+              <div class="run-item example-run">
+                <div class="run-item-top">
+                  <span class="run-title-sm">{ex.title}</span>
+                  <span class="run-status-dot status-{ex.status === 'qc-review' ? 'qc' : ex.status}"></span>
+                </div>
+                <div class="run-item-sub">
+                  <span class="type-badge">{ex.pipelineType}</span>
+                  <span class="text-xs text-mu">{ex.sampleId}</span>
+                  <span class="example-dot text-xs text-mu">· example</span>
+                </div>
+              </div>
+            {/each}
           {/if}
 
           {#if activeRuns.length > 0}
@@ -1100,8 +1146,56 @@
     {/if}
   </main>
 </div>
+{/if}
 
 <style>
+  /* Landing page */
+  .landing {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    background: var(--bg);
+  }
+  .landing-inner {
+    max-width: 480px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    text-align: center;
+  }
+  .landing-icon { color: var(--ac); opacity: 0.7; }
+  .landing-inner h2 { font-size: 1.4rem; font-weight: 700; }
+  .landing-inner p { color: var(--tx2); line-height: 1.6; max-width: 400px; }
+  .landing-features {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    text-align: left;
+    width: 100%;
+    max-width: 380px;
+  }
+  .landing-features li {
+    font-size: 0.82rem;
+    color: var(--tx2);
+    padding: 6px 10px;
+    background: var(--sf);
+    border: 1px solid var(--bd);
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .landing-features li::before { content: '→'; color: var(--ac); font-size: 0.75rem; }
+  .landing-btn { margin-top: 6px; padding: 10px 28px; }
+  .example-run { opacity: 0.55; cursor: default; }
+  .example-dot { font-size: 0.6rem; }
+
   .pipeline {
     height: 100%;
     display: flex;

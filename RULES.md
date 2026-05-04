@@ -78,6 +78,16 @@ corresponding data store is empty.
 - This rule applies retroactively to all existing features and to every new
   feature added in Phase 3 and beyond
 
+## Rule 9: Never miss input details
+Every requirement stated in any session — chat message, inline comment, correction — is a build requirement. No exceptions, no omissions.
+
+**Requirements:**
+- At the start of every session, read every prior log in `logs/` in full before touching code
+- If a user message lists multiple items, every item ships in that session or is explicitly deferred with the user's agreement
+- "Have all of them" does not mean greenlight to code — present a detailed plan for every item and wait for approval
+- If context limits cut a session short before all items are done, the session log must list remaining items explicitly under "Pending" so the next session picks them up
+- Corrections to missed items are never dismissed — they are prioritised above new features
+
 ---
 
-*Last updated: 2026-05-03*
+*Last updated: 2026-05-04*

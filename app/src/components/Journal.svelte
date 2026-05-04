@@ -91,6 +91,50 @@
   function fmtTime(ts: number) {
     return new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   }
+
+  // ── Open entry from Calendar click-through ────────────────────
+  $effect(() => {
+    if (store.selectedJournalId) {
+      const entry = store.journal.find(e => e.id === store.selectedJournalId);
+      if (entry) startEdit(entry);
+      store.selectedJournalId = null;
+    }
+  });
+
+  // ── Markdown toolbar ──────────────────────────────────────────
+  let jBodyEl = $state<HTMLTextAreaElement | undefined>(undefined);
+
+  function mdInsert(prefix: string, suffix = '', placeholder = 'text') {
+    if (!jBodyEl) return;
+    const start = jBodyEl.selectionStart;
+    const end   = jBodyEl.selectionEnd;
+    const sel   = jBodyEl.value.slice(start, end);
+    const replacement = prefix + (sel || placeholder) + suffix;
+    jBodyEl.setRangeText(replacement, start, end, 'select');
+    jBodyEl.focus();
+    draftBody = jBodyEl.value;
+  }
+
+  function mdBlock(prefix: string) {
+    if (!jBodyEl) return;
+    const start   = jBodyEl.selectionStart;
+    const lineStart = jBodyEl.value.lastIndexOf('\n', start - 1) + 1;
+    jBodyEl.setRangeText(prefix, lineStart, lineStart, 'end');
+    jBodyEl.focus();
+    draftBody = jBodyEl.value;
+  }
+
+  const J_MD_TOOLS = [
+    { label: 'B',   title: 'Bold',        action: () => mdInsert('**', '**', 'bold text') },
+    { label: 'I',   title: 'Italic',      action: () => mdInsert('*', '*', 'italic text') },
+    { label: 'H2',  title: 'Heading',     action: () => mdBlock('## ') },
+    { label: 'UL',  title: 'List',        action: () => mdBlock('- ') },
+    { label: '[ ]', title: 'Task',        action: () => mdBlock('- [ ] ') },
+    { label: '`',   title: 'Code',        action: () => mdInsert('`', '`', 'code') },
+    { label: '```', title: 'Code block',  action: () => mdInsert('```\n', '\n```', 'code') },
+    { label: '>',   title: 'Quote',       action: () => mdBlock('> ') },
+    { label: '🔗',  title: 'Link',        action: () => mdInsert('[', '](url)', 'link text') },
+  ];
 </script>
 
 <div class="journal">
@@ -142,9 +186,15 @@
         </div>
       </div>
 
+      <div class="md-toolbar">
+        {#each J_MD_TOOLS as tool}
+          <button class="md-btn" onclick={tool.action} title={tool.title} type="button">{tool.label}</button>
+        {/each}
+      </div>
       <textarea
         class="journal-textarea"
         bind:value={draftBody}
+        bind:this={jBodyEl}
         placeholder="What happened today? What did you discover, struggle with, or learn? Write freely in Markdown."
         rows={8}
       ></textarea>
@@ -271,6 +321,32 @@
   }
   .chip.active { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); }
   .chip:hover:not(.active) { border-color: var(--bd2); }
+
+  .md-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-wrap: wrap;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--bd);
+    margin-bottom: 4px;
+  }
+  .md-btn {
+    padding: 3px 7px;
+    border-radius: var(--radius-sm);
+    font-size: 0.72rem;
+    font-weight: 700;
+    font-family: var(--mono);
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--tx2);
+    cursor: pointer;
+    transition: all var(--transition);
+    line-height: 1.4;
+    min-width: 24px;
+    text-align: center;
+  }
+  .md-btn:hover { background: var(--sf2); border-color: var(--bd); color: var(--tx); }
 
   .journal-textarea {
     font-family: var(--mono);

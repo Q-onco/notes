@@ -377,8 +377,71 @@ Format your response as:
     medium: store.readingList.filter(r => r.priority === 'medium'),
     low: store.readingList.filter(r => r.priority === 'low'),
   });
+
+  // ── Master toggle ─────────────────────────────────────────────
+  const SESSION_KEY = 'qonco_research_on';
+  let enabled = $state(sessionStorage.getItem(SESSION_KEY) === '1');
+  function enable() { enabled = true; sessionStorage.setItem(SESSION_KEY, '1'); }
+
+  const EXAMPLE_PAPERS: PaperResult[] = [
+    {
+      id: '_rp1',
+      title: 'Single-cell transcriptomic landscape of the HGSOC tumor microenvironment reveals CAF subtype heterogeneity',
+      authors: ['Hornburg M', 'Desbois M', 'Lu S', 'Bhatt B', 'Bueche G', 'Plattner C'],
+      abstract: 'We performed scRNA-seq on 11 HGSOC tumors and paired omentum metastases, identifying distinct myofibroblastic and inflammatory CAF subtypes with opposing roles in immune suppression. myoCAFs drove TGF-β-mediated T cell exclusion while iCAFs promoted inflammatory signatures associated with better prognosis.',
+      journal: 'Nature Cancer', year: 2023, doi: '10.1038/s43018-023-00550-x',
+      url: 'https://doi.org/10.1038/s43018-023-00550-x', source: 'nature',
+    },
+    {
+      id: '_rp2',
+      title: 'PARP inhibitor resistance mechanisms in BRCA1/2-mutant ovarian cancer: reversion mutations and beyond',
+      authors: ['Christie EL', 'Pattnaik S', 'Beach J', 'Cowin P', 'Kommoss S', 'Bittinger S'],
+      abstract: 'Analysis of 78 olaparib-resistant HGSOC tumors identified BRCA1/2 reversion mutations in 18% of cases, 53BP1/RIF1 loss in 12%, and PARP1 downregulation in 8%. Multi-mechanism resistance was common at progression and associated with worse outcomes following carboplatin rechallenge.',
+      journal: 'Clinical Cancer Research', year: 2023, doi: '10.1158/1078-0432.CCR-23-1432',
+      url: 'https://doi.org/10.1158/1078-0432.CCR-23-1432', source: 'pubmed',
+    },
+    {
+      id: '_rp3',
+      title: 'Spatially resolved transcriptomics reveals immune desert and excluded niches in HGSOC',
+      authors: ['Mheidly Z', 'Mahler M', 'Ecker A', 'Baumgartner D', 'Ferrone S'],
+      abstract: 'Visium HD spatial transcriptomics of 23 HGSOC specimens resolved immune phenotypes at 8µm resolution. Spatially excluded CD8+ T cells co-localized with TGF-β-hi CAF regions, while TLS-associated B cell clusters predicted improved PFS independent of HRD status.',
+      journal: 'Cancer Cell', year: 2024, doi: '10.1016/j.ccell.2024.03.012',
+      url: 'https://doi.org/10.1016/j.ccell.2024.03.012', source: 'cell',
+    },
+    {
+      id: '_rp4',
+      title: 'cGAS-STING pathway activation by PARPi potentiates anti-tumor immunity in HGSOC',
+      authors: ['Pantelidou C', 'Sonzogni O', 'De Oliveria Taveira M', 'Mehta AK', 'Raj A', 'Chen D'],
+      abstract: 'PARPi-induced DNA damage activates cGAS-STING in BRCA1-deficient HGSOC cells, stimulating type I interferon production and CD8+ T cell infiltration. Combination with PD-L1 blockade showed synergistic efficacy in syngeneic mouse models, providing mechanistic rationale for ongoing clinical trials.',
+      journal: 'Cancer Discovery', year: 2022, doi: '10.1158/2159-8290.CD-21-1215',
+      url: 'https://doi.org/10.1158/2159-8290.CD-21-1215', source: 'pubmed',
+    },
+  ];
 </script>
 
+{#if !enabled}
+  <div class="landing">
+    <div class="landing-inner">
+      <div class="landing-icon">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          <line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/>
+        </svg>
+      </div>
+      <h2>Research</h2>
+      <p class="text-mu">Live literature search across PubMed, OpenAlex, Europe PMC, bioRxiv, medRxiv, Nature, and Cell — with Enzo AI summaries and a curated reading list.</p>
+      <ul class="landing-features">
+        <li>Multi-source search with domain-specific topic presets</li>
+        <li>AI-generated structured summaries (hypothesis, methods, HGSOC relevance)</li>
+        <li>Reading list with priority flags and read tracking</li>
+        <li>Saved searches — one click to re-run</li>
+        <li>Pin papers to the Dashboard for quick access</li>
+      </ul>
+      <button class="btn btn-primary landing-btn" onclick={enable}>Enable for this session</button>
+      <p class="text-xs text-mu">Stays active until you close this tab.</p>
+    </div>
+  </div>
+{:else}
 <div class="research">
   <div class="research-header">
     <div>
@@ -658,10 +721,25 @@ Format your response as:
         </article>
       {:else}
         {#if !loading}
-          <div class="empty-state">
-            <p class="text-mu">
-              Toggle sources above, type a query (concepts appear as you type), then press Search.
-            </p>
+          <div class="example-papers-section">
+            <p class="text-xs text-mu example-label-row">· example papers — search to see live results</p>
+            {#each EXAMPLE_PAPERS as paper}
+              <article class="paper-card card example-paper-card">
+                <div class="paper-head">
+                  <div class="paper-meta">
+                    <span class="tag {SOURCE_CLS[paper.source] || ''}">{SOURCE_LABELS[paper.source] || paper.source}</span>
+                    <span class="text-xs text-mu">{paper.journal}</span>
+                    <span class="text-xs text-mu">· {paper.year}</span>
+                    <span class="example-paper-badge text-xs">example</span>
+                  </div>
+                </div>
+                <h3 class="paper-title">{paper.title}</h3>
+                <p class="paper-authors text-xs text-mu">{paper.authors.slice(0, 4).join(', ')}{paper.authors.length > 4 ? ' et al.' : ''}</p>
+                <div class="abstract-box">
+                  <p class="text-sm">{paper.abstract}</p>
+                </div>
+              </article>
+            {/each}
           </div>
         {/if}
       {/each}
@@ -744,8 +822,53 @@ Format your response as:
     </div>
   {/if}
 </div>
+{/if}
 
 <style>
+  /* Landing page */
+  .landing {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    background: var(--bg);
+  }
+  .landing-inner {
+    max-width: 480px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    text-align: center;
+  }
+  .landing-icon { color: var(--pu); opacity: 0.8; }
+  .landing-inner h2 { font-size: 1.4rem; font-weight: 700; }
+  .landing-inner p { color: var(--tx2); line-height: 1.6; max-width: 400px; }
+  .landing-features {
+    list-style: none; padding: 0; margin: 0;
+    display: flex; flex-direction: column; gap: 6px;
+    text-align: left; width: 100%; max-width: 380px;
+  }
+  .landing-features li {
+    font-size: 0.82rem; color: var(--tx2);
+    padding: 6px 10px; background: var(--sf);
+    border: 1px solid var(--bd); border-radius: var(--radius-sm);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .landing-features li::before { content: '→'; color: var(--pu); font-size: 0.75rem; }
+  .landing-btn { margin-top: 6px; padding: 10px 28px; }
+
+  .example-papers-section { display: flex; flex-direction: column; gap: 10px; }
+  .example-label-row { padding: 4px 0 8px; letter-spacing: 0.04em; font-style: italic; }
+  .example-paper-card { opacity: 0.7; }
+  .example-paper-badge {
+    background: var(--sf2); border: 1px solid var(--bd);
+    border-radius: 8px; padding: 0 5px; color: var(--mu);
+    font-size: 0.62rem; font-weight: 700; letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
   .research {
     height: 100%;
     overflow-y: auto;

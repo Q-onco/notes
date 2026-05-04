@@ -1,15 +1,30 @@
 <script lang="ts">
   import { store } from '../lib/store.svelte';
+  import { generateCoverLetter } from '../lib/groq';
   import { nanoid } from 'nanoid';
-  import type { SavedJob, JobListing, JobStatus, JobRegion, JobType, InterviewRecord } from '../lib/types';
+  import type {
+    SavedJob, JobListing, JobStatus, JobRegion, JobType,
+    InterviewRecord, CvExperience, CvEducation, CvPublication,
+    CvSkillGroup, CvConference, CvAward, CoverLetter,
+    JobContact, JobEmailTemplate, SalaryEntry, JobDeadline
+  } from '../lib/types';
   import { fetchJobFeed, PIPELINE_STAGES, REGION_LABELS, TYPE_LABELS, EU_COMPANIES, INDIA_COMPANIES } from '../lib/jobs';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
-  // ── Tab state ─────────────────────────────────────────────────────
-  let tab = $state<'feed' | 'tracker' | 'companies' | 'profile'>('feed');
+  // ── Master toggle (session-persistent) ───────────────────────────────────────
+  const SESSION_KEY = 'qonco_jobs_on';
+  let enabled = $state(sessionStorage.getItem(SESSION_KEY) === '1');
 
-  // ── Feed state ────────────────────────────────────────────────────
+  function enable() {
+    enabled = true;
+    sessionStorage.setItem(SESSION_KEY, '1');
+  }
+
+  // ── Tab state ─────────────────────────────────────────────────────────────────
+  let tab = $state<'feed' | 'tracker' | 'companies' | 'cv' | 'coverletter' | 'contacts' | 'salary' | 'analytics'>('feed');
+
+  // ── Feed state ────────────────────────────────────────────────────────────────
   let feedJobs = $state<JobListing[]>([]);
   let feedLoading = $state(false);
   let feedError = $state('');
@@ -20,9 +35,9 @@
   const EXAMPLE_FEED: JobListing[] = [
     { id: '_jf1', title: 'Senior Scientist — Oncology Biomarkers', company: 'Merck KGaA', location: 'Darmstadt, Germany', region: 'eu', type: 'industry', description: 'Lead translational biomarker strategy for immuno-oncology pipeline. Requires expertise in HGSOC, spatial transcriptomics, and TME profiling. Heidelberg-area preferred.', url: 'https://www.merckgroup.com/en/careers.html', source: 'Example', postedAt: Date.now() - 259200000, deadline: null, tags: ['immuno-oncology', 'biomarkers', 'spatial'] },
     { id: '_jf2', title: 'Postdoctoral Researcher — Single-Cell Genomics', company: 'EMBL', location: 'Heidelberg, Germany', region: 'eu', type: 'academic', description: 'Join the Stegle/Huber group to develop computational methods for spatial single-cell data integration. Strong scRNA-seq and Python/R required.', url: 'https://www.embl.org/careers', source: 'Example', postedAt: Date.now() - 432000000, deadline: Date.now() + 1296000000, tags: ['scRNA-seq', 'spatial', 'bioinformatics'] },
-    { id: '_jf3', title: 'Research Scientist — Translational Oncology', company: 'AstraZeneca', location: 'Cambridge, UK', region: 'uk', type: 'industry', description: 'Translational scientist for the ovarian cancer / PARP inhibitor franchise. Work on resistance mechanisms, patient stratification, and companion diagnostics.', url: 'https://careers.astrazeneca.com', source: 'Example', postedAt: Date.now() - 604800000, deadline: null, tags: ['ovarian cancer', 'PARP inhibitors', 'translational'] },
+    { id: '_jf3', title: 'Translational Scientist — Ovarian Cancer', company: 'AstraZeneca', location: 'Cambridge, UK', region: 'uk', type: 'industry', description: 'Translational scientist for the ovarian cancer / PARP inhibitor franchise. Work on resistance mechanisms, patient stratification, and companion diagnostics alongside the SOLO trial team.', url: 'https://careers.astrazeneca.com', source: 'Example', postedAt: Date.now() - 604800000, deadline: null, tags: ['ovarian cancer', 'PARP inhibitors', 'translational'] },
     { id: '_jf4', title: 'Scientist — Oncology Genomics', company: 'Biocon', location: 'Bengaluru, India', region: 'india', type: 'industry', description: 'Drive biomarker discovery for biosimilar trastuzumab and novel oncology biologics. Genomics, NGS, and bioinformatics expertise required.', url: 'https://biocon.com/careers', source: 'Example', postedAt: Date.now() - 864000000, deadline: null, tags: ['genomics', 'bioinformatics', 'biologics'] },
-    { id: '_jf5', title: 'Group Leader — Gynaecological Oncology', company: 'DKFZ', location: 'Heidelberg, Germany', region: 'eu', type: 'academic', description: 'Independent group leader position in translational gynaecological oncology research. Excellent infrastructure for scRNA-seq and spatial transcriptomics.', url: 'https://www.dkfz.de/en/stellenangebote/', source: 'Example', postedAt: Date.now() - 1728000000, deadline: Date.now() + 2592000000, tags: ['ovarian cancer', 'scRNA-seq', 'spatial'] },
+    { id: '_jf5', title: 'Group Leader — Gynaecological Oncology', company: 'DKFZ', location: 'Heidelberg, Germany', region: 'eu', type: 'academic', description: 'Independent group leader position in translational gynaecological oncology research. Excellent infrastructure for scRNA-seq and spatial transcriptomics at DKFZ.', url: 'https://www.dkfz.de/en/stellenangebote/', source: 'Example', postedAt: Date.now() - 1728000000, deadline: Date.now() + 2592000000, tags: ['ovarian cancer', 'scRNA-seq', 'spatial'] },
   ];
 
   async function fetchFeed() {
@@ -30,9 +45,10 @@
     feedError = '';
     try {
       feedJobs = await fetchJobFeed();
-      if (feedJobs.length === 0) feedError = 'No jobs returned — feeds may be temporarily unavailable.';
+      if (feedJobs.length === 0) feedError = 'No jobs returned from feeds — examples shown below.';
     } catch (e) {
-      feedError = (e as Error).message;
+      feedError = `Feed unavailable: ${(e as Error).message}. Showing curated examples.`;
+      feedJobs = [];
     } finally {
       feedLoading = false;
     }
@@ -59,7 +75,7 @@
     }
     const job: SavedJob = {
       id: nanoid(),
-      listing: { ...listing, id: listing.id.startsWith('_') ? nanoid() : listing.id },
+      listing,
       status: 'radar',
       savedAt: Date.now(),
       appliedAt: null,
@@ -70,1134 +86,1498 @@
     };
     store.savedJobs = [job, ...store.savedJobs];
     store.saveJobs();
-    showToast('Saved to Radar');
+    showToast('Added to tracker');
   }
 
-  function askEnzoAboutJob(listing: JobListing) {
-    const prompt = `I'm considering this job: "${listing.title}" at ${listing.company} (${listing.location}). It focuses on: ${listing.description.slice(0, 200)}. Given my profile in HGSOC, scRNA-seq, spatial transcriptomics, and PARPi resistance, how strong is my fit? What should I emphasise in my application?`;
-    store.enzoSearchQuery = prompt;
-    store.enzoOpen = true;
-  }
-
-  // ── Tracker state ─────────────────────────────────────────────────
-  let addJobOpen = $state(false);
-  let addForm = $state({ title: '', company: '', location: '', url: '', type: 'industry' as JobType, region: 'eu' as JobRegion, description: '', tags: '' });
+  // ── Tracker state ─────────────────────────────────────────────────────────────
+  let trackerFilter = $state<JobStatus | 'all'>('all');
   let expandedJobId = $state<string | null>(null);
   let editingNotesId = $state<string | null>(null);
-  let notesDraft = $state('');
+  let editingNotesDraft = $state('');
+  let addingInterviewId = $state<string | null>(null);
+  let interviewDraft = $state<Partial<InterviewRecord>>({ type: 'phone', notes: '', outcome: '' });
 
-  const EXAMPLE_TRACKER: SavedJob[] = [
-    { id: '_jt1', listing: { id: '_l1', title: 'Senior Scientist — Oncology', company: 'Roche', location: 'Basel, Switzerland', region: 'eu', type: 'industry', description: '', url: 'https://roche.com/careers', source: 'Manual', postedAt: null, deadline: null, tags: ['oncology'] }, status: 'screening', savedAt: Date.now() - 1296000000, appliedAt: Date.now() - 864000000, notes: 'Great alignment with TME work. HR contacted on May 2nd — phone screen scheduled.', nextAction: 'Phone screen with hiring manager', nextActionAt: Date.now() + 172800000, interviews: [] },
-    { id: '_jt2', listing: { id: '_l2', title: 'Postdoctoral Researcher', company: 'EMBL Heidelberg', location: 'Heidelberg, Germany', region: 'eu', type: 'academic', description: '', url: 'https://embl.org/careers', source: 'Manual', postedAt: null, deadline: Date.now() + 864000000, tags: ['scRNA-seq'] }, status: 'applied', savedAt: Date.now() - 604800000, appliedAt: Date.now() - 259200000, notes: 'Applied via EMBL portal. Stegle group — perfect fit with spatial work.', nextAction: 'Wait for shortlist', nextActionAt: null, interviews: [] },
-    { id: '_jt3', listing: { id: '_l3', title: 'R&D Scientist — Biosimilars', company: 'Biocon', location: 'Bengaluru, India', region: 'india', type: 'industry', description: '', url: 'https://biocon.com/careers', source: 'Manual', postedAt: null, deadline: null, tags: ['biologics'] }, status: 'radar', savedAt: Date.now() - 86400000, appliedAt: null, notes: '', nextAction: 'Tailor CV to biologics experience', nextActionAt: null, interviews: [] },
+  const TRACKER_EXAMPLE: SavedJob[] = [
+    { id: '_tj1', listing: { id: '_l1', title: 'Senior Scientist — Translational Oncology', company: 'Roche', location: 'Basel, Switzerland', region: 'eu', type: 'industry', description: '', url: 'https://www.roche.com/careers', source: 'Example', postedAt: Date.now() - 1296000000, deadline: null, tags: ['translational', 'biomarkers'] }, status: 'interviewing', savedAt: Date.now() - 1296000000, appliedAt: Date.now() - 864000000, notes: 'Strong alignment with Diagnostics division. Panel interview scheduled.', nextAction: 'Prepare clinical data presentation', nextActionAt: Date.now() + 172800000, interviews: [{ id: '_i1', date: Date.now() - 259200000, type: 'hr', notes: 'Good rapport. Asked about BRCA experience.', outcome: 'Passed to technical round' }] },
+    { id: '_tj2', listing: { id: '_l2', title: 'Postdoctoral Fellow — Tumour Immunology', company: 'NCT Heidelberg', location: 'Heidelberg, Germany', region: 'eu', type: 'academic', description: '', url: 'https://www.nct-heidelberg.de', source: 'Example', postedAt: Date.now() - 604800000, deadline: null, tags: ['immunology', 'ovarian cancer'] }, status: 'applied', savedAt: Date.now() - 604800000, appliedAt: Date.now() - 432000000, notes: 'Applied via web form. Supervisor: Prof. Dr. Mueller.', nextAction: 'Follow up if no response by 15 May', nextActionAt: Date.now() + 950400000, interviews: [] },
   ];
 
-  const displayTracker = $derived(store.savedJobs.length > 0 ? store.savedJobs : EXAMPLE_TRACKER);
+  const displayTracker = $derived(
+    (store.savedJobs.length > 0 ? store.savedJobs : TRACKER_EXAMPLE).filter(j =>
+      trackerFilter === 'all' || j.status === trackerFilter
+    )
+  );
 
-  function jobsByStatus(status: JobStatus) {
-    return displayTracker.filter(j => j.status === status);
+  function isExampleJob(j: SavedJob) { return j.id.startsWith('_'); }
+
+  async function updateStatus(id: string, status: JobStatus) {
+    const job = store.savedJobs.find(j => j.id === id);
+    if (!job) return;
+    job.status = status;
+    if (status === 'applied' && !job.appliedAt) job.appliedAt = Date.now();
+    await store.saveJobs();
   }
 
-  async function updateStatus(jobId: string, newStatus: JobStatus) {
-    if (jobId.startsWith('_')) { showToast('Example data — save a real job first'); return; }
+  function openNotes(job: SavedJob) {
+    editingNotesId = job.id;
+    editingNotesDraft = job.notes;
+  }
+
+  async function saveNotes() {
+    const job = store.savedJobs.find(j => j.id === editingNotesId);
+    if (job) {
+      job.notes = editingNotesDraft;
+      await store.saveJobs();
+    }
+    editingNotesId = null;
+  }
+
+  async function addInterview(jobId: string) {
     const job = store.savedJobs.find(j => j.id === jobId);
     if (!job) return;
-    job.status = newStatus;
-    if (newStatus === 'applied' && !job.appliedAt) job.appliedAt = Date.now();
+    const interview: InterviewRecord = {
+      id: nanoid(),
+      date: Date.now(),
+      type: interviewDraft.type ?? 'phone',
+      notes: interviewDraft.notes ?? '',
+      outcome: interviewDraft.outcome ?? '',
+    };
+    job.interviews = [interview, ...(job.interviews ?? [])];
     await store.saveJobs();
-    showToast(`Moved to ${newStatus}`);
+    addingInterviewId = null;
+    interviewDraft = { type: 'phone', notes: '', outcome: '' };
+    showToast('Interview logged');
   }
 
-  async function deleteJob(jobId: string) {
-    if (jobId.startsWith('_')) return;
-    store.savedJobs = store.savedJobs.filter(j => j.id !== jobId);
+  async function removeJob(id: string) {
+    if (!confirm('Remove this job from tracker?')) return;
+    store.savedJobs = store.savedJobs.filter(j => j.id !== id);
     await store.saveJobs();
     showToast('Removed');
   }
 
-  async function saveNotes(jobId: string) {
-    if (jobId.startsWith('_')) return;
-    const job = store.savedJobs.find(j => j.id === jobId);
-    if (!job) return;
-    job.notes = notesDraft;
-    await store.saveJobs();
-    editingNotesId = null;
-    showToast('Notes saved');
+  // ── CV Builder ────────────────────────────────────────────────────────────────
+  let cvTab = $state<'personal' | 'experience' | 'education' | 'publications' | 'skills' | 'conferences' | 'awards' | 'preview'>('personal');
+  let cvSaving = $state(false);
+
+  async function saveCv() {
+    cvSaving = true;
+    try { await store.saveCv(); showToast('CV saved'); }
+    catch (e) { showToast((e as Error).message, 'error'); }
+    finally { cvSaving = false; }
   }
 
-  function addManualJob() {
-    if (!addForm.title.trim() || !addForm.company.trim()) return;
-    const listing: JobListing = {
+  function addExperience() {
+    store.cvProfile.experience = [{
+      id: nanoid(), role: '', organisation: '', location: '',
+      startDate: '', endDate: '', bullets: [''],
+    }, ...store.cvProfile.experience];
+  }
+
+  function removeExperience(id: string) {
+    store.cvProfile.experience = store.cvProfile.experience.filter(e => e.id !== id);
+  }
+
+  function addExpBullet(exp: CvExperience) {
+    exp.bullets = [...exp.bullets, ''];
+  }
+
+  function addEducation() {
+    store.cvProfile.education = [{
+      id: nanoid(), degree: '', institution: '', location: '', year: '',
+    }, ...store.cvProfile.education];
+  }
+
+  function removeEducation(id: string) {
+    store.cvProfile.education = store.cvProfile.education.filter(e => e.id !== id);
+  }
+
+  function addPublication() {
+    store.cvProfile.publications = [{
+      id: nanoid(), authors: '', title: '', journal: '', year: new Date().getFullYear(), doi: '', highlight: false,
+    }, ...store.cvProfile.publications];
+  }
+
+  function removePublication(id: string) {
+    store.cvProfile.publications = store.cvProfile.publications.filter(p => p.id !== id);
+  }
+
+  function addSkillGroup() {
+    store.cvProfile.skillGroups = [{
+      id: nanoid(), category: '', skills: [],
+    }, ...store.cvProfile.skillGroups];
+  }
+
+  function removeSkillGroup(id: string) {
+    store.cvProfile.skillGroups = store.cvProfile.skillGroups.filter(g => g.id !== id);
+  }
+
+  function addConference() {
+    store.cvProfile.conferences = [{
+      id: nanoid(), title: '', event: '', location: '', year: new Date().getFullYear(), type: 'poster',
+    }, ...store.cvProfile.conferences];
+  }
+
+  function removeConference(id: string) {
+    store.cvProfile.conferences = store.cvProfile.conferences.filter(c => c.id !== id);
+  }
+
+  function addAward() {
+    store.cvProfile.awards = [{
+      id: nanoid(), title: '', issuer: '', year: new Date().getFullYear(), description: '',
+    }, ...store.cvProfile.awards];
+  }
+
+  function removeAward(id: string) {
+    store.cvProfile.awards = store.cvProfile.awards.filter(a => a.id !== id);
+  }
+
+  function exportCvMarkdown() {
+    const cv = store.cvProfile;
+    const lines: string[] = [];
+    lines.push(`# ${cv.fullName}${cv.pronouns ? ` (${cv.pronouns})` : ''}`);
+    lines.push(`${cv.location} · ${cv.email}${cv.phone ? ` · ${cv.phone}` : ''}${cv.orcid ? ` · ORCID: ${cv.orcid}` : ''}${cv.linkedin ? ` · LinkedIn: ${cv.linkedin}` : ''}`);
+    if (cv.summary) { lines.push(''); lines.push('## Summary'); lines.push(cv.summary); }
+    if (cv.experience.length) {
+      lines.push(''); lines.push('## Experience');
+      for (const e of cv.experience) {
+        lines.push(`\n### ${e.role} — ${e.organisation}, ${e.location}`);
+        lines.push(`*${e.startDate} – ${e.endDate || 'Present'}*`);
+        for (const b of e.bullets) if (b.trim()) lines.push(`- ${b}`);
+      }
+    }
+    if (cv.education.length) {
+      lines.push(''); lines.push('## Education');
+      for (const e of cv.education) lines.push(`- **${e.degree}** — ${e.institution}, ${e.location} (${e.year})${e.notes ? ` — ${e.notes}` : ''}`);
+    }
+    if (cv.publications.length) {
+      lines.push(''); lines.push('## Publications');
+      for (const p of cv.publications) lines.push(`- ${p.authors} (${p.year}). **${p.title}.** *${p.journal}*${p.doi ? `. https://doi.org/${p.doi}` : ''}`);
+    }
+    if (cv.skillGroups.length) {
+      lines.push(''); lines.push('## Skills');
+      for (const g of cv.skillGroups) lines.push(`- **${g.category}:** ${g.skills.join(', ')}`);
+    }
+    if (cv.conferences.length) {
+      lines.push(''); lines.push('## Conferences & Presentations');
+      for (const c of cv.conferences) lines.push(`- ${c.year} · **${c.title}** (${c.type}) — ${c.event}, ${c.location}`);
+    }
+    if (cv.awards.length) {
+      lines.push(''); lines.push('## Awards & Fellowships');
+      for (const a of cv.awards) lines.push(`- ${a.year} · **${a.title}** — ${a.issuer}${a.description ? ` — ${a.description}` : ''}`);
+    }
+    if (cv.languages.length) { lines.push(''); lines.push('## Languages'); lines.push(cv.languages.join(', ')); }
+    const md = lines.join('\n');
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'cv-amritha.md'; a.click();
+    URL.revokeObjectURL(url);
+    showToast('CV exported as Markdown');
+  }
+
+  // ── Cover Letter ──────────────────────────────────────────────────────────────
+  let clSelectedJobId = $state('');
+  let clJobTitle = $state('');
+  let clCompany = $state('');
+  let clJobDesc = $state('');
+  let clContent = $state('');
+  let clGenerating = $state(false);
+  let clAbort: AbortController | null = null;
+  let clSaving = $state(false);
+  let clSelectedLetter = $state<CoverLetter | null>(null);
+  let clView = $state<'list' | 'compose' | 'view'>('list');
+
+  $effect(() => {
+    if (clSelectedJobId) {
+      const job = store.savedJobs.find(j => j.id === clSelectedJobId);
+      if (job) {
+        clJobTitle = job.listing.title;
+        clCompany = job.listing.company;
+        clJobDesc = job.listing.description;
+      }
+    }
+  });
+
+  function buildCvSummary(): string {
+    const cv = store.cvProfile;
+    const parts: string[] = [];
+    if (cv.summary) parts.push(cv.summary);
+    if (cv.experience.length) {
+      parts.push('Experience: ' + cv.experience.slice(0, 3).map(e => `${e.role} at ${e.organisation} (${e.startDate}–${e.endDate || 'present'})`).join('; '));
+    }
+    if (cv.publications.length) {
+      parts.push(`Publications: ${cv.publications.length} papers including ${cv.publications.slice(0, 2).map(p => p.title).join('; ')}`);
+    }
+    if (cv.skillGroups.length) {
+      parts.push('Skills: ' + cv.skillGroups.map(g => `${g.category}: ${g.skills.slice(0, 4).join(', ')}`).join('; '));
+    }
+    return parts.join('\n\n') || 'Postdoctoral researcher specialising in HGSOC, tumour microenvironment, scRNA-seq, spatial transcriptomics, and PARP inhibitor resistance.';
+  }
+
+  async function generateLetter() {
+    if (!clJobTitle || !clCompany) { showToast('Enter job title and company first', 'error'); return; }
+    clGenerating = true;
+    clContent = '';
+    clAbort = new AbortController();
+    try {
+      await generateCoverLetter(clJobTitle, clCompany, clJobDesc, buildCvSummary(), (chunk) => { clContent += chunk; }, clAbort.signal);
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') showToast('Generation failed: ' + (e as Error).message, 'error');
+    } finally { clGenerating = false; clAbort = null; }
+  }
+
+  async function saveCoverLetter() {
+    if (!clContent.trim()) return;
+    clSaving = true;
+    try {
+      const letter: CoverLetter = {
+        id: nanoid(),
+        jobId: clSelectedJobId,
+        company: clCompany,
+        role: clJobTitle,
+        content: clContent,
+        generatedAt: Date.now(),
+        editedAt: Date.now(),
+        note: '',
+      };
+      store.coverLetters = [letter, ...store.coverLetters];
+      await store.saveCoverLetters();
+      showToast('Cover letter saved');
+      clView = 'list';
+    } catch (e) { showToast((e as Error).message, 'error'); }
+    finally { clSaving = false; }
+  }
+
+  async function deleteLetter(id: string) {
+    if (!confirm('Delete this cover letter?')) return;
+    store.coverLetters = store.coverLetters.filter(l => l.id !== id);
+    await store.saveCoverLetters();
+    showToast('Deleted');
+  }
+
+  function exportLetter(letter: CoverLetter) {
+    const blob = new Blob([letter.content], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `cover-letter-${letter.company.replace(/\s+/g, '-').toLowerCase()}.md`; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ── Contacts / Network ────────────────────────────────────────────────────────
+  let contactDraft = $state<Partial<JobContact>>({});
+  let editingContactId = $state<string | null>(null);
+  let contactSearch = $state('');
+
+  const displayContacts = $derived(
+    store.jobContacts.filter(c => !contactSearch ||
+      c.name.toLowerCase().includes(contactSearch.toLowerCase()) ||
+      c.company.toLowerCase().includes(contactSearch.toLowerCase()) ||
+      c.role.toLowerCase().includes(contactSearch.toLowerCase())
+    )
+  );
+
+  function startNewContact() {
+    contactDraft = { name: '', role: '', company: '', email: '', linkedin: '', notes: '', metAt: '', lastContactAt: null };
+    editingContactId = 'new';
+  }
+
+  async function saveContact() {
+    if (!contactDraft.name?.trim()) return;
+    if (editingContactId === 'new') {
+      const contact: JobContact = {
+        id: nanoid(),
+        name: contactDraft.name ?? '',
+        role: contactDraft.role ?? '',
+        company: contactDraft.company ?? '',
+        email: contactDraft.email ?? '',
+        linkedin: contactDraft.linkedin ?? '',
+        notes: contactDraft.notes ?? '',
+        metAt: contactDraft.metAt ?? '',
+        lastContactAt: contactDraft.lastContactAt ?? null,
+      };
+      store.jobContacts = [contact, ...store.jobContacts];
+    } else {
+      const idx = store.jobContacts.findIndex(c => c.id === editingContactId);
+      if (idx >= 0) store.jobContacts[idx] = { ...store.jobContacts[idx], ...contactDraft } as JobContact;
+    }
+    await store.saveJobExt();
+    editingContactId = null;
+    contactDraft = {};
+    showToast('Contact saved');
+  }
+
+  async function deleteContact(id: string) {
+    store.jobContacts = store.jobContacts.filter(c => c.id !== id);
+    await store.saveJobExt();
+    showToast('Deleted');
+  }
+
+  // ── Salary tracker ────────────────────────────────────────────────────────────
+  let salaryDraft = $state<Partial<SalaryEntry>>({ currency: 'EUR', type: 'estimate', year: new Date().getFullYear() });
+  let addingSalary = $state(false);
+
+  const SALARY_EXAMPLE: SalaryEntry[] = [
+    { id: '_s1', company: 'Merck KGaA', role: 'Senior Scientist Oncology', region: 'Germany', salaryMin: 65000, salaryMax: 85000, currency: 'EUR', type: 'estimate', notes: 'Based on Glassdoor + LinkedIn range for PhD+4yrs', year: 2026 },
+    { id: '_s2', company: 'AstraZeneca', role: 'Translational Scientist', region: 'UK', salaryMin: 55000, salaryMax: 75000, currency: 'GBP', type: 'glassdoor', notes: 'Posted band for Cambridge site', year: 2026 },
+    { id: '_s3', company: 'Biocon', role: 'Scientist II', region: 'Bengaluru', salaryMin: 1800000, salaryMax: 2800000, currency: 'INR', type: 'estimate', notes: 'Industry standard for genomics PhD + 3 yrs postdoc', year: 2026 },
+  ];
+
+  async function addSalary() {
+    if (!salaryDraft.company || !salaryDraft.role) return;
+    const entry: SalaryEntry = {
       id: nanoid(),
-      title: addForm.title.trim(),
-      company: addForm.company.trim(),
-      location: addForm.location.trim() || addForm.region,
-      region: addForm.region,
-      type: addForm.type,
-      description: addForm.description.trim(),
-      url: addForm.url.trim() || '#',
-      source: 'Manual',
-      postedAt: Date.now(),
-      deadline: null,
-      tags: addForm.tags.split(',').map(t => t.trim()).filter(Boolean),
+      company: salaryDraft.company ?? '',
+      role: salaryDraft.role ?? '',
+      region: salaryDraft.region ?? '',
+      salaryMin: salaryDraft.salaryMin ?? 0,
+      salaryMax: salaryDraft.salaryMax ?? 0,
+      currency: salaryDraft.currency ?? 'EUR',
+      type: salaryDraft.type ?? 'estimate',
+      notes: salaryDraft.notes ?? '',
+      year: salaryDraft.year ?? new Date().getFullYear(),
     };
-    saveJobToTracker(listing);
-    addForm = { title: '', company: '', location: '', url: '', type: 'industry', region: 'eu', description: '', tags: '' };
-    addJobOpen = false;
+    store.salaryEntries = [entry, ...store.salaryEntries];
+    await store.saveJobExt();
+    salaryDraft = { currency: 'EUR', type: 'estimate', year: new Date().getFullYear() };
+    addingSalary = false;
+    showToast('Entry added');
   }
 
-  function daysUntil(ts: number | null): string | null {
-    if (!ts) return null;
-    const d = Math.ceil((ts - Date.now()) / 86400000);
-    if (d < 0) return 'Overdue';
-    if (d === 0) return 'Today';
-    if (d === 1) return '1 day';
-    return `${d} days`;
+  async function deleteSalary(id: string) {
+    store.salaryEntries = store.salaryEntries.filter(e => e.id !== id);
+    await store.saveJobExt();
   }
 
+  const displaySalaries = $derived(store.salaryEntries.length > 0 ? store.salaryEntries : SALARY_EXAMPLE);
+
+  // ── Analytics ─────────────────────────────────────────────────────────────────
+  const analytics = $derived(() => {
+    const jobs = store.savedJobs;
+    const byStatus = PIPELINE_STAGES.reduce((acc, s) => {
+      acc[s.id] = jobs.filter(j => j.status === s.id).length;
+      return acc;
+    }, {} as Record<string, number>);
+    const applied = jobs.filter(j => j.appliedAt !== null).length;
+    const withInterviews = jobs.filter(j => (j.interviews?.length ?? 0) > 0).length;
+    const conversionRate = applied > 0 ? Math.round((withInterviews / applied) * 100) : 0;
+    const byRegion = jobs.reduce((acc, j) => {
+      const r = j.listing.region; acc[r] = (acc[r] || 0) + 1; return acc;
+    }, {} as Record<string, number>);
+    const byType = jobs.reduce((acc, j) => {
+      const t = j.listing.type; acc[t] = (acc[t] || 0) + 1; return acc;
+    }, {} as Record<string, number>);
+    return { byStatus, applied, withInterviews, conversionRate, byRegion, byType, total: jobs.length };
+  });
+
+  // ── Helpers ───────────────────────────────────────────────────────────────────
   function relTime(ts: number): string {
-    const d = Math.ceil((Date.now() - ts) / 86400000);
-    if (d === 0) return 'today';
-    if (d === 1) return 'yesterday';
-    return `${d}d ago`;
+    const d = Date.now() - ts;
+    if (d < 86400000) return `${Math.floor(d / 3600000)}h ago`;
+    if (d < 604800000) return `${Math.floor(d / 86400000)}d ago`;
+    return new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   }
 
-  // ── Companies state ───────────────────────────────────────────────
-  let coFilter = $state<'all' | 'eu' | 'india' | 'de'>('all');
-
-  const filteredEU = $derived(
-    EU_COMPANIES.filter(c => coFilter === 'all' || coFilter === 'eu' || (coFilter === 'de' && c.country === 'DE'))
-  );
-  const filteredIndia = $derived(
-    INDIA_COMPANIES.filter(() => coFilter === 'all' || coFilter === 'india')
-  );
-
-  // ── Profile state ─────────────────────────────────────────────────
-  let editingProfile = $state(false);
-  let profileDraft = $state({ ...store.profile });
-  let newSpec = $state('');
-  let newRole = $state('');
-  let newLoc = $state('');
-  let newHL = $state('');
-  let newPubTitle = $state('');
-  let newPubDoi = $state('');
-  let newPubYear = $state('');
-
-  function startEditProfile() {
-    profileDraft = { ...store.profile, specializations: [...store.profile.specializations], targetRoles: [...store.profile.targetRoles], targetLocations: [...store.profile.targetLocations], cvHighlights: [...store.profile.cvHighlights], publications: store.profile.publications.map(p => ({ ...p })) };
-    editingProfile = true;
+  function fmtDate(ts: number): string {
+    return new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   }
 
-  async function saveProfile() {
-    store.profile = { ...profileDraft };
-    await store.saveProfile();
-    editingProfile = false;
-    showToast('Profile saved');
-  }
-
-  function useProfileInEnzo() {
-    const p = store.profile;
-    const prompt = `My researcher profile:\n- Role: ${p.currentRole} at ${p.institution} (${p.department})\n- Expertise: ${p.specializations.join(', ')}\n- Target roles: ${p.targetRoles.join(', ')}\n- Target locations: ${p.targetLocations.join(', ')}\n${p.cvHighlights.length ? '- Highlights: ' + p.cvHighlights.join('; ') : ''}\n\nI'm exploring pharma/academic jobs in EU and India. What should my job search strategy be?`;
-    store.enzoSearchQuery = prompt;
-    store.enzoOpen = true;
+  function stageColor(s: JobStatus): string {
+    const map: Record<JobStatus, string> = { radar: 'mu', queued: 'pu', applied: 'ac', screening: 'yw', interviewing: 'oj', offer: 'gn', closed: 'mu' };
+    return map[s] ?? 'mu';
   }
 </script>
 
-<div class="jobs">
-  <!-- Header + tabs -->
-  <div class="jobs-header">
-    <div class="header-left">
-      <h2>Jobs</h2>
-      <p class="text-sm text-mu">EU & India pharma · academic · research</p>
-    </div>
-    <div class="header-tabs">
-      {#each (['feed', 'tracker', 'companies', 'profile'] as const) as t}
-        <button class="tab-btn" class:active={tab === t} onclick={() => tab = t}>
-          {t === 'feed' ? 'Feed' : t === 'tracker' ? `Tracker${store.savedJobs.length > 0 ? ` (${store.savedJobs.length})` : ''}` : t === 'companies' ? 'Companies' : 'Profile'}
-        </button>
-      {/each}
+<!-- ── Landing page when disabled ───────────────────────────────────────────── -->
+{#if !enabled}
+  <div class="landing">
+    <div class="landing-inner">
+      <div class="landing-icon">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2" y="7" width="20" height="14" rx="2"/>
+          <path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/>
+          <line x1="12" y1="12" x2="12" y2="16"/>
+          <line x1="10" y1="14" x2="14" y2="14"/>
+        </svg>
+      </div>
+      <h2>Job Intelligence Portal</h2>
+      <p class="landing-desc">
+        Your complete job search command centre — curated feeds from EU &amp; India pharma, application tracker,
+        AI-powered CV builder, cover letter generator, interview prep, salary benchmarking, and network manager.
+      </p>
+      <div class="landing-features">
+        {#each ['Live job feed — Nature Careers, EMBL, EurAxess, Indeed', 'Kanban tracker — radar → offer pipeline', 'CV builder with export', 'AI cover letter generator (Enzo)', 'Salary benchmarking database', 'Network &amp; contacts log', 'Application analytics'] as f}
+          <div class="landing-feature">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--gn)" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            {@html f}
+          </div>
+        {/each}
+      </div>
+      <button class="btn btn-primary btn-lg" onclick={enable}>
+        Enable for this session
+      </button>
+      <p class="landing-note text-xs text-mu">Stays active until you close this tab. Data auto-saves to GitHub.</p>
     </div>
   </div>
 
-  <!-- ── FEED ───────────────────────────────────────────────────── -->
-  {#if tab === 'feed'}
-    <div class="feed-toolbar">
-      <input type="search" bind:value={feedSearch} placeholder="Search jobs, companies, tags…" class="feed-search" />
-      <select bind:value={regionFilter} class="filter-sel">
-        <option value="all">All regions</option>
-        <option value="eu">Europe</option>
-        <option value="india">India</option>
-        <option value="uk">UK</option>
-        <option value="remote">Remote</option>
-      </select>
-      <select bind:value={typeFilter} class="filter-sel">
-        <option value="all">All types</option>
-        <option value="industry">Industry</option>
-        <option value="academic">Academic</option>
-        <option value="fellowship">Fellowship</option>
-        <option value="startup">Startup</option>
-        <option value="contract">Contract</option>
-      </select>
-      <button class="btn btn-primary btn-sm" onclick={fetchFeed} disabled={feedLoading}>
-        {#if feedLoading}
-          <span class="spin"></span> Loading…
-        {:else}
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-          Refresh feed
-        {/if}
-      </button>
-    </div>
-
-    {#if feedError}
-      <div class="feed-notice text-sm text-mu">{feedError}</div>
-    {/if}
-    {#if feedJobs.length === 0 && !feedLoading}
-      <div class="feed-notice text-xs text-mu">Showing example jobs. Click Refresh feed to load live listings.</div>
-    {/if}
-
-    <div class="feed-grid">
-      {#each displayFeed as job (job.id)}
-        <div class="job-card" class:example-card={job.id.startsWith('_')}>
-          {#if job.id.startsWith('_')}
-            <span class="example-badge">· example</span>
+<!-- ── Full portal ───────────────────────────────────────────────────────────── -->
+{:else}
+  <div class="jobs-view">
+    <!-- Tab bar -->
+    <div class="tab-bar">
+      {#each [
+        ['feed',        'Feed'],
+        ['tracker',     'Tracker'],
+        ['companies',   'Companies'],
+        ['cv',          'CV Builder'],
+        ['coverletter', 'Cover Letters'],
+        ['contacts',    'Network'],
+        ['salary',      'Salary'],
+        ['analytics',   'Analytics'],
+      ] as [id, label]}
+        <button class="tab-btn" class:active={tab === id} onclick={() => tab = id as typeof tab}>
+          {label}
+          {#if id === 'tracker' && store.savedJobs.length > 0}
+            <span class="tab-badge">{store.savedJobs.length}</span>
           {/if}
-          <div class="job-card-top">
-            <div class="job-title-block">
-              <span class="job-title">{job.title}</span>
-              <span class="job-company">{job.company}</span>
-            </div>
-            <div class="job-badges">
-              <span class="region-badge region-{job.region}">{REGION_LABELS[job.region] ?? job.region}</span>
-              <span class="type-badge type-{job.type}">{TYPE_LABELS[job.type] ?? job.type}</span>
-            </div>
-          </div>
-          <div class="job-location text-xs text-mu">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-            {job.location}
-            {#if job.postedAt}
-              <span class="sep">·</span>
-              <span>{relTime(job.postedAt)}</span>
-            {/if}
-            {#if job.source !== 'Example'}
-              <span class="sep">·</span>
-              <span class="source-lbl">{job.source}</span>
-            {/if}
-          </div>
-          {#if job.description}
-            <p class="job-desc text-sm">{job.description.slice(0, 160)}{job.description.length > 160 ? '…' : ''}</p>
-          {/if}
-          {#if job.tags.length > 0}
-            <div class="job-tags">
-              {#each job.tags.slice(0, 4) as tag}
-                <span class="job-tag">{tag}</span>
-              {/each}
-            </div>
-          {/if}
-          <div class="job-actions">
-            <a href={job.url} target="_blank" rel="noreferrer" class="btn btn-ghost btn-sm">
-              Open
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-            </a>
-            <button class="btn btn-ghost btn-sm" onclick={() => askEnzoAboutJob(job)}>Ask Enzo</button>
-            <button class="btn btn-primary btn-sm" onclick={() => saveJobToTracker(job)}>
-              {store.savedJobs.some(j => j.listing.url === job.url) ? 'Saved' : '+ Track'}
-            </button>
-          </div>
-        </div>
-      {:else}
-        <div class="feed-empty text-mu text-sm">No jobs match your filters.</div>
+        </button>
       {/each}
     </div>
 
-  <!-- ── TRACKER ─────────────────────────────────────────────────── -->
-  {:else if tab === 'tracker'}
-    <div class="tracker-toolbar">
-      <p class="text-sm text-mu">{store.savedJobs.length} saved jobs · track your application pipeline</p>
-      <button class="btn btn-primary btn-sm" onclick={() => addJobOpen = true}>+ Add job</button>
-    </div>
+    <div class="tab-content">
 
-    {#if store.savedJobs.length === 0}
-      <div class="feed-notice text-xs text-mu">Showing example jobs. Save jobs from the Feed tab or add manually.</div>
-    {/if}
-
-    <!-- Kanban pipeline -->
-    <div class="pipeline-board">
-      {#each PIPELINE_STAGES as stage}
-        {@const stageJobs = jobsByStatus(stage.id as JobStatus)}
-        <div class="pipeline-col">
-          <div class="col-header" style="--col: var(--{stage.color})">
-            <span class="col-name">{stage.label}</span>
-            <span class="col-count">{stageJobs.length}</span>
+      <!-- ── FEED ─────────────────────────────────────────────────────────────── -->
+      {#if tab === 'feed'}
+        <div class="feed-view">
+          <div class="feed-controls">
+            <input class="search-input" type="search" bind:value={feedSearch} placeholder="Search jobs…" />
+            <select bind:value={regionFilter}>
+              <option value="all">All regions</option>
+              {#each Object.entries(REGION_LABELS) as [v, l]}<option value={v}>{l}</option>{/each}
+            </select>
+            <select bind:value={typeFilter}>
+              <option value="all">All types</option>
+              {#each Object.entries(TYPE_LABELS) as [v, l]}<option value={v}>{l}</option>{/each}
+            </select>
+            <button class="btn btn-primary btn-sm" onclick={fetchFeed} disabled={feedLoading}>
+              {feedLoading ? 'Loading…' : 'Refresh'}
+            </button>
           </div>
-          <div class="col-cards">
-            {#each stageJobs as job (job.id)}
-              <div class="tracker-card" class:example-card={job.id.startsWith('_')}>
-                {#if job.id.startsWith('_')}
-                  <span class="example-badge">· example</span>
-                {/if}
-                <div class="tc-title">{job.listing.title}</div>
-                <div class="tc-company text-xs text-mu">{job.listing.company}</div>
-                <div class="tc-location text-xs text-mu">{job.listing.location}</div>
-                {#if job.listing.deadline}
-                  {@const days = daysUntil(job.listing.deadline)}
-                  <div class="tc-deadline" class:urgent={job.listing.deadline - Date.now() < 604800000}>
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                    Deadline: {days}
+
+          {#if feedError}
+            <div class="feed-notice text-xs text-mu">{feedError}</div>
+          {/if}
+
+          <div class="job-list">
+            {#each displayFeed as job (job.id)}
+              <div class="job-card" class:example-card={job.id.startsWith('_')}>
+                {#if job.id.startsWith('_')}<span class="example-label">· example</span>{/if}
+                <div class="job-head">
+                  <div class="job-title-row">
+                    <h3 class="job-title">{job.title}</h3>
+                    <span class="tag type-tag type-{job.type}">{TYPE_LABELS[job.type] ?? job.type}</span>
+                    <span class="tag region-tag">{REGION_LABELS[job.region] ?? job.region}</span>
                   </div>
-                {/if}
-                {#if job.nextAction}
-                  <div class="tc-next text-xs">
-                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-                    {job.nextAction}
+                  <div class="job-meta">
+                    <span class="company-name">{job.company}</span>
+                    <span class="separator">·</span>
+                    <span class="location text-mu">{job.location}</span>
+                    {#if job.postedAt}<span class="separator">·</span><span class="text-mu text-xs">{relTime(job.postedAt)}</span>{/if}
+                    {#if job.deadline}<span class="separator">·</span><span class="deadline-badge">Deadline: {fmtDate(job.deadline)}</span>{/if}
+                    <span class="separator">·</span><span class="source-tag text-xs text-mu">{job.source}</span>
                   </div>
+                </div>
+                <p class="job-desc text-sm text-mu">{job.description.slice(0, 220)}{job.description.length > 220 ? '…' : ''}</p>
+                {#if job.tags.length > 0}
+                  <div class="tag-row">{#each job.tags as t}<span class="tag">{t}</span>{/each}</div>
                 {/if}
-                {#if !job.id.startsWith('_')}
-                  <div class="tc-actions">
-                    <select
-                      class="status-sel"
-                      value={job.status}
-                      onchange={e => updateStatus(job.id, (e.target as HTMLSelectElement).value as JobStatus)}
-                    >
-                      {#each PIPELINE_STAGES as s}
-                        <option value={s.id}>{s.label}</option>
-                      {/each}
-                    </select>
-                    <button class="btn-icon tc-btn" title="Open URL" onclick={() => window.open(job.listing.url, '_blank')}>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                    </button>
-                    <button class="btn-icon tc-btn" title="Notes" onclick={() => { editingNotesId = job.id; notesDraft = job.notes; }}>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                    </button>
-                    <button class="btn-icon tc-btn danger" title="Remove" onclick={() => deleteJob(job.id)}>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                    </button>
-                  </div>
-                  {#if job.appliedAt}
-                    <div class="tc-meta text-xs text-mu">Applied {relTime(job.appliedAt)}</div>
-                  {/if}
-                {/if}
+                <div class="job-actions">
+                  <a class="btn btn-ghost btn-sm" href={job.url} target="_blank" rel="noreferrer">View posting</a>
+                  <button class="btn btn-primary btn-sm" onclick={() => saveJobToTracker(job)}
+                    disabled={store.savedJobs.some(j => j.listing.url === job.url)}>
+                    {store.savedJobs.some(j => j.listing.url === job.url) ? 'In tracker' : '+ Track'}
+                  </button>
+                </div>
               </div>
             {:else}
-              <div class="col-empty text-xs text-mu">{stage.desc}</div>
+              <div class="empty-state">
+                <p class="text-mu">No jobs match your filters.</p>
+              </div>
             {/each}
           </div>
         </div>
-      {/each}
-    </div>
 
-    <!-- Notes editor modal -->
-    {#if editingNotesId}
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="modal-backdrop" onclick={() => editingNotesId = null}>
-        <div class="modal" onclick={(e) => e.stopPropagation()}>
-          <div class="modal-head">
-            <h3>Job notes</h3>
-            <button class="btn-icon" onclick={() => editingNotesId = null}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
+      <!-- ── TRACKER ───────────────────────────────────────────────────────────── -->
+      {:else if tab === 'tracker'}
+        <div class="tracker-view">
+          <div class="tracker-header">
+            <div class="stage-pills">
+              <button class="stage-pill" class:active={trackerFilter==='all'} onclick={() => trackerFilter='all'}>All</button>
+              {#each PIPELINE_STAGES as s}
+                <button class="stage-pill" class:active={trackerFilter===s.id} onclick={() => trackerFilter=s.id as JobStatus}>
+                  {s.label}
+                  <span class="stage-count">{store.savedJobs.filter(j => j.status === s.id).length}</span>
+                </button>
+              {/each}
+            </div>
           </div>
-          <textarea class="notes-ta" bind:value={notesDraft} placeholder="Notes, contacts, interview prep, salary info…" rows={8}></textarea>
-          <div class="modal-actions">
-            <button class="btn btn-ghost" onclick={() => editingNotesId = null}>Cancel</button>
-            <button class="btn btn-primary" onclick={() => editingNotesId && saveNotes(editingNotesId)}>Save notes</button>
+
+          <div class="tracker-list">
+            {#each displayTracker as job (job.id)}
+              {@const isEx = isExampleJob(job)}
+              <div class="tracker-card" class:example-card={isEx} class:expanded={expandedJobId === job.id}>
+                {#if isEx}<span class="example-label">· example</span>{/if}
+                <div class="tracker-row" role="button" tabindex="0"
+                  onclick={() => expandedJobId = expandedJobId === job.id ? null : job.id}
+                  onkeydown={(e) => e.key === 'Enter' && (expandedJobId = expandedJobId === job.id ? null : job.id)}>
+                  <div class="tracker-main">
+                    <span class="stage-dot" style="background: var(--{stageColor(job.status)})"></span>
+                    <div class="tracker-info">
+                      <div class="tracker-title">{job.listing.title}</div>
+                      <div class="tracker-sub text-xs text-mu">
+                        {job.listing.company} · {job.listing.location}
+                        {#if job.appliedAt} · Applied {relTime(job.appliedAt)}{/if}
+                      </div>
+                    </div>
+                  </div>
+                  <div class="tracker-right">
+                    <span class="stage-badge stage-{job.status}">{job.status}</span>
+                    {#if !isEx}
+                      <button class="btn-icon danger-icon" onclick={(e) => { e.stopPropagation(); removeJob(job.id); }} title="Remove">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6m5 0V4h4v2"/></svg>
+                      </button>
+                    {/if}
+                  </div>
+                </div>
+
+                {#if expandedJobId === job.id}
+                  <div class="tracker-expand">
+                    <!-- Stage selector -->
+                    {#if !isEx}
+                      <div class="expand-section">
+                        <span class="field-label">Move to stage</span>
+                        <div class="stage-select">
+                          {#each PIPELINE_STAGES as s}
+                            <button class="stage-move-btn" class:active={job.status === s.id}
+                              onclick={() => updateStatus(job.id, s.id as JobStatus)}>
+                              {s.label}
+                            </button>
+                          {/each}
+                        </div>
+                      </div>
+
+                      <!-- Interviews -->
+                      <div class="expand-section">
+                        <div class="expand-head">
+                          <span class="field-label">Interviews ({job.interviews?.length ?? 0})</span>
+                          <button class="btn btn-ghost btn-xs" onclick={() => addingInterviewId = addingInterviewId === job.id ? null : job.id}>+ Log</button>
+                        </div>
+                        {#if addingInterviewId === job.id}
+                          <div class="interview-form">
+                            <select bind:value={interviewDraft.type}>
+                              {#each ['phone', 'technical', 'panel', 'hr', 'onsite', 'other'] as t}
+                                <option value={t}>{t}</option>
+                              {/each}
+                            </select>
+                            <textarea bind:value={interviewDraft.notes} placeholder="Notes from the interview…" rows={2}></textarea>
+                            <input bind:value={interviewDraft.outcome} placeholder="Outcome / next step" />
+                            <button class="btn btn-primary btn-sm" onclick={() => addInterview(job.id)}>Save</button>
+                          </div>
+                        {/if}
+                        {#each (job.interviews ?? []) as iv}
+                          <div class="interview-row text-sm">
+                            <span class="tag">{iv.type}</span>
+                            <span class="text-mu text-xs">{fmtDate(iv.date)}</span>
+                            {#if iv.notes}<p class="iv-notes text-mu">{iv.notes}</p>{/if}
+                            {#if iv.outcome}<p class="iv-outcome">{iv.outcome}</p>{/if}
+                          </div>
+                        {/each}
+                      </div>
+
+                      <!-- Notes -->
+                      <div class="expand-section">
+                        <div class="expand-head">
+                          <span class="field-label">Notes</span>
+                          <button class="btn btn-ghost btn-xs" onclick={() => openNotes(job)}>Edit</button>
+                        </div>
+                        {#if job.notes}<p class="job-notes-text text-sm text-mu">{job.notes}</p>{/if}
+                      </div>
+
+                      <!-- Generate cover letter shortcut -->
+                      <div class="expand-section">
+                        <button class="btn btn-ghost btn-sm" onclick={() => {
+                          clSelectedJobId = job.id;
+                          clJobTitle = job.listing.title;
+                          clCompany = job.listing.company;
+                          clJobDesc = job.listing.description;
+                          clView = 'compose';
+                          tab = 'coverletter';
+                        }}>
+                          Generate cover letter for this role →
+                        </button>
+                      </div>
+                    {/if}
+                    <a class="btn btn-ghost btn-sm" href={job.listing.url} target="_blank" rel="noreferrer">View original posting →</a>
+                  </div>
+                {/if}
+              </div>
+            {:else}
+              <div class="empty-state">
+                <p class="text-mu text-sm">No jobs tracked. Find one in the Feed tab and click Track.</p>
+              </div>
+            {/each}
           </div>
         </div>
-      </div>
-    {/if}
 
-    <!-- Add job modal -->
-    {#if addJobOpen}
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="modal-backdrop" onclick={() => addJobOpen = false}>
-        <div class="modal" onclick={(e) => e.stopPropagation()}>
-          <div class="modal-head">
-            <h3>Add job manually</h3>
-            <button class="btn-icon" onclick={() => addJobOpen = false}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          </div>
-          <div class="add-form">
-            <div class="form-row">
-              <div class="field">
-                <label>Job title *</label>
-                <input type="text" bind:value={addForm.title} placeholder="Senior Scientist – Oncology" />
+        <!-- Notes modal -->
+        {#if editingNotesId}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="modal-backdrop" onclick={() => editingNotesId = null}>
+            <div class="modal" onclick={(e) => e.stopPropagation()}>
+              <div class="modal-head">
+                <h3>Job notes</h3>
+                <button class="btn-icon" onclick={() => editingNotesId = null}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
               </div>
-              <div class="field">
-                <label>Company *</label>
-                <input type="text" bind:value={addForm.company} placeholder="Merck KGaA" />
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="field">
-                <label>Location</label>
-                <input type="text" bind:value={addForm.location} placeholder="Darmstadt, Germany" />
-              </div>
-              <div class="field">
-                <label>Job URL</label>
-                <input type="url" bind:value={addForm.url} placeholder="https://…" />
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="field">
-                <label>Region</label>
-                <select bind:value={addForm.region}>
-                  <option value="eu">Europe</option>
-                  <option value="india">India</option>
-                  <option value="uk">UK</option>
-                  <option value="remote">Remote</option>
-                  <option value="us">USA</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-              <div class="field">
-                <label>Type</label>
-                <select bind:value={addForm.type}>
-                  <option value="industry">Industry</option>
-                  <option value="academic">Academic</option>
-                  <option value="fellowship">Fellowship</option>
-                  <option value="startup">Startup</option>
-                  <option value="contract">Contract</option>
-                </select>
-              </div>
-            </div>
-            <div class="field">
-              <label>Tags (comma-separated)</label>
-              <input type="text" bind:value={addForm.tags} placeholder="oncology, scRNA-seq, bioinformatics" />
-            </div>
-            <div class="field">
-              <label>Description</label>
-              <textarea bind:value={addForm.description} placeholder="Brief notes on the role…" rows={3}></textarea>
-            </div>
-          </div>
-          <div class="modal-actions">
-            <button class="btn btn-ghost" onclick={() => addJobOpen = false}>Cancel</button>
-            <button class="btn btn-primary" onclick={addManualJob} disabled={!addForm.title.trim() || !addForm.company.trim()}>Add to Radar</button>
-          </div>
-        </div>
-      </div>
-    {/if}
-
-  <!-- ── COMPANIES ───────────────────────────────────────────────── -->
-  {:else if tab === 'companies'}
-    <div class="co-toolbar">
-      <p class="text-sm text-mu">{EU_COMPANIES.length + INDIA_COMPANIES.length} curated companies — pharma, biotech, research</p>
-      <div class="co-filters">
-        {#each (['all', 'eu', 'de', 'india'] as const) as f}
-          <button class="filter-tab" class:active={coFilter === f} onclick={() => coFilter = f}>
-            {f === 'all' ? 'All' : f === 'eu' ? 'All EU' : f === 'de' ? 'Germany' : 'India'}
-          </button>
-        {/each}
-      </div>
-    </div>
-
-    {#if coFilter !== 'india'}
-      <div class="co-section">
-        <div class="co-section-head">
-          <span class="co-section-label">Europe & UK</span>
-          <span class="co-count text-xs text-mu">{filteredEU.length} companies</span>
-        </div>
-        <div class="co-grid">
-          {#each filteredEU as co}
-            <div class="co-card tier-{co.tier}">
-              <div class="co-card-top">
-                <span class="co-name">{co.name}</span>
-                <span class="co-country">{co.country}</span>
-              </div>
-              <span class="co-location text-xs text-mu">{co.location}</span>
-              <div class="co-tags">
-                {#each co.focus.slice(0, 3) as f}
-                  <span class="co-tag">{f}</span>
-                {/each}
-              </div>
-              <a href={co.url} target="_blank" rel="noreferrer" class="btn btn-ghost btn-sm co-btn">
-                Careers
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-              </a>
-            </div>
-          {/each}
-        </div>
-      </div>
-    {/if}
-
-    {#if coFilter !== 'eu' && coFilter !== 'de'}
-      <div class="co-section">
-        <div class="co-section-head">
-          <span class="co-section-label">India</span>
-          <span class="co-count text-xs text-mu">{filteredIndia.length} companies</span>
-        </div>
-        <div class="co-grid">
-          {#each filteredIndia as co}
-            <div class="co-card tier-{co.tier}">
-              <div class="co-card-top">
-                <span class="co-name">{co.name}</span>
-                <span class="co-country">IN</span>
-              </div>
-              <span class="co-location text-xs text-mu">{co.location}</span>
-              <div class="co-tags">
-                {#each co.focus.slice(0, 3) as f}
-                  <span class="co-tag">{f}</span>
-                {/each}
-              </div>
-              <a href={co.url} target="_blank" rel="noreferrer" class="btn btn-ghost btn-sm co-btn">
-                Careers
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-              </a>
-            </div>
-          {/each}
-        </div>
-      </div>
-    {/if}
-
-  <!-- ── PROFILE ─────────────────────────────────────────────────── -->
-  {:else if tab === 'profile'}
-    <div class="profile-panel">
-      {#if !editingProfile}
-        <div class="profile-view">
-          <div class="profile-head">
-            <div>
-              <h3>{store.profile.currentRole}</h3>
-              <p class="text-mu text-sm">{store.profile.institution} · {store.profile.department}</p>
-            </div>
-            <div class="profile-actions">
-              <button class="btn btn-ghost btn-sm" onclick={useProfileInEnzo}>Ask Enzo about my prospects</button>
-              <button class="btn btn-primary btn-sm" onclick={startEditProfile}>Edit profile</button>
-            </div>
-          </div>
-
-          <div class="profile-grid">
-            <div class="profile-field">
-              <span class="field-label">Specializations</span>
-              <div class="tag-list">
-                {#each store.profile.specializations as s}
-                  <span class="profile-tag">{s}</span>
-                {/each}
-              </div>
-            </div>
-            <div class="profile-field">
-              <span class="field-label">Target roles</span>
-              <div class="tag-list">
-                {#each store.profile.targetRoles as r}
-                  <span class="profile-tag role-tag">{r}</span>
-                {/each}
-              </div>
-            </div>
-            <div class="profile-field">
-              <span class="field-label">Target locations</span>
-              <div class="tag-list">
-                {#each store.profile.targetLocations as l}
-                  <span class="profile-tag loc-tag">{l}</span>
-                {/each}
+              <textarea class="modal-textarea" bind:value={editingNotesDraft} rows={6} placeholder="Notes, contacts, timeline…"></textarea>
+              <div class="modal-actions">
+                <button class="btn btn-ghost btn-sm" onclick={() => editingNotesId = null}>Cancel</button>
+                <button class="btn btn-primary btn-sm" onclick={saveNotes}>Save</button>
               </div>
             </div>
           </div>
+        {/if}
 
-          {#if store.profile.cvHighlights.length > 0}
-            <div class="profile-field">
-              <span class="field-label">CV highlights</span>
-              <ul class="cv-list">
-                {#each store.profile.cvHighlights as h}
-                  <li>{h}</li>
-                {/each}
-              </ul>
-            </div>
-          {:else}
-            <div class="profile-field">
-              <span class="field-label">CV highlights</span>
-              <p class="text-mu text-sm">Add key achievements — Enzo will use these when drafting cover letters.</p>
-            </div>
-          {/if}
-
-          {#if store.profile.publications.length > 0}
-            <div class="profile-field">
-              <span class="field-label">Key publications</span>
-              <div class="pub-list">
-                {#each store.profile.publications as pub}
-                  <div class="pub-row">
-                    <span class="pub-title text-sm">{pub.title}</span>
-                    <span class="pub-meta text-xs text-mu">{pub.year}{pub.doi ? ` · doi:${pub.doi}` : ''}</span>
+      <!-- ── COMPANIES ──────────────────────────────────────────────────────────── -->
+      {:else if tab === 'companies'}
+        <div class="companies-view">
+          {#each [['EU / UK / Switzerland', EU_COMPANIES], ['India', INDIA_COMPANIES]] as [label, cos]}
+            <div class="company-region">
+              <h3 class="region-heading">{label}</h3>
+              <div class="company-grid">
+                {#each cos as co}
+                  <div class="company-card">
+                    <div class="co-head">
+                      <span class="co-name">{co.name}</span>
+                      <span class="tier-badge tier-{co.tier}">{co.tier}</span>
+                    </div>
+                    <p class="co-loc text-xs text-mu">{co.location}</p>
+                    <div class="co-tags">
+                      {#each co.focus.slice(0, 4) as f}<span class="tag">{f}</span>{/each}
+                    </div>
+                    <a class="btn btn-ghost btn-xs co-link" href={co.url} target="_blank" rel="noreferrer">Careers page →</a>
                   </div>
                 {/each}
               </div>
             </div>
-          {/if}
+          {/each}
+        </div>
 
-          {#if store.profile.notes}
-            <div class="profile-field">
-              <span class="field-label">Notes</span>
-              <p class="text-sm">{store.profile.notes}</p>
+      <!-- ── CV BUILDER ──────────────────────────────────────────────────────────── -->
+      {:else if tab === 'cv'}
+        <div class="cv-view">
+          <div class="cv-header">
+            <div class="cv-tabs">
+              {#each [['personal','Personal'],['experience','Experience'],['education','Education'],['publications','Publications'],['skills','Skills'],['conferences','Conferences'],['awards','Awards'],['preview','Preview']] as [id, lbl]}
+                <button class="cv-tab" class:active={cvTab === id} onclick={() => cvTab = id as typeof cvTab}>{lbl}</button>
+              {/each}
+            </div>
+            <div class="cv-actions">
+              <button class="btn btn-ghost btn-sm" onclick={exportCvMarkdown}>Export .md</button>
+              <button class="btn btn-primary btn-sm" onclick={saveCv} disabled={cvSaving}>{cvSaving ? 'Saving…' : 'Save CV'}</button>
+            </div>
+          </div>
+
+          <div class="cv-content">
+            {#if cvTab === 'personal'}
+              <div class="cv-section">
+                <h3 class="cv-section-title">Personal Information</h3>
+                <div class="field-grid">
+                  <div class="field"><label>Full name</label><input bind:value={store.cvProfile.fullName} /></div>
+                  <div class="field"><label>Pronouns</label><input bind:value={store.cvProfile.pronouns} placeholder="she/her" /></div>
+                  <div class="field"><label>Email</label><input type="email" bind:value={store.cvProfile.email} /></div>
+                  <div class="field"><label>Phone</label><input bind:value={store.cvProfile.phone} /></div>
+                  <div class="field"><label>Location</label><input bind:value={store.cvProfile.location} /></div>
+                  <div class="field"><label>ORCID</label><input bind:value={store.cvProfile.orcid} placeholder="0000-0000-0000-0000" /></div>
+                  <div class="field"><label>LinkedIn</label><input bind:value={store.cvProfile.linkedin} /></div>
+                  <div class="field"><label>Website</label><input bind:value={store.cvProfile.website} /></div>
+                </div>
+                <div class="field full">
+                  <label>Professional summary</label>
+                  <textarea rows={4} bind:value={store.cvProfile.summary} placeholder="2–3 sentence research identity statement…"></textarea>
+                </div>
+                <div class="field">
+                  <label>Languages (comma-separated)</label>
+                  <input value={store.cvProfile.languages.join(', ')} oninput={(e) => store.cvProfile.languages = (e.target as HTMLInputElement).value.split(',').map(l => l.trim()).filter(Boolean)} />
+                </div>
+              </div>
+
+            {:else if cvTab === 'experience'}
+              <div class="cv-section">
+                <div class="section-head"><h3 class="cv-section-title">Experience</h3><button class="btn btn-primary btn-sm" onclick={addExperience}>+ Add</button></div>
+                {#each store.cvProfile.experience as exp (exp.id)}
+                  <div class="cv-item">
+                    <button class="cv-item-remove" onclick={() => removeExperience(exp.id)}>×</button>
+                    <div class="field-grid">
+                      <div class="field"><label>Role / Title</label><input bind:value={exp.role} /></div>
+                      <div class="field"><label>Organisation</label><input bind:value={exp.organisation} /></div>
+                      <div class="field"><label>Location</label><input bind:value={exp.location} /></div>
+                      <div class="field-row">
+                        <div class="field"><label>Start (YYYY-MM)</label><input bind:value={exp.startDate} placeholder="2022-09" /></div>
+                        <div class="field"><label>End (blank = Present)</label><input bind:value={exp.endDate} placeholder="Present" /></div>
+                      </div>
+                    </div>
+                    <div class="field full">
+                      <label>Bullet points</label>
+                      {#each exp.bullets as _, i}
+                        <input class="bullet-input" bind:value={exp.bullets[i]} placeholder="Achievement or responsibility…" />
+                      {/each}
+                      <button class="btn btn-ghost btn-xs" onclick={() => addExpBullet(exp)}>+ Add bullet</button>
+                    </div>
+                  </div>
+                {:else}
+                  <p class="empty-hint text-mu text-sm">No experience added yet. Click "+ Add" to start.</p>
+                {/each}
+              </div>
+
+            {:else if cvTab === 'education'}
+              <div class="cv-section">
+                <div class="section-head"><h3 class="cv-section-title">Education</h3><button class="btn btn-primary btn-sm" onclick={addEducation}>+ Add</button></div>
+                {#each store.cvProfile.education as edu (edu.id)}
+                  <div class="cv-item">
+                    <button class="cv-item-remove" onclick={() => removeEducation(edu.id)}>×</button>
+                    <div class="field-grid">
+                      <div class="field"><label>Degree</label><input bind:value={edu.degree} placeholder="PhD Molecular Medicine" /></div>
+                      <div class="field"><label>Institution</label><input bind:value={edu.institution} /></div>
+                      <div class="field"><label>Location</label><input bind:value={edu.location} /></div>
+                      <div class="field"><label>Year</label><input bind:value={edu.year} placeholder="2022" /></div>
+                      <div class="field full"><label>Notes</label><input bind:value={edu.notes} placeholder="Thesis title, supervisor, GPA…" /></div>
+                    </div>
+                  </div>
+                {:else}
+                  <p class="empty-hint text-mu text-sm">No education added yet.</p>
+                {/each}
+              </div>
+
+            {:else if cvTab === 'publications'}
+              <div class="cv-section">
+                <div class="section-head"><h3 class="cv-section-title">Publications</h3><button class="btn btn-primary btn-sm" onclick={addPublication}>+ Add</button></div>
+                {#each store.cvProfile.publications as pub (pub.id)}
+                  <div class="cv-item">
+                    <button class="cv-item-remove" onclick={() => removePublication(pub.id)}>×</button>
+                    <div class="field-grid">
+                      <div class="field full"><label>Title</label><input bind:value={pub.title} /></div>
+                      <div class="field full"><label>Authors</label><input bind:value={pub.authors} placeholder="Sathyanarayanan A, et al." /></div>
+                      <div class="field"><label>Journal</label><input bind:value={pub.journal} /></div>
+                      <div class="field"><label>Year</label><input type="number" bind:value={pub.year} /></div>
+                      <div class="field"><label>DOI</label><input bind:value={pub.doi} placeholder="10.xxxx/…" /></div>
+                      <div class="field checkbox-field">
+                        <label><input type="checkbox" bind:checked={pub.highlight} /> Highlight (key paper)</label>
+                      </div>
+                    </div>
+                  </div>
+                {:else}
+                  <p class="empty-hint text-mu text-sm">No publications added yet.</p>
+                {/each}
+              </div>
+
+            {:else if cvTab === 'skills'}
+              <div class="cv-section">
+                <div class="section-head"><h3 class="cv-section-title">Skills</h3><button class="btn btn-primary btn-sm" onclick={addSkillGroup}>+ Add group</button></div>
+                {#each store.cvProfile.skillGroups as grp (grp.id)}
+                  <div class="cv-item">
+                    <button class="cv-item-remove" onclick={() => removeSkillGroup(grp.id)}>×</button>
+                    <div class="field-grid">
+                      <div class="field"><label>Category</label><input bind:value={grp.category} placeholder="Bioinformatics, Wet lab, Languages…" /></div>
+                      <div class="field full"><label>Skills (comma-separated)</label>
+                        <input value={grp.skills.join(', ')} oninput={(e) => grp.skills = (e.target as HTMLInputElement).value.split(',').map(s => s.trim()).filter(Boolean)} placeholder="Seurat, Scanpy, Python, R, STAR, CellRanger…" />
+                      </div>
+                    </div>
+                  </div>
+                {:else}
+                  <p class="empty-hint text-mu text-sm">No skill groups added yet.</p>
+                {/each}
+              </div>
+
+            {:else if cvTab === 'conferences'}
+              <div class="cv-section">
+                <div class="section-head"><h3 class="cv-section-title">Conferences &amp; Presentations</h3><button class="btn btn-primary btn-sm" onclick={addConference}>+ Add</button></div>
+                {#each store.cvProfile.conferences as conf (conf.id)}
+                  <div class="cv-item">
+                    <button class="cv-item-remove" onclick={() => removeConference(conf.id)}>×</button>
+                    <div class="field-grid">
+                      <div class="field full"><label>Presentation title</label><input bind:value={conf.title} /></div>
+                      <div class="field"><label>Conference</label><input bind:value={conf.event} placeholder="ESMO, AACR, Keystone…" /></div>
+                      <div class="field"><label>Location</label><input bind:value={conf.location} /></div>
+                      <div class="field"><label>Year</label><input type="number" bind:value={conf.year} /></div>
+                      <div class="field"><label>Type</label>
+                        <select bind:value={conf.type}>
+                          {#each ['oral', 'poster', 'workshop', 'invited'] as t}<option value={t}>{t}</option>{/each}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                {:else}
+                  <p class="empty-hint text-mu text-sm">No conferences added yet.</p>
+                {/each}
+              </div>
+
+            {:else if cvTab === 'awards'}
+              <div class="cv-section">
+                <div class="section-head"><h3 class="cv-section-title">Awards &amp; Fellowships</h3><button class="btn btn-primary btn-sm" onclick={addAward}>+ Add</button></div>
+                {#each store.cvProfile.awards as aw (aw.id)}
+                  <div class="cv-item">
+                    <button class="cv-item-remove" onclick={() => removeAward(aw.id)}>×</button>
+                    <div class="field-grid">
+                      <div class="field"><label>Title</label><input bind:value={aw.title} /></div>
+                      <div class="field"><label>Issuing body</label><input bind:value={aw.issuer} /></div>
+                      <div class="field"><label>Year</label><input type="number" bind:value={aw.year} /></div>
+                      <div class="field full"><label>Description (optional)</label><input bind:value={aw.description} /></div>
+                    </div>
+                  </div>
+                {:else}
+                  <p class="empty-hint text-mu text-sm">No awards added yet.</p>
+                {/each}
+              </div>
+
+            {:else if cvTab === 'preview'}
+              <div class="cv-preview">
+                <div class="cv-preview-head">
+                  <h2>{store.cvProfile.fullName}{store.cvProfile.pronouns ? ` (${store.cvProfile.pronouns})` : ''}</h2>
+                  <p class="text-mu text-sm">{store.cvProfile.location} · {store.cvProfile.email}{store.cvProfile.orcid ? ` · ORCID: ${store.cvProfile.orcid}` : ''}</p>
+                </div>
+                {#if store.cvProfile.summary}<p class="cv-summary">{store.cvProfile.summary}</p>{/if}
+                {#if store.cvProfile.experience.length}
+                  <div class="cv-sec"><h3>Experience</h3>
+                    {#each store.cvProfile.experience as e}
+                      <div class="cv-exp-item">
+                        <div class="cv-exp-head"><strong>{e.role}</strong> — {e.organisation}, {e.location}</div>
+                        <div class="text-xs text-mu">{e.startDate} – {e.endDate || 'Present'}</div>
+                        {#each e.bullets.filter(b => b.trim()) as b}<div class="cv-bullet">· {b}</div>{/each}
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+                {#if store.cvProfile.publications.length}
+                  <div class="cv-sec"><h3>Publications</h3>
+                    {#each store.cvProfile.publications as p}
+                      <div class="cv-pub-item" class:highlight={p.highlight}>
+                        {p.authors} ({p.year}). <strong>{p.title}</strong>. <em>{p.journal}</em>
+                        {#if p.doi}<a href="https://doi.org/{p.doi}" target="_blank" rel="noreferrer" class="doi-link">DOI</a>{/if}
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+                {#if store.cvProfile.skillGroups.length}
+                  <div class="cv-sec"><h3>Skills</h3>
+                    {#each store.cvProfile.skillGroups as g}<div class="text-sm"><strong>{g.category}:</strong> {g.skills.join(', ')}</div>{/each}
+                  </div>
+                {/if}
+                {#if store.cvProfile.conferences.length}
+                  <div class="cv-sec"><h3>Conferences</h3>
+                    {#each store.cvProfile.conferences as c}<div class="text-sm">{c.year} · <strong>{c.title}</strong> ({c.type}) — {c.event}, {c.location}</div>{/each}
+                  </div>
+                {/if}
+                {#if store.cvProfile.awards.length}
+                  <div class="cv-sec"><h3>Awards</h3>
+                    {#each store.cvProfile.awards as a}<div class="text-sm">{a.year} · <strong>{a.title}</strong> — {a.issuer}</div>{/each}
+                  </div>
+                {/if}
+                {#if store.cvProfile.languages.length}<div class="cv-sec"><h3>Languages</h3><p class="text-sm">{store.cvProfile.languages.join(', ')}</p></div>{/if}
+              </div>
+            {/if}
+          </div>
+        </div>
+
+      <!-- ── COVER LETTERS ────────────────────────────────────────────────────────── -->
+      {:else if tab === 'coverletter'}
+        <div class="cl-view">
+          {#if clView === 'list'}
+            <div class="cl-list-header">
+              <h3>Cover Letters ({store.coverLetters.length})</h3>
+              <button class="btn btn-primary btn-sm" onclick={() => { clView = 'compose'; clContent = ''; clSelectedJobId = ''; clJobTitle = ''; clCompany = ''; clJobDesc = ''; }}>+ New</button>
+            </div>
+            {#each store.coverLetters as letter (letter.id)}
+              <div class="cl-card">
+                <div class="cl-card-head">
+                  <div>
+                    <div class="cl-role">{letter.role}</div>
+                    <div class="text-xs text-mu">{letter.company} · {fmtDate(letter.generatedAt)}</div>
+                  </div>
+                  <div class="cl-card-actions">
+                    <button class="btn btn-ghost btn-xs" onclick={() => { clSelectedLetter = letter; clView = 'view'; }}>View</button>
+                    <button class="btn btn-ghost btn-xs" onclick={() => exportLetter(letter)}>Export</button>
+                    <button class="btn-icon danger-icon" onclick={() => deleteLetter(letter.id)} title="Delete">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6m5 0V4h4v2"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <p class="cl-preview text-sm text-mu">{letter.content.replace(/[#*_]/g, '').slice(0, 180)}…</p>
+              </div>
+            {:else}
+              <div class="empty-state">
+                <p class="text-mu text-sm">No cover letters yet. Click "New" to generate one with Enzo.</p>
+              </div>
+            {/each}
+
+          {:else if clView === 'compose'}
+            <div class="cl-compose">
+              <button class="btn btn-ghost btn-sm back-btn" onclick={() => clView = 'list'}>← Back</button>
+              <h3>Generate Cover Letter</h3>
+              <div class="field-grid">
+                <div class="field">
+                  <label>Link to tracked job (optional)</label>
+                  <select bind:value={clSelectedJobId}>
+                    <option value="">— Standalone —</option>
+                    {#each store.savedJobs as j}<option value={j.id}>{j.listing.title} @ {j.listing.company}</option>{/each}
+                  </select>
+                </div>
+                <div class="field"><label>Job title</label><input bind:value={clJobTitle} placeholder="Senior Scientist" /></div>
+                <div class="field"><label>Company</label><input bind:value={clCompany} placeholder="AstraZeneca" /></div>
+                <div class="field full"><label>Job description (paste relevant excerpt)</label>
+                  <textarea rows={5} bind:value={clJobDesc} placeholder="Paste the job description here…"></textarea>
+                </div>
+              </div>
+              <div class="cl-generate-row">
+                <button class="btn btn-primary" onclick={generateLetter} disabled={clGenerating || !clJobTitle || !clCompany}>
+                  {clGenerating ? 'Enzo is writing…' : 'Generate with Enzo'}
+                </button>
+                {#if clGenerating}
+                  <button class="btn btn-ghost btn-sm" onclick={() => clAbort?.abort()}>Stop</button>
+                {/if}
+              </div>
+              {#if clContent}
+                <div class="field full">
+                  <label>Generated cover letter — edit before saving</label>
+                  <textarea class="cl-textarea" rows={18} bind:value={clContent}></textarea>
+                </div>
+                <div class="cl-save-row">
+                  <button class="btn btn-ghost btn-sm" onclick={() => { const b = new Blob([clContent], {type:'text/markdown'}); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href=u; a.download='cover-letter.md'; a.click(); URL.revokeObjectURL(u); }}>Export .md</button>
+                  <button class="btn btn-primary btn-sm" onclick={saveCoverLetter} disabled={clSaving}>{clSaving ? 'Saving…' : 'Save'}</button>
+                </div>
+              {/if}
+            </div>
+
+          {:else if clView === 'view' && clSelectedLetter}
+            <div class="cl-view-letter">
+              <div class="cl-view-head">
+                <button class="btn btn-ghost btn-sm back-btn" onclick={() => clView = 'list'}>← Back</button>
+                <div>
+                  <h3>{clSelectedLetter.role}</h3>
+                  <p class="text-xs text-mu">{clSelectedLetter.company} · {fmtDate(clSelectedLetter.generatedAt)}</p>
+                </div>
+                <button class="btn btn-ghost btn-sm" onclick={() => exportLetter(clSelectedLetter!)}>Export</button>
+              </div>
+              <textarea class="cl-textarea" rows={20} bind:value={clSelectedLetter.content}
+                onchange={async () => { clSelectedLetter!.editedAt = Date.now(); await store.saveCoverLetters(); showToast('Saved'); }}
+              ></textarea>
             </div>
           {/if}
         </div>
 
-      {:else}
-        <!-- Edit mode -->
-        <div class="profile-edit">
-          <div class="form-row">
-            <div class="field">
-              <label>Current role</label>
-              <input type="text" bind:value={profileDraft.currentRole} />
-            </div>
-            <div class="field">
-              <label>Institution</label>
-              <input type="text" bind:value={profileDraft.institution} />
-            </div>
-          </div>
-          <div class="field">
-            <label>Department</label>
-            <input type="text" bind:value={profileDraft.department} />
+      <!-- ── CONTACTS / NETWORK ──────────────────────────────────────────────────── -->
+      {:else if tab === 'contacts'}
+        <div class="contacts-view">
+          <div class="contacts-header">
+            <input class="search-input" type="search" bind:value={contactSearch} placeholder="Search contacts…" />
+            <button class="btn btn-primary btn-sm" onclick={startNewContact}>+ Add contact</button>
           </div>
 
-          <div class="field">
-            <label>Specializations</label>
-            <div class="tag-editor">
-              {#each profileDraft.specializations as s, i}
-                <span class="profile-tag editable">{s}
-                  <button class="tag-rm" onclick={() => profileDraft.specializations = profileDraft.specializations.filter((_, j) => j !== i)}>×</button>
-                </span>
-              {/each}
-              <input type="text" bind:value={newSpec} placeholder="Add specialization…" class="tag-add-input"
-                onkeydown={e => { if ((e.key === 'Enter' || e.key === ',') && newSpec.trim()) { profileDraft.specializations = [...profileDraft.specializations, newSpec.trim()]; newSpec = ''; e.preventDefault(); } }}
-              />
-            </div>
-          </div>
-
-          <div class="field">
-            <label>Target roles</label>
-            <div class="tag-editor">
-              {#each profileDraft.targetRoles as r, i}
-                <span class="profile-tag role-tag editable">{r}
-                  <button class="tag-rm" onclick={() => profileDraft.targetRoles = profileDraft.targetRoles.filter((_, j) => j !== i)}>×</button>
-                </span>
-              {/each}
-              <input type="text" bind:value={newRole} placeholder="Add target role…" class="tag-add-input"
-                onkeydown={e => { if ((e.key === 'Enter' || e.key === ',') && newRole.trim()) { profileDraft.targetRoles = [...profileDraft.targetRoles, newRole.trim()]; newRole = ''; e.preventDefault(); } }}
-              />
-            </div>
-          </div>
-
-          <div class="field">
-            <label>Target locations</label>
-            <div class="tag-editor">
-              {#each profileDraft.targetLocations as l, i}
-                <span class="profile-tag loc-tag editable">{l}
-                  <button class="tag-rm" onclick={() => profileDraft.targetLocations = profileDraft.targetLocations.filter((_, j) => j !== i)}>×</button>
-                </span>
-              {/each}
-              <input type="text" bind:value={newLoc} placeholder="Add location…" class="tag-add-input"
-                onkeydown={e => { if ((e.key === 'Enter' || e.key === ',') && newLoc.trim()) { profileDraft.targetLocations = [...profileDraft.targetLocations, newLoc.trim()]; newLoc = ''; e.preventDefault(); } }}
-              />
-            </div>
-          </div>
-
-          <div class="field">
-            <label>CV highlights</label>
-            <div class="hl-list">
-              {#each profileDraft.cvHighlights as h, i}
-                <div class="hl-row">
-                  <input type="text" bind:value={profileDraft.cvHighlights[i]} class="hl-input" />
-                  <button class="btn-icon" onclick={() => profileDraft.cvHighlights = profileDraft.cvHighlights.filter((_, j) => j !== i)}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                  </button>
-                </div>
-              {/each}
-              <div class="hl-row">
-                <input type="text" bind:value={newHL} placeholder="Add highlight…" class="hl-input"
-                  onkeydown={e => { if (e.key === 'Enter' && newHL.trim()) { profileDraft.cvHighlights = [...profileDraft.cvHighlights, newHL.trim()]; newHL = ''; } }}
-                />
-                <button class="btn btn-ghost btn-sm" onclick={() => { if (newHL.trim()) { profileDraft.cvHighlights = [...profileDraft.cvHighlights, newHL.trim()]; newHL = ''; } }}>Add</button>
+          {#if editingContactId}
+            <div class="contact-form card">
+              <h3>{editingContactId === 'new' ? 'New Contact' : 'Edit Contact'}</h3>
+              <div class="field-grid">
+                <div class="field"><label for="cd-nm">Name</label><input id="cd-nm" bind:value={contactDraft.name} /></div>
+                <div class="field"><label for="cd-ro">Role</label><input id="cd-ro" bind:value={contactDraft.role} /></div>
+                <div class="field"><label for="cd-co">Company</label><input id="cd-co" bind:value={contactDraft.company} /></div>
+                <div class="field"><label for="cd-em">Email</label><input id="cd-em" type="email" bind:value={contactDraft.email} /></div>
+                <div class="field"><label for="cd-li">LinkedIn</label><input id="cd-li" bind:value={contactDraft.linkedin} /></div>
+                <div class="field"><label for="cd-mt">Met at</label><input id="cd-mt" bind:value={contactDraft.metAt} placeholder="ESMO 2025, cold email…" /></div>
+                <div class="field full"><label for="cd-no">Notes</label><textarea id="cd-no" rows={2} bind:value={contactDraft.notes} placeholder="Key info, follow-up actions…"></textarea></div>
+              </div>
+              <div class="form-actions">
+                <button class="btn btn-ghost btn-sm" onclick={() => editingContactId = null}>Cancel</button>
+                <button class="btn btn-primary btn-sm" onclick={saveContact}>Save</button>
               </div>
             </div>
+          {/if}
+
+          <div class="contact-list">
+            {#each displayContacts as c (c.id)}
+              <div class="contact-card card">
+                <div class="contact-head">
+                  <div>
+                    <div class="contact-name">{c.name}</div>
+                    <div class="text-xs text-mu">{c.role}{c.company ? ` · ${c.company}` : ''}</div>
+                  </div>
+                  <div class="contact-actions">
+                    {#if c.email}<a class="btn btn-ghost btn-xs" href="mailto:{c.email}">Email</a>{/if}
+                    {#if c.linkedin}<a class="btn btn-ghost btn-xs" href={c.linkedin} target="_blank" rel="noreferrer">LinkedIn</a>{/if}
+                    <button class="btn-icon danger-icon" onclick={() => deleteContact(c.id)} title="Delete">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6m5 0V4h4v2"/></svg>
+                    </button>
+                  </div>
+                </div>
+                {#if c.metAt}<p class="text-xs text-mu">Met at: {c.metAt}</p>{/if}
+                {#if c.notes}<p class="text-sm text-mu contact-notes">{c.notes}</p>{/if}
+              </div>
+            {:else}
+              <div class="empty-state">
+                <p class="text-mu text-sm">No contacts yet. Log people you meet at conferences, companies you've emailed, referees.</p>
+              </div>
+            {/each}
+          </div>
+        </div>
+
+      <!-- ── SALARY ──────────────────────────────────────────────────────────────── -->
+      {:else if tab === 'salary'}
+        <div class="salary-view">
+          <div class="salary-header">
+            <h3>Salary Benchmark Database</h3>
+            <button class="btn btn-primary btn-sm" onclick={() => addingSalary = !addingSalary}>+ Add entry</button>
           </div>
 
-          <div class="field">
-            <label>Key publications</label>
-            <div class="pub-editor">
-              {#each profileDraft.publications as pub, i}
-                <div class="pub-edit-row">
-                  <input type="text" bind:value={profileDraft.publications[i].title} placeholder="Title" class="pub-title-input" />
-                  <input type="text" bind:value={profileDraft.publications[i].doi} placeholder="DOI" class="pub-doi-input" />
-                  <input type="number" bind:value={profileDraft.publications[i].year} placeholder="Year" class="pub-year-input" />
-                  <button class="btn-icon" onclick={() => profileDraft.publications = profileDraft.publications.filter((_, j) => j !== i)}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                  </button>
+          {#if addingSalary}
+            <div class="salary-form card">
+              <div class="field-grid">
+                <div class="field"><label for="sd-co">Company</label><input id="sd-co" bind:value={salaryDraft.company} /></div>
+                <div class="field"><label for="sd-ro">Role</label><input id="sd-ro" bind:value={salaryDraft.role} /></div>
+                <div class="field"><label for="sd-rg">Region / City</label><input id="sd-rg" bind:value={salaryDraft.region} /></div>
+                <div class="field"><label for="sd-mn">Min salary</label><input id="sd-mn" type="number" bind:value={salaryDraft.salaryMin} /></div>
+                <div class="field"><label for="sd-mx">Max salary</label><input id="sd-mx" type="number" bind:value={salaryDraft.salaryMax} /></div>
+                <div class="field"><label for="sd-cu">Currency</label>
+                  <select id="sd-cu" bind:value={salaryDraft.currency}>
+                    {#each ['EUR','GBP','INR','USD','CHF'] as c}<option value={c}>{c}</option>{/each}
+                  </select>
                 </div>
-              {/each}
-              <div class="pub-edit-row">
-                <input type="text" bind:value={newPubTitle} placeholder="Paper title" class="pub-title-input" />
-                <input type="text" bind:value={newPubDoi} placeholder="DOI" class="pub-doi-input" />
-                <input type="number" bind:value={newPubYear} placeholder="Year" class="pub-year-input" />
-                <button class="btn btn-ghost btn-sm" onclick={() => { if (newPubTitle.trim()) { profileDraft.publications = [...profileDraft.publications, { title: newPubTitle.trim(), doi: newPubDoi.trim(), year: parseInt(newPubYear) || new Date().getFullYear() }]; newPubTitle = ''; newPubDoi = ''; newPubYear = ''; } }}>Add</button>
+                <div class="field"><label for="sd-sr">Source</label>
+                  <select id="sd-sr" bind:value={salaryDraft.type}>
+                    <option value="estimate">Estimate</option>
+                    <option value="offer">Actual offer</option>
+                    <option value="glassdoor">Glassdoor</option>
+                    <option value="linkedin">LinkedIn</option>
+                  </select>
+                </div>
+                <div class="field"><label for="sd-yr">Year</label><input id="sd-yr" type="number" bind:value={salaryDraft.year} /></div>
+                <div class="field full"><label for="sd-no">Notes</label><input id="sd-no" bind:value={salaryDraft.notes} /></div>
+              </div>
+              <div class="form-actions">
+                <button class="btn btn-ghost btn-sm" onclick={() => addingSalary = false}>Cancel</button>
+                <button class="btn btn-primary btn-sm" onclick={addSalary}>Add</button>
               </div>
             </div>
-          </div>
+          {/if}
 
-          <div class="field">
-            <label>Notes</label>
-            <textarea bind:value={profileDraft.notes} placeholder="Job search strategy, salary expectations, constraints…" rows={4}></textarea>
+          <div class="salary-list">
+            {#each displaySalaries as s (s.id)}
+              <div class="salary-card" class:example-card={s.id.startsWith('_')}>
+                {#if s.id.startsWith('_')}<span class="example-label">· example</span>{/if}
+                <div class="salary-head">
+                  <div>
+                    <div class="salary-role">{s.role}</div>
+                    <div class="text-xs text-mu">{s.company} · {s.region} · {s.year}</div>
+                  </div>
+                  <div class="salary-range">
+                    <span class="salary-num">{s.currency} {s.salaryMin.toLocaleString()} – {s.salaryMax.toLocaleString()}</span>
+                    <span class="tag source-tag">{s.type}</span>
+                  </div>
+                  {#if !s.id.startsWith('_')}
+                    <button class="btn-icon danger-icon" onclick={() => deleteSalary(s.id)} title="Remove">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6m5 0V4h4v2"/></svg>
+                    </button>
+                  {/if}
+                </div>
+                {#if s.notes}<p class="text-xs text-mu">{s.notes}</p>{/if}
+              </div>
+            {/each}
           </div>
+        </div>
 
-          <div class="edit-actions">
-            <button class="btn btn-ghost" onclick={() => editingProfile = false}>Cancel</button>
-            <button class="btn btn-primary" onclick={saveProfile}>Save profile</button>
-          </div>
+      <!-- ── ANALYTICS ──────────────────────────────────────────────────────────── -->
+      {:else if tab === 'analytics'}
+        {@const a = analytics()}
+        <div class="analytics-view">
+          <h3>Application Analytics</h3>
+          {#if store.savedJobs.length === 0}
+            <div class="empty-state"><p class="text-mu text-sm">Track some jobs first — analytics will appear here.</p></div>
+          {:else}
+            <div class="analytics-grid">
+              <div class="stat-box"><span class="stat-num">{a.total}</span><span class="stat-lbl">Jobs tracked</span></div>
+              <div class="stat-box"><span class="stat-num">{a.applied}</span><span class="stat-lbl">Applied</span></div>
+              <div class="stat-box"><span class="stat-num">{a.withInterviews}</span><span class="stat-lbl">With interviews</span></div>
+              <div class="stat-box"><span class="stat-num">{a.conversionRate}%</span><span class="stat-lbl">Applied → interview rate</span></div>
+            </div>
+            <div class="analytics-section">
+              <h4>By stage</h4>
+              {#each PIPELINE_STAGES as s}
+                {@const count = a.byStatus[s.id] ?? 0}
+                {#if count > 0}
+                  <div class="bar-row">
+                    <span class="bar-label">{s.label}</span>
+                    <div class="bar-track"><div class="bar-fill" style="width: {Math.round((count/a.total)*100)}%; background: var(--{stageColor(s.id as JobStatus)})"></div></div>
+                    <span class="bar-count">{count}</span>
+                  </div>
+                {/if}
+              {/each}
+            </div>
+            <div class="analytics-row">
+              <div class="analytics-section">
+                <h4>By region</h4>
+                {#each Object.entries(a.byRegion) as [r, n]}
+                  <div class="bar-row"><span class="bar-label">{REGION_LABELS[r] ?? r}</span><div class="bar-track"><div class="bar-fill" style="width: {Math.round((n/a.total)*100)}%"></div></div><span class="bar-count">{n}</span></div>
+                {/each}
+              </div>
+              <div class="analytics-section">
+                <h4>By type</h4>
+                {#each Object.entries(a.byType) as [t, n]}
+                  <div class="bar-row"><span class="bar-label">{TYPE_LABELS[t] ?? t}</span><div class="bar-track"><div class="bar-fill" style="width: {Math.round((n/a.total)*100)}%"></div></div><span class="bar-count">{n}</span></div>
+                {/each}
+              </div>
+            </div>
+          {/if}
         </div>
       {/if}
+
     </div>
-  {/if}
-</div>
+  </div>
+{/if}
 
 <style>
-  .jobs {
+  /* ── Landing ── */
+  .landing {
     height: 100%;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-  }
-
-  /* ── Header ── */
-  .jobs-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 18px 24px 12px;
-    border-bottom: 1px solid var(--bd);
-    background: var(--sf);
-    flex-shrink: 0;
-    flex-wrap: wrap;
-    gap: 12px;
-  }
-  .jobs-header h2 { margin-bottom: 2px; }
-  .header-tabs { display: flex; gap: 4px; }
-  .tab-btn {
-    padding: 5px 14px;
-    border-radius: var(--radius-sm);
-    font-size: 0.82rem;
-    font-weight: 500;
-    background: transparent;
-    color: var(--mu);
-    border: 1px solid transparent;
-    cursor: pointer;
-    transition: all var(--transition);
-  }
-  .tab-btn.active { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); }
-  .tab-btn:hover:not(.active) { background: var(--sf2); color: var(--tx); }
-
-  /* ── Feed ── */
-  .feed-toolbar {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 12px 24px;
-    border-bottom: 1px solid var(--bd);
-    background: var(--sf);
-    flex-shrink: 0;
-    flex-wrap: wrap;
-  }
-  .feed-search { flex: 1; min-width: 160px; font-size: 0.85rem; }
-  .filter-sel { width: auto; font-size: 0.82rem; flex-shrink: 0; }
-
-  .feed-notice {
-    padding: 8px 24px;
-    background: var(--sf2);
-    border-bottom: 1px solid var(--bd);
-    flex-shrink: 0;
-  }
-
-  .feed-grid {
-    padding: 16px 24px;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 14px;
-    overflow-y: auto;
-  }
-
-  .job-card {
-    background: var(--sf);
-    border: 1px solid var(--bd);
-    border-radius: var(--radius);
-    padding: 14px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    transition: border-color var(--transition), box-shadow var(--transition);
-    position: relative;
-  }
-  .job-card:hover { border-color: var(--ac); box-shadow: var(--shadow); }
-  .job-card.example-card { opacity: 0.7; }
-
-  .example-badge {
-    font-size: 0.62rem;
-    font-weight: 700;
-    color: var(--mu);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    position: absolute;
-    top: 8px;
-    right: 10px;
-  }
-
-  .job-card-top {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .job-title-block { flex: 1; min-width: 0; }
-  .job-title { display: block; font-size: 0.9rem; font-weight: 600; color: var(--tx); line-height: 1.35; }
-  .job-company { display: block; font-size: 0.8rem; color: var(--tx2); margin-top: 2px; }
-
-  .job-badges { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }
-  .region-badge, .type-badge {
-    font-size: 0.62rem;
-    font-weight: 700;
-    padding: 2px 6px;
-    border-radius: 8px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    white-space: nowrap;
-  }
-  .region-eu    { background: var(--ac-bg);   color: var(--ac);   }
-  .region-india { background: var(--yw-bg);   color: var(--yw);   }
-  .region-uk    { background: var(--pu-bg, #2a1f4a); color: var(--pu, #a78bfa); }
-  .region-remote{ background: var(--gn-bg);   color: var(--gn);   }
-  .region-us    { background: var(--sf2);     color: var(--tx2);  }
-  .region-other { background: var(--sf2);     color: var(--tx2);  }
-  .type-industry  { background: var(--sf3, var(--sf2)); color: var(--tx2); }
-  .type-academic  { background: var(--enzo-bg); color: var(--enzo); }
-  .type-fellowship{ background: var(--pu-bg, #2a1f4a); color: var(--pu, #a78bfa); }
-  .type-startup   { background: var(--rd-bg); color: var(--rd); }
-  .type-contract  { background: var(--sf2);   color: var(--mu);  }
-
-  .job-location {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    color: var(--mu);
-  }
-  .sep { color: var(--bd2); }
-  .source-lbl { color: var(--mu); opacity: 0.7; }
-
-  .job-desc { color: var(--tx2); line-height: 1.5; }
-  .job-tags { display: flex; flex-wrap: wrap; gap: 4px; }
-  .job-tag {
-    font-size: 0.68rem;
-    padding: 1px 7px;
-    background: var(--ac-bg);
-    color: var(--ac);
-    border-radius: 10px;
-  }
-
-  .job-actions {
-    display: flex;
-    gap: 6px;
-    margin-top: 4px;
-    flex-wrap: wrap;
-  }
-
-  .feed-empty {
-    grid-column: 1 / -1;
-    text-align: center;
-    padding: 48px;
-  }
-
-  .spin {
-    display: inline-block;
-    width: 10px; height: 10px;
-    border: 2px solid var(--ac);
-    border-top-color: transparent;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-    vertical-align: middle;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  /* ── Tracker ── */
-  .tracker-toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 24px;
-    border-bottom: 1px solid var(--bd);
-    background: var(--sf);
-    flex-shrink: 0;
-  }
-
-  .pipeline-board {
-    display: flex;
-    gap: 0;
-    overflow-x: auto;
-    flex: 1;
-    padding: 16px 24px;
-    gap: 12px;
-    align-items: flex-start;
-  }
-
-  .pipeline-col {
-    flex-shrink: 0;
-    width: 210px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .col-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 6px 10px;
-    background: var(--sf);
-    border: 1px solid var(--bd);
-    border-top: 3px solid var(--col);
-    border-radius: var(--radius-sm);
-  }
-  .col-name { font-size: 0.78rem; font-weight: 700; color: var(--col); text-transform: uppercase; letter-spacing: 0.06em; }
-  .col-count {
-    font-size: 0.7rem;
-    font-weight: 700;
-    background: var(--sf2);
-    color: var(--mu);
-    padding: 1px 6px;
-    border-radius: 8px;
-  }
-
-  .col-cards { display: flex; flex-direction: column; gap: 8px; min-height: 60px; }
-  .col-empty { padding: 16px 8px; text-align: center; border: 1px dashed var(--bd); border-radius: var(--radius-sm); }
-
-  .tracker-card {
-    background: var(--sf);
-    border: 1px solid var(--bd);
-    border-radius: var(--radius-sm);
-    padding: 10px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    position: relative;
-    transition: border-color var(--transition);
-  }
-  .tracker-card:hover { border-color: var(--bd2); }
-  .tracker-card.example-card { opacity: 0.6; }
-
-  .tc-title { font-size: 0.82rem; font-weight: 600; color: var(--tx); line-height: 1.35; }
-  .tc-company { font-size: 0.75rem; }
-  .tc-location { font-size: 0.72rem; }
-
-  .tc-deadline {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 0.72rem;
-    color: var(--yw);
-    font-weight: 600;
-    margin-top: 2px;
-  }
-  .tc-deadline.urgent { color: var(--rd); }
-
-  .tc-next {
-    display: flex;
-    align-items: center;
-    gap: 3px;
-    color: var(--ac);
-    font-size: 0.72rem;
-    margin-top: 1px;
-  }
-
-  .tc-actions {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    margin-top: 4px;
-    flex-wrap: wrap;
-  }
-  .status-sel {
-    flex: 1;
-    font-size: 0.72rem;
-    padding: 3px 6px;
-    min-width: 0;
-  }
-  .tc-btn { opacity: 0.5; padding: 3px; }
-  .tc-btn:hover { opacity: 1; }
-  .tc-btn.danger:hover { color: var(--rd); background: var(--rd-bg); }
-  .tc-meta { margin-top: 2px; }
-
-  /* ── Modals ── */
-  .modal-backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.55);
-    backdrop-filter: blur(2px);
-    z-index: 200;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 20px;
+    padding: 24px;
   }
-  .modal {
-    background: var(--sf);
-    border: 1px solid var(--bd);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow-lg);
+  .landing-inner {
+    max-width: 520px;
     width: 100%;
-    max-width: 560px;
-    max-height: 90vh;
-    overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    padding: 20px;
-  }
-  .modal-head { display: flex; align-items: center; justify-content: space-between; }
-  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
-  .notes-ta { font-family: var(--mono); font-size: 0.88rem; min-height: 160px; }
-
-  .add-form { display: flex; flex-direction: column; gap: 12px; }
-  .form-row { display: flex; gap: 12px; }
-  .form-row .field { flex: 1; min-width: 0; }
-  .field { display: flex; flex-direction: column; gap: 5px; }
-  .field label { font-size: 0.75rem; font-weight: 600; color: var(--mu); text-transform: uppercase; letter-spacing: 0.06em; }
-
-  /* ── Companies ── */
-  .co-toolbar {
-    display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 12px 24px;
+    gap: 16px;
+    text-align: center;
+  }
+  .landing-icon {
+    width: 72px; height: 72px;
+    border-radius: 20px;
+    background: var(--ac-bg);
+    border: 1px solid var(--ac);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--ac);
+  }
+  .landing-inner h2 { font-size: 1.4rem; font-weight: 700; }
+  .landing-desc { font-size: 0.9rem; color: var(--tx2); line-height: 1.6; }
+  .landing-features {
+    display: flex; flex-direction: column; gap: 8px; width: 100%; text-align: left;
+    background: var(--sf); border: 1px solid var(--bd); border-radius: var(--radius); padding: 16px;
+  }
+  .landing-feature { display: flex; align-items: center; gap: 8px; font-size: 0.875rem; color: var(--tx2); }
+  .btn-lg { padding: 12px 32px; font-size: 1rem; }
+  .landing-note { margin-top: 4px; }
+
+  /* ── Shell ── */
+  .jobs-view {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Tab bar ── */
+  .tab-bar {
+    display: flex;
+    gap: 2px;
+    padding: 10px 16px 0;
     border-bottom: 1px solid var(--bd);
     background: var(--sf);
     flex-shrink: 0;
-    flex-wrap: wrap;
-    gap: 10px;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
-  .co-filters { display: flex; gap: 4px; }
-  .filter-tab {
-    padding: 4px 12px;
-    border-radius: var(--radius-sm);
+  .tab-bar::-webkit-scrollbar { display: none; }
+  .tab-btn {
+    padding: 6px 14px;
+    border-radius: 6px 6px 0 0;
     font-size: 0.8rem;
     font-weight: 500;
-    background: transparent;
-    color: var(--mu);
-    border: 1px solid var(--bd);
-    cursor: pointer;
-    transition: all var(--transition);
-  }
-  .filter-tab.active { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); }
-
-  .co-section { padding: 16px 24px 0; }
-  .co-section-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
-  .co-section-label { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; color: var(--mu); }
-
-  .co-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 10px;
-    margin-bottom: 20px;
-  }
-
-  .co-card {
-    background: var(--sf);
-    border: 1px solid var(--bd);
-    border-radius: var(--radius);
-    padding: 12px 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    transition: border-color var(--transition);
-  }
-  .co-card:hover { border-color: var(--ac); }
-  .co-card.tier-research { border-left: 3px solid var(--enzo); }
-  .co-card.tier-large { border-left: 3px solid var(--ac); }
-  .co-card.tier-mid { border-left: 3px solid var(--gn); }
-
-  .co-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 4px; }
-  .co-name { font-size: 0.88rem; font-weight: 700; color: var(--tx); }
-  .co-country {
-    font-size: 0.65rem;
-    font-weight: 800;
-    padding: 1px 5px;
-    background: var(--sf2);
-    color: var(--mu);
-    border-radius: 4px;
-    letter-spacing: 0.06em;
-    flex-shrink: 0;
-  }
-  .co-location { font-size: 0.75rem; }
-  .co-tags { display: flex; flex-wrap: wrap; gap: 3px; }
-  .co-tag {
-    font-size: 0.65rem;
-    padding: 1px 6px;
-    background: var(--sf2);
     color: var(--tx2);
-    border-radius: 8px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-bottom: none;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color var(--transition), background var(--transition);
+    display: flex; align-items: center; gap: 5px;
   }
-  .co-btn {
-    margin-top: 4px;
-    font-size: 0.78rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    width: fit-content;
+  .tab-btn:hover { color: var(--tx); background: var(--sf2); }
+  .tab-btn.active { color: var(--ac); background: var(--bg); border-color: var(--bd); position: relative; top: 1px; }
+  .tab-badge { background: var(--ac); color: #fff; font-size: 0.6rem; font-weight: 700; padding: 1px 5px; border-radius: 8px; }
+
+  .tab-content { flex: 1; overflow-y: auto; padding: 20px; }
+
+  /* ── Feed ── */
+  .feed-view { display: flex; flex-direction: column; gap: 14px; }
+  .feed-controls {
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
   }
-
-  /* ── Profile ── */
-  .profile-panel { padding: 20px 24px; overflow-y: auto; flex: 1; }
-  .profile-view { display: flex; flex-direction: column; gap: 20px; max-width: 700px; }
-  .profile-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-  .profile-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-
-  .profile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
-  .profile-field { display: flex; flex-direction: column; gap: 8px; }
-  .field-label { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mu); }
-
-  .tag-list { display: flex; flex-wrap: wrap; gap: 5px; }
-  .profile-tag {
-    font-size: 0.78rem;
-    padding: 3px 10px;
-    background: var(--ac-bg);
-    color: var(--ac);
-    border: 1px solid var(--ac);
-    border-radius: 20px;
+  .search-input { flex: 1; min-width: 160px; }
+  .feed-notice { padding: 8px 12px; background: var(--sf2); border-radius: var(--radius-sm); border: 1px solid var(--bd); }
+  .job-list { display: flex; flex-direction: column; gap: 12px; }
+  .job-card {
+    background: var(--sf); border: 1px solid var(--bd); border-radius: var(--radius);
+    padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; position: relative;
   }
-  .role-tag { background: var(--gn-bg); color: var(--gn); border-color: var(--gn); }
-  .loc-tag { background: var(--enzo-bg); color: var(--enzo); border-color: var(--enzo-bd); }
+  .job-card:hover { border-color: var(--bd2); }
+  .job-head { display: flex; flex-direction: column; gap: 4px; }
+  .job-title-row { display: flex; align-items: flex-start; gap: 6px; flex-wrap: wrap; }
+  .job-title { font-size: 0.95rem; font-weight: 600; flex: 1; min-width: 0; }
+  .job-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 0.8rem; }
+  .company-name { font-weight: 600; color: var(--tx2); }
+  .separator { color: var(--bd2); }
+  .deadline-badge { background: var(--rd-bg); color: var(--rd); border-radius: 4px; padding: 1px 6px; font-size: 0.72rem; font-weight: 600; }
+  .source-tag { font-style: italic; }
+  .job-desc { line-height: 1.6; }
+  .tag-row { display: flex; flex-wrap: wrap; gap: 4px; }
+  .job-actions { display: flex; gap: 8px; }
+  .type-industry { background: var(--ac-bg); color: var(--ac); border: 1px solid var(--ac); }
+  .type-academic { background: var(--pu-bg, rgba(188,140,255,.12)); color: var(--pu); border: 1px solid var(--pu); }
+  .type-fellowship { background: var(--gn-bg); color: var(--gn); border: 1px solid var(--gn); }
+  .type-startup { background: var(--yw-bg, rgba(255,200,0,.1)); color: var(--yw); border: 1px solid var(--yw); }
+  .region-tag { background: var(--sf2); border: 1px solid var(--bd); color: var(--mu); }
 
-  .cv-list { padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
-  .cv-list li { font-size: 0.88rem; color: var(--tx2); }
+  /* ── Tracker ── */
+  .tracker-view { display: flex; flex-direction: column; gap: 14px; }
+  .tracker-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .stage-pills { display: flex; gap: 4px; flex-wrap: wrap; }
+  .stage-pill {
+    padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 500;
+    background: var(--sf); border: 1px solid var(--bd); color: var(--tx2); cursor: pointer;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .stage-pill:hover { border-color: var(--bd2); }
+  .stage-pill.active { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); }
+  .stage-count { background: var(--sf2); border-radius: 10px; padding: 0 5px; font-size: 0.65rem; }
+  .tracker-list { display: flex; flex-direction: column; gap: 6px; }
+  .tracker-card {
+    background: var(--sf); border: 1px solid var(--bd); border-radius: var(--radius);
+    overflow: hidden; position: relative;
+  }
+  .tracker-card.expanded { border-color: var(--ac); }
+  .tracker-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 14px; gap: 10px; cursor: pointer;
+  }
+  .tracker-row:hover { background: var(--sf2); }
+  .tracker-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+  .stage-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .tracker-info { min-width: 0; }
+  .tracker-title { font-size: 0.875rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tracker-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tracker-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .stage-badge {
+    font-size: 0.68rem; font-weight: 700; padding: 2px 8px; border-radius: 20px;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    background: var(--sf2); color: var(--mu); border: 1px solid var(--bd);
+  }
+  .stage-applied    { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); }
+  .stage-screening  { background: var(--yw-bg, rgba(255,200,0,.1)); color: var(--yw); border-color: var(--yw); }
+  .stage-interviewing { background: var(--pu-bg, rgba(188,140,255,.1)); color: var(--pu); border-color: var(--pu); }
+  .stage-offer      { background: var(--gn-bg); color: var(--gn); border-color: var(--gn); }
+  .tracker-expand {
+    border-top: 1px solid var(--bd); padding: 14px; display: flex; flex-direction: column; gap: 14px;
+  }
+  .expand-section { display: flex; flex-direction: column; gap: 6px; }
+  .expand-head { display: flex; align-items: center; justify-content: space-between; }
+  .stage-select { display: flex; flex-wrap: wrap; gap: 4px; }
+  .stage-move-btn {
+    padding: 4px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 500;
+    background: var(--sf2); border: 1px solid var(--bd); cursor: pointer;
+  }
+  .stage-move-btn:hover { border-color: var(--ac); }
+  .stage-move-btn.active { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); }
+  .interview-form { display: flex; flex-direction: column; gap: 6px; padding: 10px; background: var(--sf2); border-radius: var(--radius-sm); }
+  .interview-row { display: flex; flex-direction: column; gap: 4px; padding: 8px; background: var(--sf2); border-radius: var(--radius-sm); border: 1px solid var(--bd); }
+  .iv-notes, .iv-outcome { margin: 0; font-size: 0.82rem; }
+  .iv-outcome { color: var(--gn); }
+  .job-notes-text { padding: 6px 8px; background: var(--sf2); border-radius: var(--radius-sm); }
 
-  .pub-list { display: flex; flex-direction: column; gap: 8px; }
-  .pub-row { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; background: var(--sf2); border-radius: var(--radius-sm); }
+  /* ── Companies ── */
+  .companies-view { display: flex; flex-direction: column; gap: 24px; }
+  .region-heading { font-size: 0.82rem; font-weight: 700; color: var(--mu); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 10px; }
+  .company-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+  .company-card {
+    background: var(--sf); border: 1px solid var(--bd); border-radius: var(--radius);
+    padding: 12px 14px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .company-card:hover { border-color: var(--bd2); }
+  .co-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .co-name { font-size: 0.875rem; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .co-loc { min-height: 14px; }
+  .co-tags { display: flex; flex-wrap: wrap; gap: 3px; }
+  .co-link { margin-top: 2px; align-self: flex-start; }
+  .tier-badge { font-size: 0.62rem; font-weight: 700; padding: 2px 6px; border-radius: 8px; text-transform: uppercase; flex-shrink: 0; }
+  .tier-large    { background: var(--ac-bg); color: var(--ac); }
+  .tier-mid      { background: var(--gn-bg); color: var(--gn); }
+  .tier-research { background: var(--pu-bg, rgba(188,140,255,.12)); color: var(--pu); }
 
-  /* Edit mode */
-  .profile-edit { display: flex; flex-direction: column; gap: 16px; max-width: 700px; }
-  .tag-editor { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; padding: 8px; border: 1px solid var(--bd); border-radius: var(--radius-sm); background: var(--sf2); }
-  .profile-tag.editable { cursor: default; display: inline-flex; align-items: center; gap: 4px; }
-  .tag-rm { background: transparent; border: none; cursor: pointer; color: currentColor; opacity: 0.6; font-size: 14px; line-height: 1; padding: 0; }
-  .tag-rm:hover { opacity: 1; }
-  .tag-add-input { border: none; background: transparent; font-size: 0.82rem; color: var(--tx); min-width: 120px; outline: none; padding: 2px 4px; }
+  /* ── CV ── */
+  .cv-view { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+  .cv-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--bd); margin-bottom: 16px; }
+  .cv-tabs { display: flex; gap: 4px; flex-wrap: wrap; flex: 1; }
+  .cv-tab {
+    padding: 5px 12px; border-radius: var(--radius-sm); font-size: 0.78rem; font-weight: 500;
+    background: var(--sf2); border: 1px solid var(--bd); color: var(--tx2); cursor: pointer;
+  }
+  .cv-tab:hover { border-color: var(--bd2); }
+  .cv-tab.active { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); }
+  .cv-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .cv-content { flex: 1; overflow-y: auto; }
+  .cv-section { display: flex; flex-direction: column; gap: 16px; }
+  .cv-section-title { font-size: 1rem; font-weight: 700; margin: 0; }
+  .section-head { display: flex; align-items: center; justify-content: space-between; }
+  .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field.full { grid-column: 1 / -1; }
+  .field-row { display: flex; gap: 10px; grid-column: 1 / -1; }
+  .field-row .field { flex: 1; }
+  .field label { font-size: 0.78rem; font-weight: 500; color: var(--tx2); }
+  .checkbox-field { flex-direction: row; align-items: center; padding-top: 18px; }
+  .checkbox-field label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  .bullet-input { margin-bottom: 4px; }
+  .cv-item {
+    background: var(--sf2); border: 1px solid var(--bd); border-radius: var(--radius);
+    padding: 14px; position: relative;
+  }
+  .cv-item-remove {
+    position: absolute; top: 10px; right: 10px;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--rd-bg); color: var(--rd); border: none; cursor: pointer;
+    font-size: 14px; display: flex; align-items: center; justify-content: center;
+    opacity: 0.6;
+  }
+  .cv-item-remove:hover { opacity: 1; }
+  .empty-hint { padding: 20px 0; }
 
-  .hl-list { display: flex; flex-direction: column; gap: 6px; }
-  .hl-row { display: flex; gap: 6px; align-items: center; }
-  .hl-input { flex: 1; font-size: 0.88rem; }
+  /* CV Preview */
+  .cv-preview { display: flex; flex-direction: column; gap: 20px; max-width: 640px; }
+  .cv-preview-head { border-bottom: 2px solid var(--bd); padding-bottom: 12px; }
+  .cv-preview-head h2 { font-size: 1.3rem; font-weight: 700; }
+  .cv-summary { font-size: 0.9rem; color: var(--tx2); line-height: 1.6; }
+  .cv-sec { display: flex; flex-direction: column; gap: 8px; }
+  .cv-sec h3 { font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--mu); border-bottom: 1px solid var(--bd); padding-bottom: 4px; }
+  .cv-exp-item { display: flex; flex-direction: column; gap: 3px; padding: 6px 0; }
+  .cv-exp-head { font-size: 0.875rem; }
+  .cv-bullet { font-size: 0.82rem; color: var(--tx2); padding-left: 12px; }
+  .cv-pub-item { font-size: 0.82rem; color: var(--tx2); line-height: 1.5; padding: 4px 0; }
+  .cv-pub-item.highlight { color: var(--tx); }
+  .doi-link { color: var(--ac); margin-left: 4px; font-size: 0.72rem; }
 
-  .pub-editor { display: flex; flex-direction: column; gap: 6px; }
-  .pub-edit-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-  .pub-title-input { flex: 3; min-width: 0; font-size: 0.82rem; }
-  .pub-doi-input { flex: 2; min-width: 0; font-size: 0.82rem; }
-  .pub-year-input { width: 70px; flex-shrink: 0; font-size: 0.82rem; }
-  .pub-meta { color: var(--mu); }
+  /* ── Cover Letters ── */
+  .cl-view { display: flex; flex-direction: column; gap: 14px; }
+  .cl-list-header { display: flex; align-items: center; justify-content: space-between; }
+  .cl-card {
+    background: var(--sf); border: 1px solid var(--bd); border-radius: var(--radius);
+    padding: 14px 16px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .cl-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .cl-role { font-size: 0.875rem; font-weight: 600; }
+  .cl-card-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .cl-preview { line-height: 1.5; }
+  .cl-compose { display: flex; flex-direction: column; gap: 14px; }
+  .back-btn { align-self: flex-start; margin-bottom: 4px; }
+  .cl-generate-row { display: flex; gap: 8px; align-items: center; }
+  .cl-textarea { font-family: var(--mono); font-size: 0.85rem; line-height: 1.7; width: 100%; box-sizing: border-box; }
+  .cl-save-row { display: flex; gap: 8px; justify-content: flex-end; }
+  .cl-view-letter { display: flex; flex-direction: column; gap: 14px; }
+  .cl-view-head { display: flex; align-items: flex-start; gap: 12px; }
+  .cl-view-head > div { flex: 1; }
 
-  .edit-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 8px; border-top: 1px solid var(--bd); }
+  /* ── Contacts ── */
+  .contacts-view { display: flex; flex-direction: column; gap: 14px; }
+  .contacts-header { display: flex; gap: 8px; align-items: center; }
+  .contact-form { display: flex; flex-direction: column; gap: 12px; }
+  .contact-list { display: flex; flex-direction: column; gap: 8px; }
+  .contact-card { display: flex; flex-direction: column; gap: 6px; }
+  .contact-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .contact-name { font-size: 0.875rem; font-weight: 600; }
+  .contact-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .contact-notes { margin-top: 2px; }
+  .form-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
-  @media (max-width: 680px) {
-    .feed-toolbar { padding: 10px 16px; }
-    .feed-grid { padding: 12px 16px; grid-template-columns: 1fr; }
-    .pipeline-board { padding: 12px 16px; }
-    .jobs-header { padding: 14px 16px 10px; }
-    .tracker-toolbar, .co-toolbar { padding: 10px 16px; }
-    .co-section { padding: 12px 16px 0; }
-    .profile-panel { padding: 16px; }
-    .co-grid { grid-template-columns: 1fr; }
-    .form-row { flex-direction: column; }
+  /* ── Salary ── */
+  .salary-view { display: flex; flex-direction: column; gap: 14px; }
+  .salary-header { display: flex; align-items: center; justify-content: space-between; }
+  .salary-form { display: flex; flex-direction: column; gap: 12px; }
+  .salary-list { display: flex; flex-direction: column; gap: 8px; }
+  .salary-card {
+    background: var(--sf); border: 1px solid var(--bd); border-radius: var(--radius);
+    padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; position: relative;
+  }
+  .salary-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .salary-role { font-size: 0.875rem; font-weight: 600; }
+  .salary-range { display: flex; align-items: center; gap: 6px; }
+  .salary-num { font-size: 0.9rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--gn); }
+
+  /* ── Analytics ── */
+  .analytics-view { display: flex; flex-direction: column; gap: 20px; }
+  .analytics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .stat-box {
+    background: var(--sf); border: 1px solid var(--bd); border-radius: var(--radius);
+    padding: 14px 16px; display: flex; flex-direction: column; gap: 3px;
+  }
+  .stat-num { font-size: 1.7rem; font-weight: 700; letter-spacing: -0.02em; color: var(--tx); }
+  .stat-lbl { font-size: 0.72rem; color: var(--mu); }
+  .analytics-section { display: flex; flex-direction: column; gap: 7px; }
+  .analytics-section h4 { font-size: 0.72rem; font-weight: 700; color: var(--mu); text-transform: uppercase; letter-spacing: 0.07em; }
+  .analytics-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .bar-row { display: flex; align-items: center; gap: 8px; }
+  .bar-label { font-size: 0.78rem; color: var(--tx2); min-width: 80px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+  .bar-track { flex: 1; height: 6px; background: var(--sf2); border-radius: 3px; overflow: hidden; }
+  .bar-fill { height: 100%; background: var(--ac); border-radius: 3px; transition: width 0.4s ease; }
+  .bar-count { font-size: 0.72rem; color: var(--mu); width: 18px; text-align: right; flex-shrink: 0; }
+
+  /* ── Shared ── */
+  .example-card { opacity: 0.6; }
+  .example-label { font-size: 0.65rem; font-weight: 700; color: var(--mu); letter-spacing: 0.06em; text-transform: uppercase; }
+  .danger-icon { color: var(--mu); }
+  .danger-icon:hover { color: var(--rd); background: var(--rd-bg); }
+  .empty-state { padding: 40px 20px; text-align: center; }
+  .field-label { font-size: 0.78rem; font-weight: 600; color: var(--tx2); }
+  .btn-xs { padding: 3px 8px; font-size: 0.72rem; }
+
+  /* Modal */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    display: flex; align-items: center; justify-content: center; z-index: 200;
+    padding: 20px;
+  }
+  .modal {
+    background: var(--sf); border: 1px solid var(--bd); border-radius: var(--radius);
+    padding: 20px; width: 100%; max-width: 480px;
+    display: flex; flex-direction: column; gap: 12px;
+    box-shadow: var(--shadow-lg);
+  }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; }
+  .modal-head h3 { font-size: 0.95rem; font-weight: 700; }
+  .modal-textarea { font-family: var(--mono); font-size: 0.875rem; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+  /* ── Mobile responsive ── */
+  @media (max-width: 640px) {
+    .tab-content { padding: 14px; }
+    .field-grid { grid-template-columns: 1fr; }
+    .analytics-grid { grid-template-columns: 1fr 1fr; }
+    .analytics-row { grid-template-columns: 1fr; }
+    .company-grid { grid-template-columns: 1fr; }
+    .feed-controls { flex-direction: column; align-items: stretch; }
+    .search-input { min-width: unset; }
+    .cl-view-head { flex-direction: column; }
+    .cv-tabs { gap: 3px; }
+    .cv-tab { padding: 4px 8px; font-size: 0.72rem; }
   }
 </style>
