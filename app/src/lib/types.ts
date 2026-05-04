@@ -189,3 +189,57 @@ export interface Protocol {
   createdAt: number;
   updatedAt: number;
 }
+
+// ── Phase 3: Job Arm ──────────────────────────────────────────────────────────
+
+export type JobStatus = 'radar' | 'queued' | 'applied' | 'screening' | 'interviewing' | 'offer' | 'closed';
+export type JobRegion = 'eu' | 'india' | 'uk' | 'remote' | 'us' | 'other';
+export type JobType = 'industry' | 'academic' | 'fellowship' | 'startup' | 'contract';
+
+export interface JobListing {
+  id: string;
+  title: string;
+  company: string;
+  location: string;
+  region: JobRegion;
+  type: JobType;
+  description: string;
+  url: string;
+  source: string;
+  postedAt: number | null;
+  deadline: number | null;
+  tags: string[];
+  salary?: string;
+}
+
+export interface InterviewRecord {
+  id: string;
+  date: number;
+  type: 'phone' | 'technical' | 'panel' | 'hr' | 'onsite' | 'other';
+  notes: string;
+  outcome: string;
+}
+
+export interface SavedJob {
+  id: string;
+  listing: JobListing;
+  status: JobStatus;
+  savedAt: number;
+  appliedAt: number | null;
+  notes: string;
+  nextAction: string;
+  nextActionAt: number | null;
+  interviews: InterviewRecord[];
+}
+
+export interface ResearcherProfile {
+  currentRole: string;
+  institution: string;
+  department: string;
+  specializations: string[];
+  targetRoles: string[];
+  targetLocations: string[];
+  cvHighlights: string[];
+  publications: { title: string; doi: string; year: number }[];
+  notes: string;
+}

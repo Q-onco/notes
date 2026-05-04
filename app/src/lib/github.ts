@@ -16,6 +16,8 @@ export const PATHS = {
   settings:  'settings/keys.enc',
   research:  'data/research.enc',
   pipelines: 'data/pipelines.enc',
+  jobs:      'data/jobs.enc',
+  profile:   'settings/profile.enc',
 } as const;
 
 function headers(token: string) {

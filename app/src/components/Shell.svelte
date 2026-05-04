@@ -11,6 +11,7 @@
   import Research from './Research.svelte';
   import Pipeline from './Pipeline.svelte';
   import Audio from './Audio.svelte';
+  import Jobs from './Jobs.svelte';
   import Settings from './Settings.svelte';
   import Enzo from './Enzo.svelte';
   import Weather from './Weather.svelte';
@@ -290,6 +291,8 @@
         <Research {showToast} />
       {:else if store.view === 'pipeline'}
         <Pipeline {showToast} />
+      {:else if store.view === 'jobs'}
+        <Jobs {showToast} />
       {:else if store.view === 'audio'}
         <Audio {showToast} />
       {:else if store.view === 'settings'}
