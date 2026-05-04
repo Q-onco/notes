@@ -96,6 +96,18 @@
     showToast('Added to tracker');
   }
 
+  // ── Companies state ───────────────────────────────────────────────────────────
+  let companyTagFilter = $state('');
+
+  const allCompanyTags = $derived(
+    [...new Set([...EU_COMPANIES, ...INDIA_COMPANIES].flatMap(co => co.focus))].sort()
+  );
+
+  function filterCompanies(cos: typeof EU_COMPANIES) {
+    if (!companyTagFilter) return cos;
+    return cos.filter(co => co.focus.some(f => f.toLowerCase() === companyTagFilter.toLowerCase()));
+  }
+
   // ── Tracker state ─────────────────────────────────────────────────────────────
   let trackerFilter = $state<JobStatus | 'all'>('all');
   let expandedJobId = $state<string | null>(null);
@@ -767,26 +779,59 @@
       <!-- ── COMPANIES ──────────────────────────────────────────────────────────── -->
       {:else if tab === 'companies'}
         <div class="companies-view">
-          {#each [['EU / UK / Switzerland', EU_COMPANIES], ['India', INDIA_COMPANIES]] as [label, cos]}
-            <div class="company-region">
-              <h3 class="region-heading">{label}</h3>
-              <div class="company-grid">
-                {#each cos as co}
-                  <div class="company-card">
-                    <div class="co-head">
-                      <span class="co-name">{co.name}</span>
-                      <span class="tier-badge tier-{co.tier}">{co.tier}</span>
-                    </div>
-                    <p class="co-loc text-xs text-mu">{co.location}</p>
-                    <div class="co-tags">
-                      {#each co.focus.slice(0, 4) as f}<span class="tag">{f}</span>{/each}
-                    </div>
-                    <a class="btn btn-ghost btn-xs co-link" href={co.url} target="_blank" rel="noreferrer">Careers page →</a>
-                  </div>
-                {/each}
-              </div>
+          <!-- Tag filter bar -->
+          <div class="co-filter-bar">
+            <span class="source-label">Filter by</span>
+            <div class="co-filter-tags">
+              {#each allCompanyTags.slice(0, 24) as t}
+                <button
+                  class="co-filter-tag"
+                  class:active={companyTagFilter === t}
+                  onclick={() => companyTagFilter = companyTagFilter === t ? '' : t}
+                >{t}</button>
+              {/each}
             </div>
+            {#if companyTagFilter}
+              <button class="co-filter-clear" onclick={() => companyTagFilter = ''}>
+                ✕ clear
+              </button>
+            {/if}
+          </div>
+
+          {#each [['EU / UK / Switzerland', EU_COMPANIES], ['India', INDIA_COMPANIES]] as [label, cos]}
+            {@const filtered = filterCompanies(cos as typeof EU_COMPANIES)}
+            {#if filtered.length > 0}
+              <div class="company-region">
+                <h3 class="region-heading">{label} <span class="co-count text-mu">({filtered.length})</span></h3>
+                <div class="company-grid">
+                  {#each filtered as co}
+                    <div class="company-card">
+                      <div class="co-head">
+                        <span class="co-name">{co.name}</span>
+                        <span class="tier-badge tier-{co.tier}">{co.tier}</span>
+                      </div>
+                      <p class="co-loc text-xs text-mu">{co.location}</p>
+                      <div class="co-tags">
+                        {#each co.focus.slice(0, 4) as f}
+                          <button
+                            class="tag co-tag-btn"
+                            class:active-tag={companyTagFilter === f}
+                            onclick={() => companyTagFilter = companyTagFilter === f ? '' : f}
+                            title="Filter by: {f}"
+                          >{f}</button>
+                        {/each}
+                      </div>
+                      <a class="btn btn-ghost btn-xs co-link" href={co.url} target="_blank" rel="noreferrer">Careers page →</a>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            {/if}
           {/each}
+
+          {#if !filterCompanies(EU_COMPANIES).length && !filterCompanies(INDIA_COMPANIES).length}
+            <p class="text-mu text-sm" style="padding:24px 0">No companies match "{companyTagFilter}" — <button class="text-link" onclick={() => companyTagFilter = ''}>clear filter</button></p>
+          {/if}
         </div>
 
       <!-- ── CV BUILDER ──────────────────────────────────────────────────────────── -->
@@ -1472,6 +1517,36 @@
   .co-name { font-size: 0.875rem; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .co-loc { min-height: 14px; }
   .co-tags { display: flex; flex-wrap: wrap; gap: 3px; }
+  .co-tag-btn {
+    cursor: pointer;
+    border: 1px solid var(--bd);
+    background: var(--sf2);
+    color: var(--tx2);
+    transition: all var(--transition);
+    font-family: var(--font);
+  }
+  .co-tag-btn:hover { border-color: var(--ac); color: var(--ac); background: var(--ac-bg); }
+  .co-tag-btn.active-tag { border-color: var(--ac); color: var(--ac); background: var(--ac-bg); font-weight: 700; }
+  .co-count { font-size: 0.72rem; font-weight: 400; }
+  .co-filter-bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+    background: var(--sf2); border: 1px solid var(--bd); border-radius: var(--radius-sm);
+    padding: 10px 12px;
+  }
+  .co-filter-tags { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
+  .co-filter-tag {
+    padding: 2px 9px; border-radius: 20px; font-size: 0.72rem; font-weight: 500;
+    border: 1px solid var(--bd); background: var(--sf); color: var(--tx2);
+    cursor: pointer; transition: all var(--transition);
+  }
+  .co-filter-tag:hover { border-color: var(--ac); color: var(--ac); background: var(--ac-bg); }
+  .co-filter-tag.active { border-color: var(--ac); color: var(--ac); background: var(--ac-bg); font-weight: 700; }
+  .co-filter-clear {
+    padding: 2px 9px; border-radius: 20px; font-size: 0.72rem; font-weight: 600;
+    border: 1px solid var(--rd); background: var(--rd-bg); color: var(--rd);
+    cursor: pointer; flex-shrink: 0;
+  }
+  .text-link { background: none; border: none; color: var(--ac); cursor: pointer; font-size: inherit; padding: 0; text-decoration: underline; }
   .co-link { margin-top: 2px; align-self: flex-start; }
   .tier-badge { font-size: 0.62rem; font-weight: 700; padding: 2px 6px; border-radius: 8px; text-transform: uppercase; flex-shrink: 0; }
   .tier-large    { background: var(--ac-bg); color: var(--ac); }
