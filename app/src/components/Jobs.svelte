@@ -1,6 +1,7 @@
 <script lang="ts">
   import { store } from '../lib/store.svelte';
   import { generateCoverLetter } from '../lib/groq';
+  import { exportCvHtml, exportCvPdf, exportCoverLetterDocx, exportCoverLetterPdf } from '../lib/export';
   import { nanoid } from 'nanoid';
   import type {
     SavedJob, JobListing, JobStatus, JobRegion, JobType,
@@ -34,11 +35,16 @@
   let typeFilter = $state<'all' | JobType>('all');
 
   const EXAMPLE_FEED: JobListing[] = [
-    { id: '_jf1', title: 'Senior Scientist — Oncology Biomarkers', company: 'Merck KGaA', location: 'Darmstadt, Germany', region: 'eu', type: 'industry', description: 'Lead translational biomarker strategy for immuno-oncology pipeline. Requires expertise in HGSOC, spatial transcriptomics, and TME profiling. Heidelberg-area preferred.', url: 'https://www.merckgroup.com/en/careers.html', source: 'Example', postedAt: Date.now() - 259200000, deadline: null, tags: ['immuno-oncology', 'biomarkers', 'spatial'] },
-    { id: '_jf2', title: 'Postdoctoral Researcher — Single-Cell Genomics', company: 'EMBL', location: 'Heidelberg, Germany', region: 'eu', type: 'academic', description: 'Join the Stegle/Huber group to develop computational methods for spatial single-cell data integration. Strong scRNA-seq and Python/R required.', url: 'https://www.embl.org/careers', source: 'Example', postedAt: Date.now() - 432000000, deadline: Date.now() + 1296000000, tags: ['scRNA-seq', 'spatial', 'bioinformatics'] },
-    { id: '_jf3', title: 'Translational Scientist — Ovarian Cancer', company: 'AstraZeneca', location: 'Cambridge, UK', region: 'uk', type: 'industry', description: 'Translational scientist for the ovarian cancer / PARP inhibitor franchise. Work on resistance mechanisms, patient stratification, and companion diagnostics alongside the SOLO trial team.', url: 'https://careers.astrazeneca.com', source: 'Example', postedAt: Date.now() - 604800000, deadline: null, tags: ['ovarian cancer', 'PARP inhibitors', 'translational'] },
-    { id: '_jf4', title: 'Scientist — Oncology Genomics', company: 'Biocon', location: 'Bengaluru, India', region: 'india', type: 'industry', description: 'Drive biomarker discovery for biosimilar trastuzumab and novel oncology biologics. Genomics, NGS, and bioinformatics expertise required.', url: 'https://biocon.com/careers', source: 'Example', postedAt: Date.now() - 864000000, deadline: null, tags: ['genomics', 'bioinformatics', 'biologics'] },
-    { id: '_jf5', title: 'Group Leader — Gynaecological Oncology', company: 'DKFZ', location: 'Heidelberg, Germany', region: 'eu', type: 'academic', description: 'Independent group leader position in translational gynaecological oncology research. Excellent infrastructure for scRNA-seq and spatial transcriptomics at DKFZ.', url: 'https://www.dkfz.de/en/stellenangebote/', source: 'Example', postedAt: Date.now() - 1728000000, deadline: Date.now() + 2592000000, tags: ['ovarian cancer', 'scRNA-seq', 'spatial'] },
+    { id: '_jf1', title: 'Senior Scientist — Oncology Biomarkers', company: 'Merck KGaA', location: 'Darmstadt, Germany', region: 'eu', type: 'industry', description: 'Lead translational biomarker strategy for immuno-oncology pipeline. Requires expertise in HGSOC, spatial transcriptomics, and TME profiling. Heidelberg-area preferred.', url: 'https://www.merckgroup.com/en/careers.html', source: 'Curated', postedAt: Date.now() - 259200000, deadline: null, tags: ['immuno-oncology', 'biomarkers', 'spatial'] },
+    { id: '_jf2', title: 'Postdoctoral Researcher — Single-Cell Genomics', company: 'EMBL', location: 'Heidelberg, Germany', region: 'eu', type: 'academic', description: 'Join the Stegle/Huber group to develop computational methods for spatial single-cell data integration. Strong scRNA-seq and Python/R required.', url: 'https://www.embl.org/careers', source: 'Curated', postedAt: Date.now() - 432000000, deadline: Date.now() + 1296000000, tags: ['scRNA-seq', 'spatial', 'bioinformatics'] },
+    { id: '_jf3', title: 'Translational Scientist — Ovarian Cancer', company: 'AstraZeneca', location: 'Cambridge, UK', region: 'uk', type: 'industry', description: 'Translational scientist for the ovarian cancer / PARP inhibitor franchise. Work on resistance mechanisms, patient stratification, and companion diagnostics alongside the SOLO trial team.', url: 'https://careers.astrazeneca.com', source: 'Curated', postedAt: Date.now() - 604800000, deadline: null, tags: ['ovarian cancer', 'PARP inhibitors', 'translational'] },
+    { id: '_jf4', title: 'Scientist — Oncology Genomics', company: 'Biocon', location: 'Bengaluru, India', region: 'india', type: 'industry', description: 'Drive biomarker discovery for biosimilar trastuzumab and novel oncology biologics. Genomics, NGS, and bioinformatics expertise required.', url: 'https://biocon.com/careers', source: 'Curated', postedAt: Date.now() - 864000000, deadline: null, tags: ['genomics', 'bioinformatics', 'biologics'] },
+    { id: '_jf5', title: 'Group Leader — Gynaecological Oncology', company: 'DKFZ', location: 'Heidelberg, Germany', region: 'eu', type: 'academic', description: 'Independent group leader position in translational gynaecological oncology research. Excellent infrastructure for scRNA-seq and spatial transcriptomics at DKFZ.', url: 'https://www.dkfz.de/en/stellenangebote/', source: 'Curated', postedAt: Date.now() - 1728000000, deadline: Date.now() + 2592000000, tags: ['ovarian cancer', 'scRNA-seq', 'spatial'] },
+    { id: '_jf6', title: 'Head of Translational Science', company: 'Singlera Genomics', location: 'Frankfurt, Germany', region: 'eu', type: 'startup', description: 'Lead translational science at a Series B oncology liquid biopsy startup. Build the science team, design ctDNA biomarker studies, and partner with academic medical centres across Germany and Switzerland. Experience in cfDNA, NGS panel design, and ovarian/gynaecological cancer clinical research preferred.', url: 'https://singleragenomics.com', source: 'Curated', postedAt: Date.now() - 172800000, deadline: null, tags: ['liquid biopsy', 'cfDNA', 'biomarkers'] },
+    { id: '_jf7', title: 'Computational Biology Lead', company: 'Omniscope Bio', location: 'London, UK (remote-first)', region: 'uk', type: 'startup', description: 'First computational hire at a spatial multiomics startup (seed-stage, ex-Sanger/Wellcome Sanger). Own the analysis platform for high-plex spatial proteomics + transcriptomics data. Python, Squidpy, napari, deep learning for spatial cell segmentation.', url: 'https://omniscopebio.com', source: 'Curated', postedAt: Date.now() - 86400000, deadline: null, tags: ['spatial', 'bioinformatics', 'multiomics'] },
+    { id: '_jf8', title: 'Scientist — Tumour Immunology', company: 'Bicara Therapeutics', location: 'Remote (EU)', region: 'remote', type: 'startup', description: 'Early-stage oncology biotech (Series A) focused on bifunctional antibody-cytokine fusions for solid tumours. Design and execute ex vivo TME co-culture models, FACS, multiplex IF, and scRNA-seq experiments to support IND-enabling studies.', url: 'https://bicaratx.com', source: 'Curated', postedAt: Date.now() - 518400000, deadline: null, tags: ['immuno-oncology', 'TME', 'scRNA-seq'] },
+    { id: '_jf9', title: 'Senior Research Scientist — Cancer Genomics', company: 'MedGenome', location: 'Bengaluru, India', region: 'india', type: 'startup', description: 'Clinical genomics startup expanding oncology division. Lead somatic variant interpretation, tumour mutational burden analysis, and HRD scoring for clinical reports. Experience with BRCA1/2, HRD, PARP inhibitor companion diagnostics highly valued.', url: 'https://medgenome.com/careers', source: 'Curated', postedAt: Date.now() - 691200000, deadline: null, tags: ['genomics', 'HRD', 'PARP inhibitors'] },
+    { id: '_jf10', title: 'Postdoc — Spatial Transcriptomics & AI', company: 'NCT Heidelberg', location: 'Heidelberg, Germany', region: 'eu', type: 'fellowship', description: '3-year postdoctoral fellowship at NCT Heidelberg (National Centre for Tumour Diseases). Develop AI-driven spatial transcriptomics pipelines for HGSOC patient stratification. Access to FFPE tumour biobank (n>300), Xenium platform, and clinical trial cohorts.', url: 'https://www.nct-heidelberg.de/en/about-us/careers.html', source: 'Curated', postedAt: Date.now() - 345600000, deadline: Date.now() + 2592000000, tags: ['spatial', 'HGSOC', 'ovarian cancer', 'bioinformatics'] },
   ];
 
   async function fetchFeed() {
@@ -233,7 +239,7 @@
     store.cvProfile.awards = store.cvProfile.awards.filter(a => a.id !== id);
   }
 
-  function exportCvMarkdown() {
+  function buildCvMarkdown(): string {
     const cv = store.cvProfile;
     const lines: string[] = [];
     lines.push(`# ${cv.fullName}${cv.pronouns ? ` (${cv.pronouns})` : ''}`);
@@ -268,7 +274,11 @@
       for (const a of cv.awards) lines.push(`- ${a.year} · **${a.title}** — ${a.issuer}${a.description ? ` — ${a.description}` : ''}`);
     }
     if (cv.languages.length) { lines.push(''); lines.push('## Languages'); lines.push(cv.languages.join(', ')); }
-    const md = lines.join('\n');
+    return lines.join('\n');
+  }
+
+  function exportCvMarkdown() {
+    const md = buildCvMarkdown();
     const blob = new Blob([md], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -276,6 +286,9 @@
     URL.revokeObjectURL(url);
     showToast('CV exported as Markdown');
   }
+
+  function exportCvWord() { exportCvHtml(buildCvMarkdown(), store.cvProfile.fullName || 'CV'); showToast('CV exported as Word document'); }
+  function exportCvPDF() { exportCvPdf(buildCvMarkdown(), store.cvProfile.fullName || 'CV'); }
 
   // ── Cover Letter ──────────────────────────────────────────────────────────────
   let clSelectedJobId = $state('');
@@ -787,6 +800,8 @@
             </div>
             <div class="cv-actions">
               <button class="btn btn-ghost btn-sm" onclick={exportCvMarkdown}>Export .md</button>
+              <button class="btn btn-ghost btn-sm" onclick={exportCvWord}>Export .doc</button>
+              <button class="btn btn-ghost btn-sm" onclick={exportCvPDF}>Print / PDF</button>
               <button class="btn btn-primary btn-sm" onclick={saveCv} disabled={cvSaving}>{cvSaving ? 'Saving…' : 'Save CV'}</button>
             </div>
           </div>
@@ -818,6 +833,28 @@
             {:else if cvTab === 'experience'}
               <div class="cv-section">
                 <div class="section-head"><h3 class="cv-section-title">Experience</h3><button class="btn btn-primary btn-sm" onclick={addExperience}>+ Add</button></div>
+                {#if store.cvProfile.experience.length === 0}
+                  <div class="cv-example-hint">
+                    <p class="text-xs text-mu">No experience added yet — here's an example of what to fill in. Click + Add to start.</p>
+                    <div class="cv-item cv-item-example">
+                      <div class="field-grid">
+                        <div class="field"><label>Role / Title</label><input disabled value="Postdoctoral Researcher" /></div>
+                        <div class="field"><label>Organisation</label><input disabled value="Heidelberg University" /></div>
+                        <div class="field"><label>Location</label><input disabled value="Heidelberg, Germany" /></div>
+                        <div class="field-row">
+                          <div class="field"><label>Start</label><input disabled value="2022-09" /></div>
+                          <div class="field"><label>End</label><input disabled value="" placeholder="Present" /></div>
+                        </div>
+                      </div>
+                      <div class="field full">
+                        <label>Bullet points</label>
+                        <input disabled value="scRNA-seq analysis of HGSOC tumour microenvironment (n=45 patients)" class="bullet-input" />
+                        <input disabled value="Spatial transcriptomics (Visium) for immune cell niche mapping in PARPi-treated cohort" class="bullet-input" />
+                        <input disabled value="Biomarker discovery for PARPi resistance — CD8 exhaustion signature validated by multiplex IF" class="bullet-input" />
+                      </div>
+                    </div>
+                  </div>
+                {/if}
                 {#each store.cvProfile.experience as exp (exp.id)}
                   <div class="cv-item">
                     <button class="cv-item-remove" onclick={() => removeExperience(exp.id)}>×</button>
@@ -865,23 +902,36 @@
             {:else if cvTab === 'publications'}
               <div class="cv-section">
                 <div class="section-head"><h3 class="cv-section-title">Publications</h3><button class="btn btn-primary btn-sm" onclick={addPublication}>+ Add</button></div>
-                {#each store.cvProfile.publications as pub (pub.id)}
-                  <div class="cv-item">
-                    <button class="cv-item-remove" onclick={() => removePublication(pub.id)}>×</button>
-                    <div class="field-grid">
-                      <div class="field full"><label>Title</label><input bind:value={pub.title} /></div>
-                      <div class="field full"><label>Authors</label><input bind:value={pub.authors} placeholder="Sathyanarayanan A, et al." /></div>
-                      <div class="field"><label>Journal</label><input bind:value={pub.journal} /></div>
-                      <div class="field"><label>Year</label><input type="number" bind:value={pub.year} /></div>
-                      <div class="field"><label>DOI</label><input bind:value={pub.doi} placeholder="10.xxxx/…" /></div>
-                      <div class="field checkbox-field">
-                        <label><input type="checkbox" bind:checked={pub.highlight} /> Highlight (key paper)</label>
+                {#if store.cvProfile.publications.length === 0}
+                  <div class="cv-example-hint">
+                    <p class="text-xs text-mu">No publications added yet. Example format below — click + Add to enter yours.</p>
+                    <div class="cv-item cv-item-example">
+                      <div class="field-grid">
+                        <div class="field full"><label>Title</label><input disabled value="Single-cell dissection of HGSOC tumour microenvironment reveals CD8+ T cell exhaustion trajectories linked to PARPi resistance" /></div>
+                        <div class="field full"><label>Authors</label><input disabled value="Sathyanarayanan A, Müller K, Zhang Y, et al." /></div>
+                        <div class="field"><label>Journal</label><input disabled value="Nature Cancer" /></div>
+                        <div class="field"><label>Year</label><input disabled value="2025" /></div>
+                        <div class="field"><label>DOI</label><input disabled value="10.1038/s43018-025-00xxx" /></div>
                       </div>
                     </div>
                   </div>
                 {:else}
-                  <p class="empty-hint text-mu text-sm">No publications added yet.</p>
-                {/each}
+                  {#each store.cvProfile.publications as pub (pub.id)}
+                    <div class="cv-item">
+                      <button class="cv-item-remove" onclick={() => removePublication(pub.id)}>×</button>
+                      <div class="field-grid">
+                        <div class="field full"><label>Title</label><input bind:value={pub.title} /></div>
+                        <div class="field full"><label>Authors</label><input bind:value={pub.authors} placeholder="Sathyanarayanan A, et al." /></div>
+                        <div class="field"><label>Journal</label><input bind:value={pub.journal} /></div>
+                        <div class="field"><label>Year</label><input type="number" bind:value={pub.year} /></div>
+                        <div class="field"><label>DOI</label><input bind:value={pub.doi} placeholder="10.xxxx/…" /></div>
+                        <div class="field checkbox-field">
+                          <label><input type="checkbox" bind:checked={pub.highlight} /> Highlight (key paper)</label>
+                        </div>
+                      </div>
+                    </div>
+                  {/each}
+                {/if}
               </div>
 
             {:else if cvTab === 'skills'}
@@ -1056,6 +1106,8 @@
                 </div>
                 <div class="cl-save-row">
                   <button class="btn btn-ghost btn-sm" onclick={() => { const b = new Blob([clContent], {type:'text/markdown'}); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href=u; a.download='cover-letter.md'; a.click(); URL.revokeObjectURL(u); }}>Export .md</button>
+                  <button class="btn btn-ghost btn-sm" onclick={() => exportCoverLetterDocx(clContent, clCompany)}>Export .doc</button>
+                  <button class="btn btn-ghost btn-sm" onclick={() => exportCoverLetterPdf(clContent, clCompany)}>Print / PDF</button>
                   <button class="btn btn-primary btn-sm" onclick={saveCoverLetter} disabled={clSaving}>{clSaving ? 'Saving…' : 'Save'}</button>
                 </div>
               {/if}
@@ -1463,6 +1515,9 @@
   }
   .cv-item-remove:hover { opacity: 1; }
   .empty-hint { padding: 20px 0; }
+  .cv-example-hint { display: flex; flex-direction: column; gap: 8px; }
+  .cv-item-example { opacity: 0.6; pointer-events: none; }
+  .cv-item-example input { cursor: default; }
 
   /* CV Preview */
   .cv-preview { display: flex; flex-direction: column; gap: 20px; max-width: 640px; }

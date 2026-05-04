@@ -248,7 +248,7 @@ ${jobDescription.slice(0, 2000)}
 ${cvSummary.slice(0, 2000)}`
     }
   ];
-  return streamGroq(MODELS.enzo, messages, onChunk, signal);
+  return streamGroq(MODELS.research, messages, onChunk, signal);
 }
 
 export async function transcribeAudio(blob: Blob, _workerUrl?: string): Promise<string> {

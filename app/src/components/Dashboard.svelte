@@ -390,7 +390,7 @@
   .prompt-chip:hover { border-color: var(--enzo); background: var(--enzo-bg); color: var(--enzo); }
 
   .empty { padding: 8px 4px; }
-  .example-row { opacity: 0.55; pointer-events: none; }
+  .example-row { opacity: 0.72; pointer-events: none; }
   .example-mu { font-size: 0.68rem; color: var(--mu); margin-left: auto; letter-spacing: 0.04em; }
 
   /* Pinned papers */

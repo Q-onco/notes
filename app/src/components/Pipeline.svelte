@@ -1193,7 +1193,7 @@
   }
   .landing-features li::before { content: '→'; color: var(--ac); font-size: 0.75rem; }
   .landing-btn { margin-top: 6px; padding: 10px 28px; }
-  .example-run { opacity: 0.55; cursor: default; }
+  .example-run { opacity: 0.72; cursor: default; }
   .example-dot { font-size: 0.6rem; }
 
   .pipeline {

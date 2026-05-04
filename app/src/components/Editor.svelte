@@ -3,7 +3,7 @@
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
   import { nanoid } from 'nanoid';
-  import { exportNote, exportAllNotes } from '../lib/export';
+  import { exportNote, exportNoteDocx, exportNotePdf, exportAllNotes } from '../lib/export';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -228,10 +228,16 @@
             <polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>
           </svg>
         </button>
-        <button class="btn-icon" onclick={() => exportNote(note!)} title="Export note as .md">
+        <button class="btn-icon" onclick={() => exportNote(note!)} title="Export as .md">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
+        </button>
+        <button class="btn-icon" onclick={() => exportNoteDocx(note!)} title="Export as .doc (Word)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h10M7 12h7M7 16h5"/></svg>
+        </button>
+        <button class="btn-icon" onclick={() => exportNotePdf(note!)} title="Print / Save as PDF">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
         </button>
         <button class="btn-icon danger" onclick={deleteNote} title="Delete">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
