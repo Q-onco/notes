@@ -19,6 +19,7 @@
   function enable() {
     enabled = true;
     sessionStorage.setItem(SESSION_KEY, '1');
+    fetchFeed();
   }
 
   // ── Tab state ─────────────────────────────────────────────────────────────────
@@ -47,7 +48,7 @@
       feedJobs = await fetchJobFeed();
       if (feedJobs.length === 0) feedError = 'No jobs returned from feeds — examples shown below.';
     } catch (e) {
-      feedError = `Feed unavailable: ${(e as Error).message}. Showing curated examples.`;
+      feedError = 'Live feed unavailable — showing curated examples. Click Refresh to retry.';
       feedJobs = [];
     } finally {
       feedLoading = false;
