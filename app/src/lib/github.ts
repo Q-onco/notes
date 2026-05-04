@@ -19,8 +19,10 @@ export const PATHS = {
   jobs:         'data/jobs.enc',
   jobExt:       'data/jobs-ext.enc',
   cv:           'data/cv.enc',
-  coverLetters: 'data/coverletters.enc',
-  profile:      'settings/profile.enc',
+  coverLetters:  'data/coverletters.enc',
+  profile:       'settings/profile.enc',
+  presentations: 'data/presentations.enc',
+  files:         'data/files.enc',
 } as const;
 
 function headers(token: string) {

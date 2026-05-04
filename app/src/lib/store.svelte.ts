@@ -3,11 +3,12 @@ import type {
   ChatSession, CalendarEvent, AppSettings, AiFeatureSettings, PaperResult,
   ReadingListItem, SavedSearch, PipelineRun, Protocol,
   SavedJob, ResearcherProfile, Hypothesis,
-  CvProfile, CoverLetter, JobContact, JobEmailTemplate, SalaryEntry, JobDeadline
+  CvProfile, CoverLetter, JobContact, JobEmailTemplate, SalaryEntry, JobDeadline,
+  Presentation, FileRecord
 } from './types';
 import { loadEncFile, saveEncFile, PATHS, validateToken } from './github';
 
-type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs';
+type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs' | 'presentations' | 'files';
 
 const DEFAULT_PROFILE: ResearcherProfile = {
   currentRole: 'Postdoctoral Researcher',
@@ -88,6 +89,12 @@ class Store {
 
   coverLetters = $state<CoverLetter[]>([]);
   coverLettersSha = $state<string | null>(null);
+
+  presentations = $state<Presentation[]>([]);
+  presentationsSha = $state<string | null>(null);
+
+  files = $state<FileRecord[]>([]);
+  filesSha = $state<string | null>(null);
 
   profile = $state<ResearcherProfile>({ ...DEFAULT_PROFILE });
   profileSha = $state<string | null>(null);
@@ -183,7 +190,7 @@ class Store {
     if (!this.tok) return;
     this.loadingMsg = 'Decrypting your research...';
 
-    const [n, j, t, c, a, pp, s, res, pip, jb, jbx, cv, cl, prf] = await Promise.all([
+    const [n, j, t, c, a, pp, s, res, pip, jb, jbx, cv, cl, prf, pres, fi] = await Promise.all([
       loadEncFile<Note[]>(this.tok, PATHS.notes, []),
       loadEncFile<JournalEntry[]>(this.tok, PATHS.journal, []),
       loadEncFile<Task[]>(this.tok, PATHS.tasks, []),
@@ -198,6 +205,8 @@ class Store {
       loadEncFile<CvProfile>(this.tok, PATHS.cv, this.cvProfile),
       loadEncFile<CoverLetter[]>(this.tok, PATHS.coverLetters, []),
       loadEncFile<ResearcherProfile>(this.tok, PATHS.profile, DEFAULT_PROFILE),
+      loadEncFile<Presentation[]>(this.tok, PATHS.presentations, []),
+      loadEncFile<FileRecord[]>(this.tok, PATHS.files, []),
     ]);
 
     this.notes = n.data; this.notesSha = n.sha;
@@ -229,6 +238,8 @@ class Store {
     this.cvProfile = { ...this.cvProfile, ...cv.data }; this.cvSha = cv.sha;
     this.coverLetters = cl.data; this.coverLettersSha = cl.sha;
     this.profile = { ...DEFAULT_PROFILE, ...prf.data }; this.profileSha = prf.sha;
+    this.presentations = pres.data; this.presentationsSha = pres.sha;
+    this.files = fi.data; this.filesSha = fi.sha;
   }
 
   async saveResearch(): Promise<void> {
@@ -323,6 +334,18 @@ class Store {
     if (!this.tok) return;
     const sha = await saveEncFile(this.tok, PATHS.profile, this.profile, this.profileSha, 'profile: update');
     this.profileSha = sha;
+  }
+
+  async savePresentations(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(this.tok, PATHS.presentations, this.presentations, this.presentationsSha, 'presentations: update');
+    this.presentationsSha = sha;
+  }
+
+  async saveFiles(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(this.tok, PATHS.files, this.files, this.filesSha, 'files: update');
+    this.filesSha = sha;
   }
 
   isPinned(id: string): boolean {

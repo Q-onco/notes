@@ -379,6 +379,42 @@ export interface JobDeadline {
   done: boolean;
 }
 
+// ── Presentations ─────────────────────────────────────────────────────────────
+
+export interface Slide {
+  id: string;
+  content: string;   // HTML from RichEditor
+  notes: string;     // speaker notes, plain text
+}
+
+export type PresTheme = 'white' | 'dark' | 'moon' | 'serif' | 'minimal';
+
+export interface Presentation {
+  id: string;
+  title: string;
+  slides: Slide[];
+  theme: PresTheme;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// ── Files ─────────────────────────────────────────────────────────────────────
+
+export interface FileRecord {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;            // bytes (original)
+  data?: string;           // base64 (no prefix)
+  url?: string;            // external link alternative
+  tags: string[];
+  linkedNoteIds: string[];
+  linkedRunIds: string[];
+  description: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 // ── AI feature toggles ────────────────────────────────────────────────────────
 
 export interface AiFeatureSettings {

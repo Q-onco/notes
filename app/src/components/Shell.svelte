@@ -12,6 +12,8 @@
   import Pipeline from './Pipeline.svelte';
   import Audio from './Audio.svelte';
   import Jobs from './Jobs.svelte';
+  import Presentations from './Presentations.svelte';
+  import Files from './Files.svelte';
   import Settings from './Settings.svelte';
   import Enzo from './Enzo.svelte';
   import Weather from './Weather.svelte';
@@ -502,6 +504,10 @@
         <Jobs {showToast} />
       {:else if store.view === 'audio'}
         <Audio {showToast} />
+      {:else if store.view === 'presentations'}
+        <Presentations {showToast} />
+      {:else if store.view === 'files'}
+        <Files {showToast} />
       {:else if store.view === 'settings'}
         <Settings {showToast} />
       {/if}

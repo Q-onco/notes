@@ -489,3 +489,27 @@ export async function transcribeAudio(blob: Blob, _workerUrl?: string): Promise<
   const { text } = await res.json();
   return text as string;
 }
+
+export async function generateSlides(
+  topic: string,
+  slideCount: number,
+  context: string,
+  signal?: AbortSignal
+): Promise<Array<{title: string; content: string; notes: string}>> {
+  let buffer = '';
+  const messages = [
+    {
+      role: 'system' as const,
+      content: `You are Enzo, a sharp scientific presentation assistant. You MUST return ONLY a valid JSON array — no markdown fences, no preamble, no trailing text. Each element: {"title": string, "content": string (HTML using <h2>, <ul><li>, <p> — no <html>/<body>/<head> tags), "notes": string (plain text speaker notes)}.
+Make slides concise, visually impactful, suitable for an academic conference talk. First slide is title/overview. Last slide is Summary/Conclusions or Next Steps.`
+    },
+    {
+      role: 'user' as const,
+      content: `Generate exactly ${slideCount} slides about: ${topic}${context ? `\n\nContext/source material:\n${context}` : ''}`
+    }
+  ];
+  await streamGroq(MODELS.enzo, messages, (chunk) => { buffer += chunk; }, signal);
+  const match = buffer.match(/\[[\s\S]*\]/);
+  if (!match) throw new Error('Could not parse slide JSON from Enzo response');
+  return JSON.parse(match[0]) as Array<{title: string; content: string; notes: string}>;
+}
