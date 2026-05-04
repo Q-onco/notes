@@ -290,10 +290,17 @@ export async function askEnzo(
   messages: { role: 'user' | 'assistant'; content: string }[],
   noteContext: string,
   onChunk: (text: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  journalContext?: string
 ): Promise<{ text: string; tokens: number; model: string }> {
   const userName = store.settings.userName || 'Amritha';
-  return streamGroq(MODELS.enzo, [{ role: 'system', content: ENZO_SYSTEM(userName, noteContext) }, ...messages], onChunk, signal);
+  const contextParts: string[] = [];
+  if (noteContext) contextParts.push(noteContext);
+  if (journalContext) contextParts.push(`## Recent journal entries\n${journalContext}`);
+  return streamGroq(MODELS.enzo, [
+    { role: 'system', content: ENZO_SYSTEM(userName, contextParts.join('\n\n')) },
+    ...messages
+  ], onChunk, signal);
 }
 
 export async function askResearch(
@@ -318,13 +325,15 @@ export async function generateCoverLetter(
   jobDescription: string,
   cvSummary: string,
   onChunk: (text: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  recentLetters?: { company: string; role: string; content: string }[]
 ): Promise<{ text: string; tokens: number; model: string }> {
+  const historySection = recentLetters && recentLetters.length > 0
+    ? `\n\n---\n**Reference — recent letters written (do not repeat these openers, angles, or phrases):**\n\n${recentLetters.map(l => `${l.role} @ ${l.company}:\n${l.content.slice(0, 500)}…`).join('\n\n')}`
+    : '';
+
   const messages = [
-    {
-      role: 'system',
-      content: WRITER_SYSTEM
-    },
+    { role: 'system', content: WRITER_SYSTEM },
     {
       role: 'user',
       content: `Write a cover letter for the following position. Apply all character rules strictly — no hollow openers, no banned phrases, organisation-specific hook required.
@@ -335,7 +344,7 @@ export async function generateCoverLetter(
 ${jobDescription.slice(0, 2000)}
 
 **CV data:**
-${cvSummary.slice(0, 2000)}`
+${cvSummary.slice(0, 2000)}${historySection}`
     }
   ];
   return streamGroq(MODELS.research, messages, onChunk, signal);
