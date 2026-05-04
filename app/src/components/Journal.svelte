@@ -8,6 +8,11 @@
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
+  const EXAMPLE_JOURNAL: JournalEntry[] = [
+    { id: '_ej1', body: 'Good session today — finally resolved the UMAP instability issue by setting `n_neighbors=50` and `min_dist=0.3`. The myofibroblastic CAF subcluster (iCAF-like) is now clearly separated from the matrix-remodelling CAFs. Will need to validate with published signatures from Öhlund et al.', mood: 'Focused', contextTag: 'Analysis', createdAt: Date.now() - 86400000, updatedAt: Date.now() - 86400000, audioIds: [] },
+    { id: '_ej2', body: 'Reviewed the SOLO-2 extension data from Poveda et al. The PFS benefit in HRD-positive patients is striking — but the 36-month tail-off raises questions about acquired PARPi resistance mechanisms. Our BRCA1-reversion mutations might explain some of this. Need to discuss with the group.', mood: 'Curious', contextTag: 'Research', createdAt: Date.now() - 172800000, updatedAt: Date.now() - 172800000, audioIds: [] },
+  ];
+
   let editingId = $state<string | null>(null);
   let draftBody = $state('');
   let draftMood = $state('');
@@ -197,9 +202,25 @@
         </div>
       </article>
     {:else}
-      <div class="empty-state">
-        <p class="text-mu">No journal entries yet. Start with how your research is going today.</p>
-        <button class="btn btn-primary mt-3" onclick={startNew}>Write first entry</button>
+      {#each EXAMPLE_JOURNAL as entry (entry.id)}
+        <article class="entry-card card example-entry">
+          <div class="entry-head">
+            <div class="entry-meta">
+              <span class="entry-date">{new Date(entry.createdAt).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span>
+              <span class="tag">{entry.mood}</span>
+              <span class="tag tag-ac">{entry.contextTag}</span>
+              <span class="example-badge">· example</span>
+            </div>
+          </div>
+          <div class="entry-body md">
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+            {@html DOMPurify.sanitize(marked.parse(entry.body) as string)}
+          </div>
+        </article>
+      {/each}
+      <div class="empty-cta">
+        <p class="text-mu text-sm">No journal entries yet. Start with how your research is going today.</p>
+        <button class="btn btn-primary" onclick={startNew}>Write first entry</button>
       </div>
     {/each}
   </div>
@@ -283,5 +304,21 @@
     display: flex;
     flex-direction: column;
     align-items: center;
+  }
+
+  .example-entry { opacity: 0.6; pointer-events: none; }
+  .example-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--mu);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .empty-cta {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 20px 0 8px;
   }
 </style>

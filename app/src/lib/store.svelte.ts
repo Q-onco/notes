@@ -1,11 +1,24 @@
 import type {
   Note, JournalEntry, Task, AudioRecord,
   ChatSession, CalendarEvent, AppSettings, PaperResult,
-  ReadingListItem, SavedSearch, PipelineRun, Protocol
+  ReadingListItem, SavedSearch, PipelineRun, Protocol,
+  SavedJob, ResearcherProfile
 } from './types';
 import { loadEncFile, saveEncFile, PATHS, validateToken } from './github';
 
-type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline';
+type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs';
+
+const DEFAULT_PROFILE: ResearcherProfile = {
+  currentRole: 'Postdoctoral Researcher',
+  institution: 'Heidelberg University',
+  department: 'Dept. of Experimental and Translational Gynaecological Oncology',
+  specializations: ['ovarian cancer', 'HGSOC', 'scRNA-seq', 'spatial transcriptomics', 'PARP inhibitors', 'tumour microenvironment', 'bioinformatics'],
+  targetRoles: ['Senior Scientist', 'Translational Scientist', 'R&D Scientist', 'Principal Scientist'],
+  targetLocations: ['Germany', 'UK', 'Switzerland', 'India', 'Remote'],
+  cvHighlights: [],
+  publications: [],
+  notes: '',
+};
 
 class Store {
   // Auth
@@ -41,6 +54,12 @@ class Store {
 
   calEvents = $state<CalendarEvent[]>([]);
 
+  savedJobs = $state<SavedJob[]>([]);
+  jobsSha = $state<string | null>(null);
+
+  profile = $state<ResearcherProfile>({ ...DEFAULT_PROFILE });
+  profileSha = $state<string | null>(null);
+
   settings = $state<AppSettings>({
     userName: 'Amritha',
     workerUrl: 'https://enzo.quant-onco.workers.dev',
@@ -57,7 +76,7 @@ class Store {
   loadingMsg = $state('Loading...');
   error = $state<string | null>(null);
   enzoSearchQuery = $state('');
-  aiPending = $state(0); // count of in-flight AI requests
+  aiPending = $state(0);
 
   // Derived
   get authenticated(): boolean { return this.tok !== null; }
@@ -109,13 +128,15 @@ class Store {
     this.audioRecords = [];
     this.calEvents = [];
     this.pinnedPapers = [];
+    this.savedJobs = [];
+    this.profile = { ...DEFAULT_PROFILE };
   }
 
   async loadAll(): Promise<void> {
     if (!this.tok) return;
     this.loadingMsg = 'Decrypting your research...';
 
-    const [n, j, t, c, a, pp, s, res, pip] = await Promise.all([
+    const [n, j, t, c, a, pp, s, res, pip, jb, prf] = await Promise.all([
       loadEncFile<Note[]>(this.tok, PATHS.notes, []),
       loadEncFile<JournalEntry[]>(this.tok, PATHS.journal, []),
       loadEncFile<Task[]>(this.tok, PATHS.tasks, []),
@@ -124,7 +145,9 @@ class Store {
       loadEncFile<PaperResult[]>(this.tok, PATHS.pinned, []),
       loadEncFile<AppSettings>(this.tok, PATHS.settings, this.settings),
       loadEncFile<{readingList: ReadingListItem[], savedSearches: SavedSearch[]}>(this.tok, PATHS.research, { readingList: [], savedSearches: [] }),
-      loadEncFile<{runs: PipelineRun[], protocols: Protocol[]}>(this.tok, PATHS.pipelines, { runs: [], protocols: [] })
+      loadEncFile<{runs: PipelineRun[], protocols: Protocol[]}>(this.tok, PATHS.pipelines, { runs: [], protocols: [] }),
+      loadEncFile<SavedJob[]>(this.tok, PATHS.jobs, []),
+      loadEncFile<ResearcherProfile>(this.tok, PATHS.profile, DEFAULT_PROFILE),
     ]);
 
     this.notes = n.data; this.notesSha = n.sha;
@@ -146,6 +169,8 @@ class Store {
     this.pipelineRuns = pip.data.runs ?? [];
     this.protocols = pip.data.protocols ?? [];
     this.pipelinesSha = pip.sha;
+    this.savedJobs = jb.data; this.jobsSha = jb.sha;
+    this.profile = { ...DEFAULT_PROFILE, ...prf.data }; this.profileSha = prf.sha;
   }
 
   async saveResearch(): Promise<void> {
@@ -204,6 +229,18 @@ class Store {
     if (!this.tok) return;
     const sha = await saveEncFile(this.tok, PATHS.pinned, this.pinnedPapers, this.pinnedPapersSha, 'research: pinned update');
     this.pinnedPapersSha = sha;
+  }
+
+  async saveJobs(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(this.tok, PATHS.jobs, this.savedJobs, this.jobsSha, 'jobs: update');
+    this.jobsSha = sha;
+  }
+
+  async saveProfile(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(this.tok, PATHS.profile, this.profile, this.profileSha, 'profile: update');
+    this.profileSha = sha;
   }
 
   isPinned(id: string): boolean {

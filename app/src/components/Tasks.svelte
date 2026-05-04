@@ -6,6 +6,13 @@
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
+  const EXAMPLE_TASKS: Task[] = [
+    { id: '_et1', text: 'Run NicheNet ligand-receptor analysis on macrophage–T cell interactions', done: false, noteId: null, createdAt: Date.now() - 86400000, dueAt: Date.now() + 172800000, priority: 'high' },
+    { id: '_et2', text: 'Validate FOLR1 expression by multiplex IF on FFPE sections (n=6)', done: false, noteId: null, createdAt: Date.now() - 172800000, dueAt: Date.now() + 432000000, priority: 'medium' },
+    { id: '_et3', text: 'Review cell2location output — check mean_cell_abundance thresholds', done: false, noteId: null, createdAt: Date.now() - 259200000, dueAt: null, priority: 'medium' },
+    { id: '_et4', text: 'Submit first draft of revisions to Nature Cancer', done: true, noteId: null, createdAt: Date.now() - 432000000, dueAt: null, priority: 'high' },
+  ];
+
   let newText = $state('');
   let newPriority = $state<Task['priority']>('medium');
   let newDue = $state('');
@@ -162,11 +169,29 @@
         </button>
       </div>
     {:else}
-      <div class="empty-state">
-        <p class="text-mu">
-          {filter === 'done' ? 'No completed tasks yet.' : 'No tasks. Add one above, or write - [ ] in any note.'}
-        </p>
-      </div>
+      {#if store.tasks.length === 0 && filter !== 'done'}
+        {#each EXAMPLE_TASKS.filter(t => filter === 'all' || !t.done) as task (task.id)}
+          <div class="task-row example-task">
+            <input type="checkbox" checked={task.done} disabled class="task-check" />
+            <div class="task-content">
+              <span class="task-text" class:done={task.done}>{task.text}</span>
+              <div class="task-sub">
+                <span class="priority-badge priority-{task.priority}">{task.priority}</span>
+                {#if task.dueAt}
+                  <span class="due-badge">{fmtDue(task.dueAt)}</span>
+                {/if}
+                <span class="example-label">· example</span>
+              </div>
+            </div>
+          </div>
+        {/each}
+      {:else}
+        <div class="empty-state">
+          <p class="text-mu">
+            {filter === 'done' ? 'No completed tasks yet.' : 'No tasks. Add one above, or write - [ ] in any note.'}
+          </p>
+        </div>
+      {/if}
     {/each}
   </div>
 </div>
@@ -262,4 +287,6 @@
   .task-del:hover { color: var(--rd); background: var(--rd-bg); opacity: 1; }
 
   .empty-state { padding: 40px; text-align: center; }
+  .example-task { opacity: 0.55; }
+  .example-label { font-size: 0.68rem; color: var(--mu); letter-spacing: 0.04em; }
 </style>

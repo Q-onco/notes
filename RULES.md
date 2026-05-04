@@ -63,6 +63,21 @@ Any change to the system prompt in `app/src/lib/groq.ts` must:
 4. Preserve peer-to-peer calibration (she speaks to an expert researcher, not a student)
 5. Not add filler openers, emojis, or hedging language
 
+## Rule 8: Example data in every feature
+Every feature must display realistic, domain-specific example entries when its
+corresponding data store is empty.
+
+**Requirements:**
+- Example data is defined as a static `const EXAMPLE_X = [...]` inline in the
+  component — never written to encrypted storage, never in the store
+- Each example entry must carry a subtle visual indicator: faded opacity plus a
+  small `· example` label, so it is unmistakably distinguishable from real data
+- Content must be domain-specific: HGSOC, Heidelberg, scRNA-seq, PARPi, Biocon,
+  DKFZ — not generic lorem ipsum
+- Example entries disappear the moment at least one real entry exists
+- This rule applies retroactively to all existing features and to every new
+  feature added in Phase 3 and beyond
+
 ---
 
 *Last updated: 2026-05-03*

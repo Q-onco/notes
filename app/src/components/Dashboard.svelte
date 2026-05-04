@@ -6,6 +6,20 @@
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
+  const EX_NOTES = [
+    { id: '_en1', title: 'HGSOC TME scRNA-seq — cohort notes', updatedAt: Date.now() - 7200000 },
+    { id: '_en2', title: 'Cellranger v8 SORT_FAILS_MEMORY fix', updatedAt: Date.now() - 86400000 },
+  ];
+  const EX_TASKS = [
+    { id: '_et1', text: 'Run NicheNet on macrophage–T cell interactions', done: false, priority: 'high' as const },
+    { id: '_et2', text: 'Validate FOLR1 by multiplex IF on FFPE slides', done: false, priority: 'medium' as const },
+    { id: '_et3', text: 'Submit revisions to Nature Cancer', done: true, priority: 'high' as const },
+  ];
+  const EX_JOURNAL = [
+    { id: '_ej1', body: 'Good session — finally resolved the UMAP instability issue by increasing n_neighbors to 50. The CAF subclusters are now cleanly separated.', createdAt: Date.now() - 86400000 },
+    { id: '_ej2', body: 'Reviewed SOLO-2 extension data. The PFS benefit in HRD-positive patients is striking but the tail-off at 36 months raises questions about acquired resistance mechanisms.', createdAt: Date.now() - 172800000 },
+  ];
+
   const QUICK_PROMPTS = [
     'Summarise my latest note',
     'What tasks are pending?',
@@ -101,16 +115,15 @@
           <button class="btn btn-ghost btn-sm" onclick={() => store.view = 'notes'}>All</button>
         </div>
         <div class="note-rows">
-          {#each store.recentNotes.slice(0, 5) as note}
+          {#each (store.recentNotes.length > 0 ? store.recentNotes.slice(0, 5) : EX_NOTES) as note}
             <button
               class="note-row"
-              onclick={() => { store.currentNoteId = note.id; store.view = 'notes'; }}
+              class:example-row={note.id.startsWith('_')}
+              onclick={() => { if (!note.id.startsWith('_')) { store.currentNoteId = note.id; store.view = 'notes'; } else store.view = 'notes'; }}
             >
-              <span class="note-row-title">{note.title || 'Untitled'}</span>
-              <span class="note-row-time text-xs text-mu">{relTime(note.updatedAt)}</span>
+              <span class="note-row-title">{note.title || 'Untitled'}{note.id.startsWith('_') ? '' : ''}</span>
+              <span class="note-row-time text-xs text-mu">{note.id.startsWith('_') ? '· example' : relTime(note.updatedAt)}</span>
             </button>
-          {:else}
-            <p class="empty text-sm text-mu">No notes yet. Create your first one.</p>
           {/each}
         </div>
       </section>
@@ -130,22 +143,16 @@
           </div>
         {/if}
         <div class="task-rows">
-          {#each store.activeTasks.slice(0, 5) as task}
-            <div class="task-row">
-              <input
-                type="checkbox"
-                checked={task.done}
-                onchange={async () => {
-                  task.done = !task.done;
-                  await store.saveTasks();
-                  showToast('Task updated');
-                }}
-              />
+          {#each (store.activeTasks.length > 0 ? store.activeTasks.slice(0, 5) : EX_TASKS) as task}
+            <div class="task-row" class:example-row={task.id.startsWith('_')}>
+              <input type="checkbox" checked={task.done} disabled={task.id.startsWith('_')} />
               <span class="task-row-text" class:done={task.done}>{task.text}</span>
-              <span class="priority-dot priority-{task.priority}"></span>
+              {#if task.id.startsWith('_')}
+                <span class="example-mu">· example</span>
+              {:else}
+                <span class="priority-dot priority-{task.priority}"></span>
+              {/if}
             </div>
-          {:else}
-            <p class="empty text-sm text-mu">No open tasks.</p>
           {/each}
         </div>
       </section>
@@ -157,15 +164,13 @@
           <button class="btn btn-ghost btn-sm" onclick={() => store.view = 'journal'}>All</button>
         </div>
         <div class="journal-rows">
-          {#each recentJournal as entry}
-            <div class="journal-row">
+          {#each (recentJournal.length > 0 ? recentJournal : EX_JOURNAL) as entry}
+            <div class="journal-row" class:example-row={entry.id.startsWith('_')}>
               <span class="journal-date text-xs text-mu">
-                {new Date(entry.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                {entry.id.startsWith('_') ? '· example' : new Date(entry.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
               </span>
               <span class="journal-body text-sm">{entry.body.slice(0, 80)}{entry.body.length > 80 ? '…' : ''}</span>
             </div>
-          {:else}
-            <p class="empty text-sm text-mu">No journal entries yet.</p>
           {/each}
         </div>
       </section>
@@ -375,6 +380,8 @@
   .prompt-chip:hover { border-color: var(--enzo); background: var(--enzo-bg); color: var(--enzo); }
 
   .empty { padding: 8px 4px; }
+  .example-row { opacity: 0.55; pointer-events: none; }
+  .example-mu { font-size: 0.68rem; color: var(--mu); margin-left: auto; letter-spacing: 0.04em; }
 
   /* Pinned papers */
   .pinned-section { display: flex; flex-direction: column; gap: 10px; }
