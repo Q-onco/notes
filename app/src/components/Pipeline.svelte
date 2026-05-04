@@ -2,6 +2,7 @@
   import type { PipelineRun, PipelineStep, QCMetric, Protocol, Hypothesis } from '../lib/types';
   import { store } from '../lib/store.svelte';
   import { nanoid } from 'nanoid';
+  import RichEditor from './RichEditor.svelte';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -482,24 +483,31 @@
   {#if leftOpen}
     <aside class="left-panel">
       <div class="left-header">
-        <div class="left-tabs">
-          <button class="ltab" class:active={panelTab === 'runs'} onclick={() => panelTab = 'runs'}>Runs</button>
-          <button class="ltab" class:active={panelTab === 'protocols'} onclick={() => panelTab = 'protocols'}>Protocols</button>
-          <button class="ltab" class:active={panelTab === 'hypotheses'} onclick={() => panelTab = 'hypotheses'}>
-            Hypotheses {#if store.hypotheses.length > 0}<span class="tab-count">{store.hypotheses.length}</span>{/if}
-          </button>
+        <div class="left-tabs-row">
+          <div class="left-tabs">
+            <button class="ltab" class:active={panelTab === 'runs'} onclick={() => panelTab = 'runs'}>Runs</button>
+            <button class="ltab" class:active={panelTab === 'protocols'} onclick={() => panelTab = 'protocols'}>Protocols</button>
+            <button class="ltab" class:active={panelTab === 'hypotheses'} onclick={() => panelTab = 'hypotheses'}>
+              Hyp {#if store.hypotheses.length > 0}<span class="tab-count">{store.hypotheses.length}</span>{/if}
+            </button>
+          </div>
+          {#if panelTab === 'runs'}
+            <button
+              class="btn btn-primary btn-xs new-run-btn"
+              onclick={() => { showNewRun = true; selectedRunId = null; selectedProtocolId = null; }}
+            >+ New</button>
+          {:else if panelTab === 'protocols'}
+            <button
+              class="btn btn-primary btn-xs new-run-btn"
+              onclick={() => { showNewProtocol = true; selectedRunId = null; selectedProtocolId = null; }}
+            >+ New</button>
+          {:else}
+            <button
+              class="btn btn-primary btn-xs new-run-btn"
+              onclick={() => { startNewHyp(); }}
+            >+ New</button>
+          {/if}
         </div>
-        {#if panelTab === 'runs'}
-          <button
-            class="btn btn-primary btn-xs new-run-btn"
-            onclick={() => { showNewRun = true; selectedRunId = null; selectedProtocolId = null; }}
-          >+ New Run</button>
-        {:else}
-          <button
-            class="btn btn-primary btn-xs new-run-btn"
-            onclick={() => { showNewProtocol = true; selectedRunId = null; selectedProtocolId = null; }}
-          >+ New</button>
-        {/if}
       </div>
 
       <div class="left-list">
@@ -628,8 +636,8 @@
             <button class="btn btn-primary btn-sm hyp-new-btn" onclick={startNewHyp}>+ New hypothesis</button>
             {#if showHypForm}
               <div class="hyp-form card">
-                <textarea class="hyp-textarea" bind:value={hypText} placeholder="State the hypothesis clearly…" rows={3}></textarea>
-                <textarea class="hyp-textarea" bind:value={hypRationale} placeholder="Rationale / supporting evidence…" rows={2}></textarea>
+                <RichEditor bind:value={hypText} placeholder="State the hypothesis clearly…" minHeight="80px" />
+                <RichEditor bind:value={hypRationale} placeholder="Rationale / supporting evidence…" minHeight="60px" />
                 <div class="hyp-form-row">
                   <select bind:value={hypStatus} class="priority-select">
                     <option value="active">Active</option>
@@ -637,11 +645,11 @@
                     <option value="refuted">Refuted</option>
                     <option value="inconclusive">Inconclusive</option>
                   </select>
-                  <button class="btn btn-primary btn-sm" onclick={saveHyp} disabled={!hypText.trim()}>Save</button>
+                  <button class="btn btn-primary btn-sm" onclick={saveHyp} disabled={!hypText.replace(/<[^>]*>/g,'').trim()}>Save</button>
                   <button class="btn btn-ghost btn-sm" onclick={() => showHypForm = false}>Cancel</button>
                 </div>
                 {#if hypStatus !== 'active'}
-                  <textarea class="hyp-textarea" bind:value={hypResult} placeholder="Result / conclusion…" rows={2}></textarea>
+                  <RichEditor bind:value={hypResult} placeholder="Result / conclusion…" minHeight="60px" />
                 {/if}
               </div>
             {/if}
@@ -1060,13 +1068,12 @@
         <!-- Notes -->
         <section class="pipeline-section">
           <h3 class="section-title">Notes</h3>
-          <textarea
-            class="run-notes-area"
+          <RichEditor
             value={run.notes}
-            placeholder="Freeform notes about this run (markdown supported)…"
-            rows="6"
-            onchange={(e) => updateRunField(run.id, 'notes', (e.target as HTMLTextAreaElement).value)}
-          ></textarea>
+            onchange={(html) => updateRunField(run.id, 'notes', html)}
+            placeholder="Freeform notes about this run…"
+            minHeight="140px"
+          />
           <p class="autosave-hint text-xs text-mu">Auto-saves 800ms after changes</p>
         </section>
       </div>
@@ -1165,18 +1172,15 @@
 
         <div class="form-group">
           <label class="form-label" for="ep-body">Protocol body (Markdown)</label>
-          <textarea
-            id="ep-body"
-            class="proto-body-area"
+          <RichEditor
             value={proto.body}
-            placeholder="Write protocol steps in Markdown…"
-            rows="20"
-            onchange={(e) => {
-              const val = (e.target as HTMLTextAreaElement).value;
-              store.protocols = store.protocols.map(p => p.id === proto.id ? { ...p, body: val, updatedAt: Date.now() } : p);
+            onchange={(html) => {
+              store.protocols = store.protocols.map(p => p.id === proto.id ? { ...p, body: html, updatedAt: Date.now() } : p);
               scheduleSave();
             }}
-          ></textarea>
+            placeholder="Write protocol steps here…"
+            minHeight="400px"
+          />
         </div>
         <p class="autosave-hint text-xs text-mu">Auto-saves 800ms after changes</p>
       </div>
@@ -1325,25 +1329,32 @@
 
   .left-header {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 10px 8px;
+    flex-direction: column;
+    padding: 10px 10px 8px;
     border-bottom: 1px solid var(--bd);
     flex-shrink: 0;
-    gap: 8px;
+    gap: 6px;
   }
 
-  .left-tabs { display: flex; gap: 2px; }
+  .left-tabs-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+  }
+
+  .left-tabs { display: flex; gap: 2px; flex: 1; min-width: 0; }
   .ltab {
-    padding: 4px 10px;
+    padding: 4px 8px;
     border-radius: var(--radius-sm);
-    font-size: 0.77rem;
+    font-size: 0.73rem;
     font-weight: 600;
     background: transparent;
     border: none;
     color: var(--tx2);
     cursor: pointer;
     transition: all var(--transition);
+    white-space: nowrap;
   }
   .ltab.active { background: var(--ac-bg); color: var(--ac); }
   .ltab:hover:not(.active) { background: var(--sf2); color: var(--tx); }
