@@ -1,6 +1,6 @@
 <script lang="ts">
   import { store } from '../lib/store.svelte';
-  import { generateCoverLetter } from '../lib/groq';
+  import { generateCoverLetter, improveExpBullets } from '../lib/groq';
   import { exportCvHtml, exportCvPdf, exportCoverLetterDocx, exportCoverLetterPdf } from '../lib/export';
   import { nanoid } from 'nanoid';
   import type {
@@ -359,6 +359,39 @@
       ).join('\n'));
     }
     return parts.join('\n') || 'Postdoctoral researcher specialising in HGSOC, tumour microenvironment, scRNA-seq, spatial transcriptomics, and PARP inhibitor resistance.';
+  }
+
+  // ── WRITER — CV bullet improvement ───────────────────────────────────────────
+  let writerExpId = $state<string | null>(null);
+  let writerBullets = $state('');
+  let writerImproving = $state(false);
+  let writerAbort: AbortController | null = null;
+
+  async function improveExpEntry(exp: CvExperience) {
+    const existing = exp.bullets.filter(b => b.trim());
+    if (!existing.length) { showToast('Add some bullet points first', 'error'); return; }
+    writerExpId = exp.id;
+    writerBullets = '';
+    writerImproving = true;
+    writerAbort = new AbortController();
+    try {
+      await improveExpBullets(exp.role, exp.organisation, existing, (chunk) => { writerBullets += chunk; }, writerAbort.signal);
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') showToast('WRITER failed: ' + (e as Error).message, 'error');
+    } finally { writerImproving = false; writerAbort = null; }
+  }
+
+  function acceptWriterBullets(exp: CvExperience) {
+    const lines = writerBullets
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l.startsWith('·') || l.startsWith('-') || l.startsWith('•'))
+      .map(l => l.replace(/^[·\-•]\s*/, '').trim())
+      .filter(Boolean);
+    if (lines.length) exp.bullets = lines;
+    writerExpId = null;
+    writerBullets = '';
+    showToast('Bullets updated — save CV to keep');
   }
 
   async function generateLetter() {
@@ -945,8 +978,41 @@
                       {#each exp.bullets as _, i}
                         <input class="bullet-input" bind:value={exp.bullets[i]} placeholder="Achievement or responsibility…" />
                       {/each}
-                      <button class="btn btn-ghost btn-xs" onclick={() => addExpBullet(exp)}>+ Add bullet</button>
+                      <div class="bullet-actions">
+                        <button class="btn btn-ghost btn-xs" onclick={() => addExpBullet(exp)}>+ Add bullet</button>
+                        <button
+                          class="btn btn-ghost btn-xs writer-improve-btn"
+                          onclick={() => improveExpEntry(exp)}
+                          disabled={writerImproving && writerExpId === exp.id}
+                        >
+                          {#if writerImproving && writerExpId === exp.id}
+                            <span class="spinner-xs-inline"></span> Writing…
+                          {:else}
+                            <span class="writer-w-badge">W</span> Improve with WRITER
+                          {/if}
+                        </button>
+                      </div>
                     </div>
+
+                    {#if writerExpId === exp.id}
+                      <div class="writer-panel">
+                        <div class="writer-panel-head">
+                          <span class="writer-panel-label">WRITER — improved bullets</span>
+                          {#if writerImproving}
+                            <span class="spinner-xs-inline"></span>
+                          {:else}
+                            <span class="text-xs text-mu">Review before accepting</span>
+                          {/if}
+                        </div>
+                        <pre class="writer-preview">{writerBullets || '…'}</pre>
+                        {#if !writerImproving && writerBullets}
+                          <div class="writer-actions">
+                            <button class="btn btn-primary btn-sm" onclick={() => acceptWriterBullets(exp)}>Accept & replace</button>
+                            <button class="btn btn-ghost btn-sm" onclick={() => { writerExpId = null; writerBullets = ''; writerAbort?.abort(); }}>Discard</button>
+                          </div>
+                        {/if}
+                      </div>
+                    {/if}
                   </div>
                 {:else}
                   <p class="empty-hint text-mu text-sm">No experience added yet. Click "+ Add" to start.</p>
@@ -1619,6 +1685,44 @@
   .checkbox-field { flex-direction: row; align-items: center; padding-top: 18px; }
   .checkbox-field label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
   .bullet-input { margin-bottom: 4px; }
+  .bullet-actions { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+  .writer-improve-btn { color: var(--enzo); border-color: var(--enzo-bd); }
+  .writer-improve-btn:hover:not(:disabled) { background: var(--enzo-bg); }
+  .writer-w-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 14px; height: 14px; border-radius: 3px;
+    background: var(--enzo); color: white;
+    font-size: 0.6rem; font-weight: 800; font-family: var(--mono);
+    flex-shrink: 0;
+  }
+  .spinner-xs-inline {
+    width: 10px; height: 10px;
+    border: 1.5px solid var(--bd2);
+    border-top-color: var(--enzo);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: inline-block;
+    vertical-align: -1px;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .writer-panel {
+    grid-column: 1 / -1;
+    background: var(--enzo-bg);
+    border: 1px solid var(--enzo-bd);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    display: flex; flex-direction: column; gap: 8px;
+    margin-top: 8px;
+  }
+  .writer-panel-head { display: flex; align-items: center; justify-content: space-between; }
+  .writer-panel-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--enzo); }
+  .writer-preview {
+    font-family: var(--font); font-size: 0.82rem; line-height: 1.7;
+    color: var(--tx); white-space: pre-wrap; word-wrap: break-word;
+    background: transparent; border: none; margin: 0; padding: 0;
+  }
+  .writer-actions { display: flex; gap: 8px; }
   .cv-item {
     background: var(--sf2); border: 1px solid var(--bd); border-radius: var(--radius);
     padding: 14px; position: relative;

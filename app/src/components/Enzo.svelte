@@ -95,7 +95,7 @@
         ? `${store.currentNote.title}\n\n${store.currentNote.body.slice(0, 2000)}`
         : '';
 
-      const journalContext = useJournalContext && store.journal.length > 0
+      const journalPart = useJournalContext && store.journal.length > 0
         ? [...store.journal]
             .sort((a, b) => b.createdAt - a.createdAt)
             .slice(0, 3)
@@ -105,6 +105,25 @@
             })
             .join('\n\n')
         : '';
+
+      const sevenDaysAgo = Date.now() - 7 * 86400000;
+      const pastSessions = store.chatSessions
+        .filter(s => s.date !== todayKey && new Date(s.date).getTime() > sevenDaysAgo)
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .slice(0, 5);
+      const memoryPart = pastSessions.length > 0
+        ? pastSessions.map(s => {
+            const d = new Date(s.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+            const userQ = s.messages.find(m => m.role === 'user')?.content.slice(0, 100) ?? '';
+            const enzoA = s.messages.find(m => m.role === 'assistant')?.content.slice(0, 160) ?? '';
+            return `[${d}] You: ${userQ}…\nEnzo: ${enzoA}…`;
+          }).join('\n\n')
+        : '';
+
+      const contextParts: string[] = [];
+      if (journalPart) contextParts.push(`## Recent journal\n${journalPart}`);
+      if (memoryPart) contextParts.push(`## Working memory — past 7 days\n${memoryPart}`);
+      const journalContext = contextParts.join('\n\n');
 
       const history = session.messages
         .filter(m => m.id !== assistantId)
@@ -228,6 +247,10 @@
   }
 
   const hasJournal = $derived(store.journal.length > 0);
+  const hasWeeklyMemory = $derived((() => {
+    const sevenDaysAgo = Date.now() - 7 * 86400000;
+    return store.chatSessions.some(s => s.date !== todayKey && new Date(s.date).getTime() > sevenDaysAgo);
+  })());
 </script>
 
 <div class="enzo-panel">
@@ -285,7 +308,7 @@
     </div>
 
     <!-- Context bar -->
-    {#if store.currentNote || hasJournal}
+    {#if store.currentNote || hasJournal || hasWeeklyMemory}
       <div class="context-bar text-xs text-mu">
         {#if store.currentNote}
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -298,12 +321,12 @@
             class="journal-ctx-btn"
             class:active={useJournalContext}
             onclick={() => useJournalContext = !useJournalContext}
-            title={useJournalContext ? 'Journal context on — click to disable' : 'Journal context off — click to enable'}
+            title={useJournalContext ? 'Journal + 7-day memory on — click to disable' : 'Journal + 7-day memory off — click to enable'}
           >
             <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/>
             </svg>
-            Journal {useJournalContext ? 'on' : 'off'}
+            {useJournalContext ? (hasWeeklyMemory ? 'journal + memory' : 'journal') : 'context off'}
           </button>
         {/if}
       </div>

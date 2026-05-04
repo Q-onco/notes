@@ -350,6 +350,30 @@ ${cvSummary.slice(0, 2000)}${historySection}`
   return streamGroq(MODELS.research, messages, onChunk, signal);
 }
 
+export async function improveExpBullets(
+  role: string,
+  organisation: string,
+  bullets: string[],
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<{ text: string; tokens: number; model: string }> {
+  const messages = [
+    { role: 'system', content: WRITER_SYSTEM },
+    {
+      role: 'user',
+      content: `Rewrite these CV bullet points for the role below. Apply strict CAR format (Context → Action → Result). Front-load the achievement. Quantify wherever the existing bullet gives any numerical hook — cell numbers, cohort size, runtime improvements, journal tier, n=. Cut all passive voice and vague language ("responsible for", "involved in", "assisted with"). Output ONLY the improved bullets, one per line, each starting with "·". No preamble, no explanation, no headers.
+
+**Role:** ${role} at ${organisation}
+
+**Current bullets:**
+${bullets.map(b => `· ${b}`).join('\n')}
+
+Produce the same number of bullets or fewer. Max 2 lines per bullet.`
+    }
+  ];
+  return streamGroq(MODELS.research, messages, onChunk, signal);
+}
+
 export async function transcribeAudio(blob: Blob, _workerUrl?: string): Promise<string> {
   const workerUrl = _workerUrl || getWorkerUrl();
   const fd = new FormData();

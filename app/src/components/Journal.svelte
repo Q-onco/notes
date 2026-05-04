@@ -19,15 +19,77 @@
   let draftTag = $state('');
   let saving = $state(false);
   let search = $state('');
+  let viewMode = $state<'list' | 'timeline'>('list');
+  let dateFilter = $state<string | null>(null);
 
   const MOODS = ['Focused', 'Curious', 'Frustrated', 'Energised', 'Tired', 'Inspired', 'Uncertain'];
   const CONTEXT_TAGS = ['Research', 'Writing', 'Analysis', 'Meeting', 'Experiment', 'Reading', 'Planning'];
 
   const sorted = $derived(
     [...store.journal]
-      .filter(e => !search || e.body.toLowerCase().includes(search.toLowerCase()) || e.contextTag.toLowerCase().includes(search.toLowerCase()))
+      .filter(e => {
+        if (dateFilter) return new Date(e.createdAt).toISOString().slice(0, 10) === dateFilter;
+        return !search || e.body.toLowerCase().includes(search.toLowerCase()) || e.contextTag.toLowerCase().includes(search.toLowerCase());
+      })
       .sort((a, b) => b.createdAt - a.createdAt)
   );
+
+  // ── Heatmap ───────────────────────────────────────────────────
+  const heatmap = $derived((() => {
+    const counts = new Map<string, number>();
+    for (const e of store.journal) {
+      const key = new Date(e.createdAt).toISOString().slice(0, 10);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayKey = today.toISOString().slice(0, 10);
+    // pad back to nearest Monday
+    const startMs = today.getTime() - 83 * 86400000;
+    const startDay = new Date(startMs);
+    let dow = startDay.getDay();
+    if (dow === 0) dow = 7;
+    startDay.setDate(startDay.getDate() - (dow - 1));
+    const rangeStart = new Date(today.getTime() - 83 * 86400000);
+    rangeStart.setHours(0, 0, 0, 0);
+    const cells: { key: string; count: number; label: string; inRange: boolean; isToday: boolean }[] = [];
+    const d = new Date(startDay);
+    while (cells.length < 91) {
+      const key = d.toISOString().slice(0, 10);
+      const inRange = d >= rangeStart && d <= today;
+      cells.push({
+        key,
+        count: inRange ? (counts.get(key) ?? 0) : 0,
+        label: d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }),
+        inRange,
+        isToday: key === todayKey,
+      });
+      d.setDate(d.getDate() + 1);
+      if (d > today && cells.length % 7 === 0) break;
+    }
+    // chunk into weeks (columns)
+    const weeks: typeof cells[] = [];
+    for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+    // month labels per week
+    const monthLabels = weeks.map(w => {
+      const firstInRange = w.find(c => c.inRange);
+      if (!firstInRange) return '';
+      const d2 = new Date(firstInRange.key);
+      return d2.getDate() <= 7 ? d2.toLocaleDateString('en-GB', { month: 'short' }) : '';
+    });
+    return { weeks, monthLabels, maxCount: Math.max(1, ...counts.values()) };
+  })());
+
+  function selectHeatmapDay(key: string) {
+    dateFilter = key;
+    viewMode = 'list';
+  }
+
+  function intensityLevel(count: number, max: number): number {
+    if (count === 0) return 0;
+    if (count >= max) return 4;
+    return Math.ceil((count / max) * 3);
+  }
 
   function startNew() {
     editingId = 'new';
@@ -145,8 +207,23 @@
       <p class="text-sm text-mu">{store.journal.length} entries</p>
     </div>
     <div class="header-actions">
-      <input type="search" bind:value={search} placeholder="Search entries..." class="search" />
+      {#if viewMode === 'list'}
+        <input type="search" bind:value={search} oninput={() => dateFilter = null} placeholder="Search entries..." class="search" />
+      {/if}
       {#if store.journal.length > 0}
+        <button
+          class="btn btn-ghost"
+          class:active-toggle={viewMode === 'timeline'}
+          onclick={() => { viewMode = viewMode === 'list' ? 'timeline' : 'list'; dateFilter = null; }}
+          title="Toggle timeline view"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="4" width="4" height="4" rx="1"/><rect x="3" y="10" width="4" height="4" rx="1"/><rect x="3" y="16" width="4" height="4" rx="1"/>
+            <rect x="9" y="4" width="4" height="4" rx="1"/><rect x="9" y="10" width="4" height="4" rx="1"/>
+            <rect x="15" y="4" width="4" height="4" rx="1"/><rect x="15" y="10" width="4" height="4" rx="1"/><rect x="15" y="16" width="4" height="4" rx="1"/>
+          </svg>
+          Timeline
+        </button>
         <button class="btn btn-ghost" onclick={() => exportJournal(store.journal)} title="Export journal as .md">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           .md
@@ -207,6 +284,63 @@
           {saving ? 'Saving...' : 'Save entry'}
         </button>
       </div>
+    </div>
+  {/if}
+
+  <!-- Timeline heatmap -->
+  {#if viewMode === 'timeline' && store.journal.length > 0}
+    <div class="heatmap-wrap card">
+      <p class="heatmap-title">Activity · last 12 weeks</p>
+      <div class="heatmap-scroll">
+        <div class="heatmap-inner">
+          <!-- month labels row -->
+          <div class="heatmap-month-row">
+            <div class="heatmap-dow-col"></div>
+            {#each heatmap.weeks as _, wi}
+              <div class="heatmap-month-cell">{heatmap.monthLabels[wi]}</div>
+            {/each}
+          </div>
+          <!-- day-of-week rows -->
+          {#each ['Mon', '', 'Wed', '', 'Fri', '', 'Sun'] as dayLabel, di}
+            <div class="heatmap-row">
+              <span class="heatmap-dow">{dayLabel}</span>
+              {#each heatmap.weeks as week}
+                {#if week[di]}
+                  {@const cell = week[di]}
+                  <button
+                    class="heatmap-cell"
+                    class:heatmap-today={cell.isToday}
+                    class:heatmap-faded={!cell.inRange}
+                    data-level={cell.inRange ? intensityLevel(cell.count, heatmap.maxCount) : 0}
+                    title={cell.inRange ? `${cell.label}${cell.count ? ' · ' + cell.count + ' entr' + (cell.count === 1 ? 'y' : 'ies') : ''}` : ''}
+                    onclick={() => cell.inRange && cell.count > 0 && selectHeatmapDay(cell.key)}
+                    disabled={!cell.inRange || cell.count === 0}
+                  ></button>
+                {:else}
+                  <span class="heatmap-cell heatmap-faded"></span>
+                {/if}
+              {/each}
+            </div>
+          {/each}
+        </div>
+      </div>
+      <div class="heatmap-legend">
+        <span class="heatmap-legend-label">Less</span>
+        {#each [0,1,2,3,4] as lvl}
+          <span class="heatmap-cell heatmap-legend-cell" data-level={lvl}></span>
+        {/each}
+        <span class="heatmap-legend-label">More</span>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Date filter badge -->
+  {#if dateFilter}
+    <div class="date-filter-bar">
+      <span class="date-filter-label">
+        Showing entries for {new Date(dateFilter + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
+      </span>
+      <button class="btn-link" onclick={() => { dateFilter = null; }}>Clear ✕</button>
     </div>
   {/if}
 
@@ -399,4 +533,121 @@
     gap: 12px;
     padding: 20px 0 8px;
   }
+
+  /* ── Active toggle ── */
+  .active-toggle {
+    background: var(--ac-bg);
+    color: var(--ac);
+    border-color: var(--ac);
+  }
+
+  /* ── Heatmap ── */
+  .heatmap-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px;
+  }
+  .heatmap-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--mu);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+  }
+  .heatmap-scroll { overflow-x: auto; }
+  .heatmap-inner { display: flex; flex-direction: column; gap: 3px; }
+
+  .heatmap-month-row {
+    display: flex;
+    gap: 3px;
+    margin-bottom: 2px;
+  }
+  .heatmap-dow-col { width: 26px; flex-shrink: 0; }
+  .heatmap-month-cell {
+    width: 14px;
+    font-size: 0.6rem;
+    color: var(--mu);
+    font-weight: 600;
+    flex-shrink: 0;
+    text-align: left;
+    white-space: nowrap;
+    overflow: visible;
+  }
+
+  .heatmap-row {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .heatmap-dow {
+    font-size: 0.6rem;
+    color: var(--mu);
+    width: 24px;
+    flex-shrink: 0;
+    text-align: right;
+    padding-right: 4px;
+  }
+
+  .heatmap-cell {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    border: none;
+    cursor: default;
+    background: var(--sf2);
+    padding: 0;
+    transition: opacity 0.1s;
+  }
+  .heatmap-cell[data-level="0"] { background: var(--sf2); }
+  .heatmap-cell[data-level="1"] { background: color-mix(in srgb, var(--ac) 25%, var(--sf2)); }
+  .heatmap-cell[data-level="2"] { background: color-mix(in srgb, var(--ac) 50%, var(--sf2)); }
+  .heatmap-cell[data-level="3"] { background: color-mix(in srgb, var(--ac) 75%, var(--sf2)); }
+  .heatmap-cell[data-level="4"] { background: var(--ac); }
+  button.heatmap-cell:not(:disabled) { cursor: pointer; }
+  button.heatmap-cell:not(:disabled):hover { opacity: 0.75; outline: 1.5px solid var(--ac); outline-offset: 1px; }
+  .heatmap-today { outline: 1.5px solid var(--tx2); outline-offset: 1px; }
+  .heatmap-faded { opacity: 0.2; }
+
+  .heatmap-legend {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 4px;
+  }
+  .heatmap-legend-label {
+    font-size: 0.6rem;
+    color: var(--mu);
+  }
+  .heatmap-legend-cell {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    opacity: 1;
+  }
+
+  /* ── Date filter ── */
+  .date-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 12px;
+    background: var(--ac-bg);
+    border: 1px solid var(--ac);
+    border-radius: var(--radius);
+    font-size: 0.82rem;
+  }
+  .date-filter-label { flex: 1; color: var(--ac); font-weight: 500; }
+  .btn-link {
+    background: transparent;
+    border: none;
+    color: var(--ac);
+    cursor: pointer;
+    font-size: 0.78rem;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    font-family: var(--font);
+  }
+  .btn-link:hover { background: var(--ac); color: #fff; }
 </style>
