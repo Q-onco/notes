@@ -6,20 +6,6 @@
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
-  const EXAMPLE_NOTES = [
-    { id: '_ex1', title: 'HGSOC TME scRNA-seq — cohort notes', body: `## Overview\nAnalysing 14 HGSOC samples (8 treatment-naive, 6 post-PARPi).\n\n## Key observations\n- CAF subtype heterogeneity prominent in ascites vs solid tumour\n- CD8+ TIL exhaustion signature (TOX, HAVCR2) elevated post-PARPi\n- CXCL12-CXCR4 axis highly active in myofibroblastic CAFs\n\n## Next\n- [ ] NicheNet on macrophage–T cell interactions\n- [ ] Validate FOLR1 by multiplex IF on FFPE`, tags: ['hgsoc', 'tme', 'scrna-seq'], updatedAt: Date.now() - 7200000 },
-    { id: '_ex2', title: 'Cellranger v8 — SORT_FAILS_MEMORY fix', body: `## Problem\nCellranger failing on OV-23-17B — insufficient memory (64GB) for >10k cells.\n\n## Fix\n\`\`\`bash\ncellranger count --localcores=32 --localmem=128\n\`\`\``, tags: ['pipeline', 'cellranger'], updatedAt: Date.now() - 86400000 },
-  ];
-
-  function openExample(id: string) {
-    const ex = EXAMPLE_NOTES.find(e => e.id === id);
-    if (!ex) return;
-    const newNote = { ...ex, id: nanoid(), createdAt: Date.now(), updatedAt: Date.now(), pinned: false, archived: false, audioIds: [] };
-    store.notes = [newNote, ...store.notes];
-    store.currentNoteId = newNote.id;
-    store.saveNotes();
-  }
-
   let saving = $state(false);
   let saveTimer: ReturnType<typeof setTimeout>;
   let tagInput = $state('');
@@ -140,26 +126,18 @@
 <div class="editor">
   {#if !note}
     <div class="empty-state">
-      {#if store.notes.filter(n => !n.archived).length === 0}
-        <div class="empty-first">
-          <p class="empty-headline">Your notes will live here.</p>
-          <p class="empty-sub text-mu">Two examples to get you started — click to open and edit.</p>
-          <div class="example-cards">
-            {#each EXAMPLE_NOTES as ex}
-              <button class="example-card" onclick={() => openExample(ex.id)}>
-                <span class="example-label">· example</span>
-                <span class="example-title">{ex.title}</span>
-                <span class="example-preview text-xs text-mu">{ex.body.replace(/[#`\n]/g, ' ').slice(0, 80)}…</span>
-                {#each ex.tags as tag}
-                  <span class="example-tag">{tag}</span>
-                {/each}
-              </button>
-            {/each}
-          </div>
-        </div>
-      {:else}
-        <p class="text-mu text-sm">Select a note from the sidebar, or create a new one.</p>
-      {/if}
+      <button class="new-note-big" onclick={() => {
+        const note = { id: nanoid(), title: 'Untitled note', body: '', tags: [], createdAt: Date.now(), updatedAt: Date.now(), pinned: false, archived: false, audioIds: [] };
+        store.notes = [note, ...store.notes];
+        store.currentNoteId = note.id;
+        store.view = 'notes';
+        store.saveNotes();
+      }}>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+      </button>
+      <p class="text-mu text-sm">New note</p>
     </div>
   {:else}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -266,23 +244,18 @@
 <style>
   .editor { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 
-  .empty-state { display: flex; align-items: center; justify-content: center; height: 100%; padding: 24px; }
-  .empty-first { display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 520px; text-align: center; }
-  .empty-headline { font-size: 1.05rem; font-weight: 600; color: var(--tx2); }
-  .empty-sub { margin-bottom: 6px; }
-  .example-cards { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; width: 100%; }
-  .example-card {
-    flex: 1; min-width: 200px; max-width: 240px;
-    background: var(--sf); border: 1px dashed var(--bd2);
-    border-radius: var(--radius); padding: 14px; text-align: left; cursor: pointer;
-    display: flex; flex-direction: column; gap: 5px;
-    opacity: 0.7; transition: opacity var(--transition), border-color var(--transition);
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 10px; }
+  .new-note-big {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: var(--ac-bg);
+    color: var(--ac);
+    border: 2px dashed var(--ac);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: background var(--transition), transform var(--transition);
   }
-  .example-card:hover { opacity: 1; border-color: var(--ac); }
-  .example-label { font-size: 0.65rem; font-weight: 700; letter-spacing: 0.07em; color: var(--mu); text-transform: uppercase; }
-  .example-title { font-size: 0.82rem; font-weight: 600; color: var(--tx); line-height: 1.4; }
-  .example-preview { line-height: 1.5; margin-top: 2px; }
-  .example-tag { display: inline-block; font-size: 0.68rem; padding: 1px 7px; background: var(--ac-bg); color: var(--ac); border-radius: 10px; margin-right: 3px; margin-top: 2px; }
+  .new-note-big:hover { background: var(--ac); color: #fff; transform: scale(1.08); }
 
   .editor-toolbar {
     display: flex; align-items: center; justify-content: space-between;
