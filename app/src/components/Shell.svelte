@@ -144,7 +144,65 @@
       if (matched && results.length >= 20) break;
     }
 
-    return results.slice(0, 20);
+    // Pinned papers
+    for (const paper of store.pinnedPapers) {
+      if (paper.title.toLowerCase().includes(q) || paper.abstract.toLowerCase().includes(q) || paper.authors.join(' ').toLowerCase().includes(q)) {
+        results.push({ type: 'paper', id: paper.id, title: paper.title, preview: `${paper.authors[0] ? paper.authors[0] + ' et al.' : ''} · ${paper.journal} ${paper.year}`, section: 'research', icon: 'M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z' });
+      }
+    }
+
+    // Reading list (unread papers)
+    for (const item of store.readingList) {
+      if (!store.pinnedPapers.some(p => p.id === item.paper.id)) {
+        if (item.paper.title.toLowerCase().includes(q) || (item.note || '').toLowerCase().includes(q)) {
+          results.push({ type: 'reading', id: item.id, title: item.paper.title, preview: item.note || `${item.paper.journal} · ${item.paper.year}`, section: 'research', icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253' });
+        }
+      }
+    }
+
+    // Protocols
+    for (const proto of store.protocols) {
+      if (proto.title.toLowerCase().includes(q) || proto.body.toLowerCase().includes(q) || proto.tags.some(t => t.toLowerCase().includes(q))) {
+        results.push({ type: 'protocol', id: proto.id, title: `Protocol · ${proto.title}`, preview: proto.body.replace(/<[^>]*>/g, ' ').slice(0, 90), section: 'pipeline', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' });
+      }
+    }
+
+    // Hypotheses
+    for (const hyp of store.hypotheses) {
+      if (hyp.text.toLowerCase().includes(q) || hyp.rationale.toLowerCase().includes(q) || hyp.result.toLowerCase().includes(q)) {
+        results.push({ type: 'hypothesis', id: hyp.id, title: `Hypothesis · ${hyp.text.slice(0, 60)}`, preview: hyp.rationale.slice(0, 90), section: 'pipeline', icon: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z' });
+      }
+    }
+
+    // Pipeline runs
+    for (const run of store.pipelineRuns) {
+      if (run.title.toLowerCase().includes(q) || run.sampleId.toLowerCase().includes(q) || run.notes.toLowerCase().includes(q) || run.tags.some(t => t.toLowerCase().includes(q))) {
+        results.push({ type: 'run', id: run.id, title: `Run · ${run.title}`, preview: `${run.pipelineType} · ${run.status} · ${run.sampleId}`, section: 'pipeline', icon: 'M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v10a2 2 0 002 2h10a2 2 0 002-2V5M9 13H5a2 2 0 00-2 2v4a2 2 0 002 2h4a2 2 0 002-2v-4a2 2 0 00-2-2z' });
+      }
+    }
+
+    // Files
+    for (const file of store.files) {
+      if (file.name.toLowerCase().includes(q) || file.description.toLowerCase().includes(q) || file.tags.some(t => t.toLowerCase().includes(q))) {
+        results.push({ type: 'file', id: file.id, title: file.name, preview: file.description || file.mimeType, section: 'files', icon: 'M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z' });
+      }
+    }
+
+    // Jobs
+    for (const job of store.savedJobs) {
+      if (job.listing.title.toLowerCase().includes(q) || job.listing.company.toLowerCase().includes(q) || job.notes.toLowerCase().includes(q)) {
+        results.push({ type: 'job', id: job.id, title: `${job.listing.title} · ${job.listing.company}`, preview: `${job.status} · ${job.listing.location}`, section: 'jobs', icon: 'M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' });
+      }
+    }
+
+    // Presentations
+    for (const pres of store.presentations) {
+      if (pres.title.toLowerCase().includes(q) || pres.slides.some(s => s.content.toLowerCase().includes(q) || s.notes.toLowerCase().includes(q))) {
+        results.push({ type: 'presentation', id: pres.id, title: pres.title, preview: `${pres.slides.length} slides · ${pres.theme}`, section: 'presentations', icon: 'M2 3h20v14H2zM8 21h8M12 17v4' });
+      }
+    }
+
+    return results.slice(0, 24);
   })());
 
   function openSearch() {
@@ -301,7 +359,7 @@
       <div class="search-empty">No results for <em>"{searchQuery}"</em></div>
     {:else}
       <div class="search-hint">
-        <span>Notes · Journal · Tasks · Enzo</span>
+        <span>Notes · Journal · Tasks · Research · Pipeline · Files · Jobs · Presentations · Enzo</span>
         <span class="search-hint-keys"><kbd>↑↓</kbd> navigate · <kbd>↵</kbd> open</span>
       </div>
     {/if}
