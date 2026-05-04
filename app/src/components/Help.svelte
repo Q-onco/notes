@@ -1,634 +1,612 @@
 <script lang="ts">
   let { onclose, onnavigate }: { onclose: () => void; onnavigate?: (section: string) => void } = $props();
 
-  let activeTab = $state('overview');
+  let active = $state('new');
 
-  function handleKey(e: KeyboardEvent) { if (e.key === 'Escape') onclose(); }
+  function key(e: KeyboardEvent) { if (e.key === 'Escape') onclose(); }
+  function go(s: string) { onnavigate?.(s); onclose(); }
 
-  function go(section: string) {
-    onnavigate?.(section);
-    onclose();
-  }
+  const NAV = [
+    { id: 'new',      label: "What's New",    icon: 'M5 3l14 9-14 9V3z' },
+    { id: 'start',    label: 'Getting Started', icon: 'M13 10V3L4 14h7v7l9-11h-7z' },
+    { id: 'modules',  label: 'All Features',   icon: 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z' },
+    { id: 'shortcuts', label: 'Shortcuts',     icon: 'M9 7H6a2 2 0 00-2 2v9a2 2 0 002 2h9a2 2 0 002-2v-3M16 5l3 3m-3-3L7 18' },
+    { id: 'enzo',     label: 'Enzo Guide',     icon: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z' },
+  ];
 
-  const TABS = [
-    { id: 'overview',  label: 'Overview',  color: 'ac' },
-    { id: 'notes',     label: 'Notes',     color: 'ac' },
-    { id: 'journal',   label: 'Journal',   color: 'enzo' },
-    { id: 'tasks',     label: 'Tasks',     color: 'rd' },
-    { id: 'calendar',  label: 'Calendar',  color: 'yw' },
-    { id: 'enzo',      label: 'Enzo AI',   color: 'enzo' },
-    { id: 'research',  label: 'Research',  color: 'pu' },
-    { id: 'pipeline',  label: 'Pipeline',  color: 'gn' },
-    { id: 'jobs',      label: 'Jobs',      color: 'ac' },
-    { id: 'audio',     label: 'Audio',     color: 'pu' },
-    { id: 'settings',  label: 'Settings',  color: 'mu' },
+  const NEW_FEATURES = [
+    { color: 'ac',   icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', title: 'Manuscript Writer', desc: 'Full paper writing environment. Structure your paper section by section — Abstract through Discussion — with Enzo assisting at each stage and one-click citations from your reading list.' },
+    { color: 'gn',   icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2', title: 'Research Tracker', desc: 'Track grant applications, conference abstract submissions, and peer review assignments in one dedicated section. Never miss a deadline.' },
+    { color: 'enzo', icon: 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z', title: 'Enzo Intelligence', desc: 'New Enzo modes: paper critique with structured breakdown, devil\'s advocate against your hypotheses, and weekly PI report generation from all your app activity.' },
+    { color: 'pu',   icon: 'M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 016 0v6a3 3 0 01-3 3z', title: 'Voice → Research Events', desc: 'After transcription, Enzo parses your voice notes for hypotheses, tasks, and paper links. One tap to approve and connect them to your pipeline runs.' },
+    { color: 'yw',   icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z', title: 'Dashboard Analytics', desc: 'Mood trend sparklines, weekly task velocity, papers-read chart, and live publication citation counts pulled from OpenAlex — your research rhythm at a glance.' },
+    { color: 'rd',   icon: 'M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', title: 'Interview Intelligence', desc: 'For every saved job, Enzo generates role-specific interview questions from the job description and your CV profile. Draft and refine your answers with AI feedback.' },
+    { color: 'ac',   icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z', title: 'Extended Global Search', desc: 'Global search now covers every section — protocols, hypotheses, pipeline runs, files, pinned papers, grants, and manuscripts. Nothing is hidden.' },
+    { color: 'gn',   icon: 'M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4', title: 'WYSIWYG Everywhere', desc: 'TipTap rich editor with full formatting toolbar deployed across notes, journal, protocols, hypotheses, cover letters, manuscript sections, and more.' },
+  ];
+
+  const STEPS = [
+    { n: '1', color: 'ac',   title: 'Connect GitHub', desc: 'Go to Settings and paste your GitHub personal access token. All data is encrypted with AES-256-GCM before leaving your device.', action: () => go('settings'), cta: 'Open Settings' },
+    { n: '2', color: 'gn',   title: 'Write your first note', desc: 'Press the + button in the sidebar, or use Ctrl+J for quick capture. Notes support rich text, tags, tasks, and templates.', action: () => go('notes'), cta: 'Go to Notes' },
+    { n: '3', color: 'pu',   title: 'Search papers', desc: 'Research section searches PubMed, OpenAlex, Europe PMC, bioRxiv, medRxiv, Nature, and Cell simultaneously. Pin papers, add to reading list, deep-read with Enzo.', action: () => go('research'), cta: 'Go to Research' },
+    { n: '4', color: 'enzo', title: 'Ask Enzo', desc: 'Click the Enzo button in the top right to open the AI panel. Enzo knows your research context, journal entries, and pinned papers.', action: null, cta: null },
+    { n: '5', color: 'yw',   title: 'Track experiments', desc: 'Pipeline section logs your runs, protocols, and hypotheses. Link journal entries, notes, and papers to each run.', action: () => go('pipeline'), cta: 'Go to Pipeline' },
+    { n: '6', color: 'rd',   title: 'Manage your career', desc: 'Jobs section tracks applications, generates cover letters, manages contacts, and now prepares you for interviews.', action: () => go('jobs'), cta: 'Go to Jobs' },
+  ];
+
+  const ALL_MODULES = [
+    { id: 'dashboard',     label: 'Dashboard',      color: 'ac',   icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6', desc: 'Overview of all your research activity, stats, analytics, and daily focus.' },
+    { id: 'notes',         label: 'Notes',           color: 'ac',   icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', desc: 'Rich-text notes with tags, templates, focus mode, tasks, and export.' },
+    { id: 'journal',       label: 'Journal',         color: 'enzo', icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253', desc: 'Daily research journal with mood tracking, context tags, and audio links.' },
+    { id: 'tasks',         label: 'Tasks',           color: 'rd',   icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4', desc: 'Priority-ranked task list with due dates, note linking, and repeat options.' },
+    { id: 'calendar',      label: 'Calendar',        color: 'yw',   icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z', desc: 'Calendar with iCal import and clock widget showing Heidelberg + Chennai time.' },
+    { id: 'research',      label: 'Research',        color: 'pu',   icon: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z', desc: 'Multi-source paper search, reading list, DOI resolver, citation formatter, Deep Read with Enzo.' },
+    { id: 'pipeline',      label: 'Pipeline',        color: 'gn',   icon: 'M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v10a2 2 0 002 2h10a2 2 0 002-2V5M9 13H5a2 2 0 00-2 2v4a2 2 0 002 2h4a2 2 0 002-2v-4a2 2 0 00-2-2z', desc: 'Bioinformatics pipeline tracker, protocol library, and hypothesis log.' },
+    { id: 'jobs',          label: 'Jobs & Career',   color: 'ac',   icon: 'M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', desc: 'Job tracker, CV builder, cover letter generator, contacts, salary data, interview prep.' },
+    { id: 'presentations', label: 'Presentations',   color: 'yw',   icon: 'M2 3h20v14H2zM8 21h8M12 17v4', desc: 'Slide editor with Enzo AI generation, custom present mode, and reveal.js HTML export.' },
+    { id: 'files',         label: 'Files',           color: 'gn',   icon: 'M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z', desc: 'Upload files, link external URLs, inline viewer for PDF/image/CSV/code.' },
+    { id: 'manuscript',    label: 'Manuscript',      color: 'pu',   icon: 'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z', desc: 'Structured paper writing with section-by-section Enzo assistance and reading list citations.' },
+    { id: 'grants',        label: 'Research Tracker', color: 'gn',  icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2', desc: 'Grant applications, conference abstract tracker, and peer review log.' },
+    { id: 'audio',         label: 'Audio',           color: 'pu',   icon: 'M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 016 0v6a3 3 0 01-3 3z', desc: 'Voice recording, Whisper transcription, and voice note → research event parsing.' },
+    { id: 'settings',      label: 'Settings',        color: 'mu',   icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z', desc: 'Token, theme, worker URL, AI feature toggles, alarm clock.' },
+  ];
+
+  const SHORTCUTS = [
+    { group: 'Global', items: [
+      { key: '⌘K', desc: 'Global search (all sections)' },
+      { key: '⌘J', desc: 'Quick capture (note / task / journal)' },
+      { key: '?', desc: 'Open this guide' },
+      { key: 'Esc', desc: 'Close panels / modals' },
+    ]},
+    { group: 'Notes', items: [
+      { key: '⌘⇧F', desc: 'Focus / Zen writing mode' },
+      { key: 'Template', desc: 'Toolbar → insert structured template' },
+    ]},
+    { group: 'Present mode', items: [
+      { key: '← →', desc: 'Navigate slides' },
+      { key: 'S', desc: 'Toggle speaker notes' },
+      { key: 'Esc', desc: 'Exit presentation' },
+    ]},
+    { group: 'Enzo panel', items: [
+      { key: 'Enter', desc: 'Send message' },
+      { key: 'Esc', desc: 'Abort streaming response' },
+    ]},
+  ];
+
+  const ENZO_PROMPTS = [
+    { cat: 'Research', prompt: 'What are the key open questions in spatial transcriptomics of HGSOC?', color: 'pu' },
+    { cat: 'Analysis', prompt: 'My scRNA-seq shows 4 CAF subclusters. How do I characterise their identities?', color: 'gn' },
+    { cat: 'Writing', prompt: 'Help me write an introduction section for a paper on PARP inhibitor resistance', color: 'ac' },
+    { cat: 'Career', prompt: 'I\'m applying to a Roche R&D Scientist position. What questions should I prepare for?', color: 'yw' },
+    { cat: 'Critique', prompt: 'Challenge my hypothesis that macrophage polarisation drives PARPi resistance', color: 'rd' },
+    { cat: 'Summary', prompt: 'Summarise the key arguments in my pinned papers about TLS in ovarian cancer', color: 'enzo' },
   ];
 </script>
 
-<svelte:window onkeydown={handleKey} />
+<svelte:window onkeydown={key} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="guide-overlay" onclick={onclose}>
-  <div class="guide-card" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-    <!-- ── Header ── -->
-    <div class="guide-head">
-      <span class="guide-title">Q·onco Guide</span>
-      <button class="close-btn btn-icon" onclick={onclose} aria-label="Close">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-        </svg>
-      </button>
-    </div>
+<div class="overlay" onclick={onclose}>
+  <div class="modal" onclick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Q·onco Guide" tabindex="-1">
 
-    <!-- ── Tab bar ── -->
-    <div class="guide-tabs">
-      {#each TABS as tab}
-        <button
-          class="guide-tab"
-          class:active={activeTab === tab.id}
-          class:tab-{tab.color}={activeTab === tab.id}
-          onclick={() => activeTab = tab.id}
-        >{tab.label}</button>
-      {/each}
-    </div>
+    <!-- ── Left navigation ── -->
+    <aside class="side-nav">
+      <div class="brand">
+        <span class="brand-mark">Q·</span>
+        <span class="brand-name">onco</span>
+      </div>
+      <nav class="side-links">
+        {#each NAV as item}
+          <button
+            class="side-link"
+            class:side-active={active === item.id}
+            onclick={() => active = item.id}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d={item.icon}/>
+            </svg>
+            {item.label}
+          </button>
+        {/each}
+      </nav>
+      <div class="side-footer">
+        <span class="version-label">v2.0 · May 2026</span>
+        <button class="close-x" onclick={onclose} aria-label="Close">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+    </aside>
 
-    <!-- ── Content ── -->
-    <div class="guide-body">
+    <!-- ── Right content ── -->
+    <div class="content">
 
-      {#if activeTab === 'overview'}
-        <div class="section-hero">
-          <p class="hero-desc">Q·onco is your encrypted research command centre — notes, analysis pipeline tracking, literature, Enzo AI, job search, and audio transcription, all committed to GitHub as AES-256-GCM ciphertext.</p>
-        </div>
-        <div class="how-flow">
-          {#each [
-            { label: 'GitHub PAT', desc: 'Your token = authentication + encryption key', cls: 'fc-ac' },
-            { label: 'Login', desc: 'Token validated, user info loaded', cls: 'fc-gn' },
-            { label: 'Decrypt', desc: '14 .enc files decrypted in parallel', cls: 'fc-enzo' },
-            { label: 'Store', desc: 'All data in reactive Svelte state', cls: 'fc-pu' },
-            { label: 'Edit', desc: 'Notes, journal, tasks, research…', cls: 'fc-gn' },
-            { label: 'Auto-save', desc: 'Re-encrypted, committed to GitHub', cls: 'fc-ac' },
-          ] as step}
-            <div class="flow-item">
-              <div class="flow-pill {step.cls}">{step.label}</div>
-              <p class="flow-item-desc text-xs text-mu">{step.desc}</p>
-            </div>
-            <span class="flow-arr" aria-hidden="true">→</span>
-          {/each}
-        </div>
-        <div class="section-grid">
-          {#each [
-            { id: 'notes',    label: 'Notes',     desc: 'Markdown editor with auto-save and task extraction', cls: 'sc-ac' },
-            { id: 'journal',  label: 'Journal',   desc: 'Daily reflections with mood tags and calendar dots', cls: 'sc-enzo' },
-            { id: 'tasks',    label: 'Tasks',     desc: 'Priority tasks with due dates linked to calendar', cls: 'sc-rd' },
-            { id: 'calendar', label: 'Calendar',  desc: 'Everything on one view — click dots to navigate', cls: 'sc-yw' },
-            { id: 'enzo',     label: 'Enzo AI',   desc: 'Oncology-expert AI trained on your exact domain', cls: 'sc-enzo' },
-            { id: 'research', label: 'Research',  desc: 'PubMed, OpenAlex, bioRxiv — search and bookmark', cls: 'sc-pu' },
-            { id: 'pipeline', label: 'Pipeline',  desc: 'Track scRNA-seq, spatial, WES runs step-by-step', cls: 'sc-gn' },
-            { id: 'jobs',     label: 'Jobs',      desc: 'Live feed, tracker, CV builder, AI cover letters', cls: 'sc-ac' },
-            { id: 'audio',    label: 'Audio',     desc: 'Live Whisper transcription of meetings and notes', cls: 'sc-pu' },
-          ] as sec}
-            <button class="section-card {sec.cls}" onclick={() => go(sec.id)}>
-              <span class="sc-label">{sec.label}</span>
-              <span class="sc-desc text-xs">{sec.desc}</span>
-              <span class="sc-go">Open →</span>
-            </button>
-          {/each}
-        </div>
-
-      {:else if activeTab === 'notes'}
-        <div class="tab-content">
-          <div class="tab-hero">
-            <h3>Notes</h3>
-            <p>Markdown-first note editor. Every save is a distinct encrypted GitHub commit. Inline task extraction connects notes to your task list automatically.</p>
-            <button class="go-btn" onclick={() => go('notes')}>Open Notes →</button>
+      <!-- WHAT'S NEW -->
+      {#if active === 'new'}
+        <div class="section-wrap">
+          <div class="section-head">
+            <h2>What's new in Q·onco</h2>
+            <p class="section-sub">8 major upgrades. All encrypted. All yours.</p>
           </div>
           <div class="feature-grid">
-            <div class="feature-item"><span class="feat-label">Markdown toolbar</span><span class="feat-desc">B / I / H1–H3 / UL / code / table — wraps selected text</span></div>
-            <div class="feature-item"><span class="feat-label">Task extraction</span><span class="feat-desc">Write <code>- [ ] task</code> → appears instantly in Tasks list</span></div>
-            <div class="feature-item"><span class="feat-label">Auto-save</span><span class="feat-desc">1.2 s debounce — timestamp in toolbar confirms last save</span></div>
-            <div class="feature-item"><span class="feat-label">Pin / archive</span><span class="feat-desc">Pinned notes float to top; archived = hidden but not deleted</span></div>
-            <div class="feature-item"><span class="feat-label">Export</span><span class="feat-desc">Download any note as .md, or export all as a bundle</span></div>
-            <div class="feature-item"><span class="feat-label">Enzo context</span><span class="feat-desc">Open a note and Enzo reads it — blue bar confirms context</span></div>
-          </div>
-          <div class="example-block">
-            <span class="example-label">Example note structure</span>
-            <pre class="example-code"># HGSOC TME scRNA-seq — batch 3
-
-## QC summary
-- Total cells post-filter: 42,847
-- Median genes/cell: 1,840
-- MT% threshold: &lt;20%
-
-## Action items
-- [ ] Re-run DoubletFinder with pK=0.05
-- [ ] Cross-reference CXCL12-high cluster with Hornburg signatures
-- [x] Submit Cell Ranger output to long-term storage</pre>
-          </div>
-        </div>
-
-      {:else if activeTab === 'journal'}
-        <div class="tab-content">
-          <div class="tab-hero">
-            <h3>Journal</h3>
-            <p>Free-form daily reflections. Mood + context tags appear as coloured dots on the Calendar. Click any journal dot in Calendar to jump straight to that entry.</p>
-            <button class="go-btn" onclick={() => go('journal')}>Open Journal →</button>
-          </div>
-          <div class="feature-grid">
-            <div class="feature-item"><span class="feat-label">Mood chips</span><span class="feat-desc">Focused · Curious · Frustrated · Excited · Tired</span></div>
-            <div class="feature-item"><span class="feat-label">Context tags</span><span class="feat-desc">Research · Writing · Experiment · Meeting · Admin</span></div>
-            <div class="feature-item"><span class="feat-label">Calendar dots</span><span class="feat-desc">Amber dot per journal entry — click to open inline</span></div>
-            <div class="feature-item"><span class="feat-label">Markdown toolbar</span><span class="feat-desc">Full formatting available in journal body</span></div>
-            <div class="feature-item"><span class="feat-label">Search</span><span class="feat-desc">Full-text search across all journal entries by date or content</span></div>
-          </div>
-          <div class="example-block">
-            <span class="example-label">Example entry</span>
-            <div class="example-journal">
-              <div class="ej-meta"><span class="ej-date">4 May 2026</span><span class="ej-mood mood-focused">Focused</span><span class="ej-ctx">Research</span></div>
-              <p class="ej-body">Finally resolved the UMAP instability — bumping n_neighbors to 50 stabilised the CAF subclusters. The CXCL12-high population now separates cleanly. Will cross-reference with Hornburg et al. Nature Cancer signatures tomorrow. The Visium deconvolution is still converging slowly with n_cells=10.</p>
-            </div>
-          </div>
-        </div>
-
-      {:else if activeTab === 'tasks'}
-        <div class="tab-content">
-          <div class="tab-hero">
-            <h3>Tasks</h3>
-            <p>Priority task list with due dates. Tasks extracted from notes via <code>- [ ]</code> syntax are automatically linked back to their source note. Due dates appear as red dots on the Calendar.</p>
-            <button class="go-btn" onclick={() => go('tasks')}>Open Tasks →</button>
-          </div>
-          <div class="feature-grid">
-            <div class="feature-item"><span class="feat-label">Priority</span><span class="feat-desc">High (red) · Medium (amber) · Low (muted)</span></div>
-            <div class="feature-item"><span class="feat-label">Due dates</span><span class="feat-desc">Red dots on Calendar; overdue tasks highlighted</span></div>
-            <div class="feature-item"><span class="feat-label">Note-linked</span><span class="feat-desc">"From note" chip — click to jump to source note</span></div>
-            <div class="feature-item"><span class="feat-label">Add via note</span><span class="feat-desc"><code>- [ ] task text</code> in any note auto-creates a task</span></div>
-          </div>
-          <div class="example-block">
-            <span class="example-label">Example task list</span>
-            <div class="example-tasks">
-              {#each [
-                { text: 'Re-run DoubletFinder with pK=0.05', pri: 'high', done: false },
-                { text: 'Validate FOLR1 by multiplex IF on FFPE slides', pri: 'high', done: false },
-                { text: 'Submit Nature Cancer revisions', pri: 'high', done: true },
-                { text: 'Update CellChat db to v2.1.2', pri: 'medium', done: false },
-                { text: 'Book ESMO 2026 accommodation', pri: 'low', done: false },
-              ] as task}
-                <div class="ex-task" class:ex-done={task.done}>
-                  <span class="ex-check">{task.done ? '✓' : '○'}</span>
-                  <span class="ex-pri pri-{task.pri}"></span>
-                  <span class="ex-text">{task.text}</span>
+            {#each NEW_FEATURES as f}
+              <div class="feature-card feature-{f.color}">
+                <div class="fc-icon feature-icon-{f.color}">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d={f.icon}/>
+                  </svg>
                 </div>
-              {/each}
-            </div>
-          </div>
-        </div>
-
-      {:else if activeTab === 'calendar'}
-        <div class="tab-content">
-          <div class="tab-hero">
-            <h3>Calendar</h3>
-            <p>Everything on one timeline. Click any dot to navigate directly to that note, journal entry, audio recording, or task — the calendar is fully click-through, not read-only.</p>
-            <button class="go-btn" onclick={() => go('calendar')}>Open Calendar →</button>
-          </div>
-          <div class="feature-grid">
-            <div class="feature-item"><span class="feat-label"><span class="dot dot-ac"></span> Notes</span><span class="feat-desc">Blue — click opens note editor</span></div>
-            <div class="feature-item"><span class="feat-label"><span class="dot dot-yw"></span> Journal</span><span class="feat-desc">Amber — click opens that journal entry</span></div>
-            <div class="feature-item"><span class="feat-label"><span class="dot dot-pu"></span> Audio</span><span class="feat-desc">Purple — click navigates to recording in Audio</span></div>
-            <div class="feature-item"><span class="feat-label"><span class="dot dot-rd"></span> Tasks</span><span class="feat-desc">Red — due date; toggle done/undone in-place</span></div>
-            <div class="feature-item"><span class="feat-label"><span class="dot dot-gn"></span> Events</span><span class="feat-desc">Green — calendar events from .ics import</span></div>
-            <div class="feature-item"><span class="feat-label">.ics import</span><span class="feat-desc">File → Export from Apple Calendar, import here</span></div>
-          </div>
-        </div>
-
-      {:else if activeTab === 'enzo'}
-        <div class="tab-content">
-          <div class="tab-hero">
-            <h3>Enzo AI</h3>
-            <p>Your oncology research peer — expert in HGSOC, TME, scRNA-seq, spatial transcriptomics, PARP inhibitors, biomarker discovery. She does not over-explain your own field to you. Press <kbd>Ctrl+K</kbd> to open her from anywhere.</p>
-          </div>
-          <div class="feature-grid">
-            <div class="feature-item"><span class="feat-label">Note context</span><span class="feat-desc">Open a note → Enzo reads it. Blue bar confirms which note.</span></div>
-            <div class="feature-item"><span class="feat-label">Quick prompts</span><span class="feat-desc">Dashboard shortcuts pre-fill her input — click to fire</span></div>
-            <div class="feature-item"><span class="feat-label">History</span><span class="feat-desc">History tab — all sessions searchable, stored encrypted</span></div>
-            <div class="feature-item"><span class="feat-label">Stop stream</span><span class="feat-desc">Click Stop at any time — partial text discarded immediately</span></div>
-            <div class="feature-item"><span class="feat-label">Research mode</span><span class="feat-desc">Research summaries use 120B model for higher quality</span></div>
-            <div class="feature-item"><span class="feat-label">Cover letters</span><span class="feat-desc">120B model generates tailored academic cover letters from your CV</span></div>
-          </div>
-          <div class="example-block">
-            <span class="example-label">Example questions Enzo handles well</span>
-            <div class="example-prompts">
-              {#each [
-                'What CXCL12-high cell populations are known in HGSOC TME and how do they relate to immune exclusion?',
-                'Compare olaparib vs niraparib PFS data in HRD-positive HGSOC from SOLO-2 and PRIMA trials.',
-                'Suggest QC thresholds for 10x Chromium scRNA-seq from fresh HGSOC ascites.',
-                'Write a methods section for CellChat v2 ligand-receptor analysis between macrophage clusters.',
-              ] as p}
-                <div class="ep-item text-xs">› {p}</div>
-              {/each}
-            </div>
-          </div>
-        </div>
-
-      {:else if activeTab === 'research'}
-        <div class="tab-content">
-          <div class="tab-hero">
-            <h3>Research</h3>
-            <p>Multi-source literature search across PubMed, OpenAlex, bioRxiv, medRxiv, Nature, and Cell. AI summaries, reading list, and bookmark export. Enable for the session first.</p>
-            <button class="go-btn" onclick={() => go('research')}>Open Research →</button>
-          </div>
-          <div class="feature-grid">
-            <div class="feature-item"><span class="feat-label">Sources</span><span class="feat-desc">PubMed · OpenAlex · bioRxiv · medRxiv · Nature · Cell — toggle chips</span></div>
-            <div class="feature-item"><span class="feat-label">Quick topics</span><span class="feat-desc">Curated presets: TME, PARPi resistance, scRNA-seq, clinical trials</span></div>
-            <div class="feature-item"><span class="feat-label">AI summary</span><span class="feat-desc">Click document icon → structured: hypothesis, methods, HGSOC relevance</span></div>
-            <div class="feature-item"><span class="feat-label">Reading list</span><span class="feat-desc">Bookmark icon → saved to Reading List tab with priority tags</span></div>
-            <div class="feature-item"><span class="feat-label">Export</span><span class="feat-desc">Export reading list as .md or .bib for citation managers</span></div>
-          </div>
-        </div>
-
-      {:else if activeTab === 'pipeline'}
-        <div class="tab-content">
-          <div class="tab-hero">
-            <h3>Pipeline Tracker</h3>
-            <p>Track analysis runs for scRNA-seq, spatial, bulk RNA-seq, WES. Pre-configured step templates. QC metrics with pass/warn/fail flags. Protocol library. Enable for the session first.</p>
-            <button class="go-btn" onclick={() => go('pipeline')}>Open Pipeline →</button>
-          </div>
-          <div class="feature-grid">
-            <div class="feature-item"><span class="feat-label">Run templates</span><span class="feat-desc">scRNA-seq · Spatial · Bulk RNA · WES · Custom — steps auto-created</span></div>
-            <div class="feature-item"><span class="feat-label">Step status</span><span class="feat-desc">Click circle: pending → running → done → failed → skipped</span></div>
-            <div class="feature-item"><span class="feat-label">QC metrics</span><span class="feat-desc">Key-value pairs: median_genes, mapping_rate — with pass/warn/fail</span></div>
-            <div class="feature-item"><span class="feat-label">Protocols</span><span class="feat-desc">Reusable Markdown protocol bodies linked to runs</span></div>
-          </div>
-          <div class="example-block">
-            <span class="example-label">scRNA-seq pipeline steps</span>
-            <div class="example-steps">
-              {#each [
-                { name: 'Library prep', tool: '10x Chromium', status: 'done' },
-                { name: 'Sequencing', tool: 'Illumina NovaSeq', status: 'done' },
-                { name: 'Cell Ranger alignment', tool: 'CellRanger 7.1', status: 'done' },
-                { name: 'QC filtering', tool: 'Seurat / Scanpy', status: 'running' },
-                { name: 'Doublet detection', tool: 'DoubletFinder', status: 'pending' },
-                { name: 'Clustering + annotation', tool: 'Leiden + SingleR', status: 'pending' },
-              ] as step}
-                <div class="ex-step">
-                  <span class="step-dot st-{step.status}"></span>
-                  <span class="ex-step-name text-xs">{step.name}</span>
-                  <span class="ex-step-tool text-xs text-mu">{step.tool}</span>
+                <div class="fc-body">
+                  <span class="fc-badge badge-{f.color}">New</span>
+                  <h4 class="fc-title">{f.title}</h4>
+                  <p class="fc-desc">{f.desc}</p>
                 </div>
-              {/each}
+              </div>
+            {/each}
+          </div>
+        </div>
+
+      <!-- GETTING STARTED -->
+      {:else if active === 'start'}
+        <div class="section-wrap">
+          <div class="section-head">
+            <h2>Getting started</h2>
+            <p class="section-sub">Six steps to a fully wired research workspace</p>
+          </div>
+          <div class="steps-list">
+            {#each STEPS as step}
+              <div class="step step-{step.color}">
+                <div class="step-num step-num-{step.color}">{step.n}</div>
+                <div class="step-body">
+                  <h4>{step.title}</h4>
+                  <p>{step.desc}</p>
+                  {#if step.action}
+                    <button class="step-cta" onclick={step.action}>{step.cta} →</button>
+                  {/if}
+                </div>
+              </div>
+            {/each}
+          </div>
+        </div>
+
+      <!-- ALL MODULES -->
+      {:else if active === 'modules'}
+        <div class="section-wrap">
+          <div class="section-head">
+            <h2>All features</h2>
+            <p class="section-sub">14 sections. Every one encrypted at rest on GitHub.</p>
+          </div>
+          <div class="modules-grid">
+            {#each ALL_MODULES as mod}
+              <button class="mod-card" onclick={() => go(mod.id)}>
+                <div class="mod-icon mod-icon-{mod.color}">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d={mod.icon}/>
+                  </svg>
+                </div>
+                <div class="mod-body">
+                  <span class="mod-label">{mod.label}</span>
+                  <span class="mod-desc">{mod.desc}</span>
+                </div>
+                <svg class="mod-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <path d="M5 12h14M12 5l7 7-7 7"/>
+                </svg>
+              </button>
+            {/each}
+          </div>
+        </div>
+
+      <!-- KEYBOARD SHORTCUTS -->
+      {:else if active === 'shortcuts'}
+        <div class="section-wrap">
+          <div class="section-head">
+            <h2>Keyboard shortcuts</h2>
+            <p class="section-sub">Works on Mac (⌘) and Windows/Linux (Ctrl)</p>
+          </div>
+          <div class="shortcuts-groups">
+            {#each SHORTCUTS as group}
+              <div class="shortcut-group">
+                <h4 class="sg-title">{group.group}</h4>
+                <div class="sg-items">
+                  {#each group.items as item}
+                    <div class="sg-row">
+                      <kbd class="shortcut-key">{item.key}</kbd>
+                      <span class="shortcut-desc">{item.desc}</span>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            {/each}
+          </div>
+
+          <div class="shortcut-tip card-inset">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--enzo);flex-shrink:0">
+              <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+            </svg>
+            <span>Most actions that happen in a modal can be confirmed with <kbd>Enter</kbd> and cancelled with <kbd>Esc</kbd>.</span>
+          </div>
+        </div>
+
+      <!-- ENZO GUIDE -->
+      {:else if active === 'enzo'}
+        <div class="section-wrap">
+          <div class="section-head">
+            <h2>Enzo guide</h2>
+            <p class="section-sub">A know-it-all super dog who has read every HGSOC paper</p>
+          </div>
+
+          <div class="enzo-who card-inset">
+            <div class="enzo-orb"></div>
+            <div>
+              <strong>Who is Enzo?</strong>
+              <p style="margin-top:4px;font-size:0.85rem;line-height:1.6;color:var(--tx2)">Enzo is a brilliant, opinionated research AI specialising in HGSOC, tumour microenvironment, scRNA-seq, spatial transcriptomics, and PARP inhibitor biology. She knows your journal entries, pinned papers, and active tasks — and uses all of it to give context-specific answers. She's good at pushing back when your hypothesis has gaps.</p>
             </div>
           </div>
-        </div>
 
-      {:else if activeTab === 'jobs'}
-        <div class="tab-content">
-          <div class="tab-hero">
-            <h3>Jobs Portal</h3>
-            <p>Curated job feed (EU pharma, India biotech, startups), Kanban tracker, CV builder, AI-powered cover letters using 120B model, salary benchmarks, and network contacts. Enable for the session first.</p>
-            <button class="go-btn" onclick={() => go('jobs')}>Open Jobs →</button>
-          </div>
-          <div class="feature-grid">
-            <div class="feature-item"><span class="feat-label">Feed</span><span class="feat-desc">Nature Careers, EMBL, EurAxess, Indeed — filter by region and type</span></div>
-            <div class="feature-item"><span class="feat-label">Tracker</span><span class="feat-desc">Kanban pipeline: Radar → Queued → Applied → Screening → Offer</span></div>
-            <div class="feature-item"><span class="feat-label">Companies</span><span class="feat-desc">Curated EU pharma/biotech + India pharma with careers page links</span></div>
-            <div class="feature-item"><span class="feat-label">CV Builder</span><span class="feat-desc">8 sections: personal, experience, education, publications, skills, conferences, awards, preview. Export .md</span></div>
-            <div class="feature-item"><span class="feat-label">Cover letters</span><span class="feat-desc">120B AI — tailored from your CV + job description in seconds</span></div>
-            <div class="feature-item"><span class="feat-label">Salary</span><span class="feat-desc">Log offer data and benchmarks by region and role type</span></div>
-          </div>
-        </div>
-
-      {:else if activeTab === 'audio'}
-        <div class="tab-content">
-          <div class="tab-hero">
-            <h3>Audio & Transcription</h3>
-            <p>Record lab meetings, spoken observations, and ideas. Transcribed in 15-second chunks via Groq Whisper large-v3 in real time. Transcripts link to notes and appear on your Calendar. Enable for the session first.</p>
-            <button class="go-btn" onclick={() => go('audio')}>Open Audio →</button>
-          </div>
-          <div class="feature-grid">
-            <div class="feature-item"><span class="feat-label">Live transcription</span><span class="feat-desc">15-second chunk streaming via Whisper large-v3</span></div>
-            <div class="feature-item"><span class="feat-label">Edit transcript</span><span class="feat-desc">Review and edit before saving — correct proper nouns</span></div>
-            <div class="feature-item"><span class="feat-label">Link to note</span><span class="feat-desc">Attach a recording to a specific note for context</span></div>
-            <div class="feature-item"><span class="feat-label">Daily quota</span><span class="feat-desc">2 hours/day per device — resets at midnight, bar shows remaining</span></div>
-            <div class="feature-item"><span class="feat-label">Calendar dot</span><span class="feat-desc">Purple dot per recording — click to navigate to Audio section</span></div>
-          </div>
-          <div class="example-block">
-            <span class="example-label">Example transcript excerpt</span>
-            <p class="ex-transcript text-xs">Lab meeting — 4 May 2026 · 5m 12s<br><br>"…the doublet rate in samples OV-23-14A and OV-23-17B is higher than expected. We're switching to cold active protease dissociation for the next cohort. The CXCL12-high cluster needs cross-referencing with the Hornburg Nature Cancer paper signatures before we can call it CAF-like…"</p>
-          </div>
-        </div>
-
-      {:else if activeTab === 'settings'}
-        <div class="tab-content">
-          <div class="tab-hero">
-            <h3>Settings</h3>
-            <p>Profile, appearance, AI worker config, and data export. Changes sync to GitHub on save.</p>
-            <button class="go-btn" onclick={() => go('settings')}>Open Settings →</button>
-          </div>
-          <div class="feature-grid">
-            <div class="feature-item"><span class="feat-label">Worker URL</span><span class="feat-desc">Cloudflare Worker for Groq / Whisper / PubMed. Use Test button to verify.</span></div>
-            <div class="feature-item"><span class="feat-label">Researcher profile</span><span class="feat-desc">Specializations, target roles, target locations — used by Enzo for matching</span></div>
-            <div class="feature-item"><span class="feat-label">Accent colour</span><span class="feat-desc">Blue · Green · Purple · Teal · Rose — applied on next save+reload</span></div>
-            <div class="feature-item"><span class="feat-label">Theme</span><span class="feat-desc">Auto (time-based) · Light · Dark</span></div>
-            <div class="feature-item"><span class="feat-label">Export</span><span class="feat-desc">Full JSON export — all notes, journal, tasks, jobs, audio records</span></div>
-            <div class="feature-item"><span class="feat-label">Danger zone</span><span class="feat-desc">Log out clears session only — data stays encrypted in GitHub</span></div>
-          </div>
-          <div class="example-block">
-            <span class="example-label">Keyboard shortcuts</span>
-            <div class="shortcuts-grid">
-              {#each [['?','Open this guide'],['Ctrl+K','Focus Enzo input'],['Ctrl+N','New note'],['Ctrl+J','New journal entry'],['Ctrl+T','New task'],['Esc','Close panels'],['←/→','Calendar month navigation'],['T','Jump calendar to today']] as [k, d]}
-                <div class="sc-row"><kbd class="sc-kbd">{k}</kbd><span class="text-xs text-mu">{d}</span></div>
-              {/each}
+          <h4 class="sub-heading">Special Enzo modes</h4>
+          <div class="enzo-modes">
+            <div class="enzo-mode">
+              <span class="em-badge badge-rd">Devil's Advocate</span>
+              <p>Actively argues against your hypothesis using literature evidence. Available from the Hypotheses tab in Pipeline.</p>
             </div>
+            <div class="enzo-mode">
+              <span class="em-badge badge-pu">Paper Critique</span>
+              <p>Paste any abstract and get a structured breakdown: research question, methodology, novelty, HGSOC relevance, limitations.</p>
+            </div>
+            <div class="enzo-mode">
+              <span class="em-badge badge-gn">Deep Read</span>
+              <p>5 pointed Socratic questions to force critical engagement. Available on any paper in the Research section.</p>
+            </div>
+            <div class="enzo-mode">
+              <span class="em-badge badge-yw">PI Report</span>
+              <p>Reads all activity from the past week and drafts a structured progress email. Available from Dashboard.</p>
+            </div>
+            <div class="enzo-mode">
+              <span class="em-badge badge-ac">Weekly Digest</span>
+              <p>Monday morning summary of journal themes, tasks, papers, and pipeline progress. Enable in Settings → AI Features.</p>
+            </div>
+            <div class="enzo-mode">
+              <span class="em-badge badge-enzo">Interview Prep</span>
+              <p>Generates tailored interview questions from a job description and your CV profile, then critiques your draft answers.</p>
+            </div>
+          </div>
+
+          <h4 class="sub-heading">Prompts worth trying</h4>
+          <div class="prompt-gallery">
+            {#each ENZO_PROMPTS as p}
+              <div class="pg-card pg-{p.color}">
+                <span class="pg-cat">{p.cat}</span>
+                <p class="pg-text">"{p.prompt}"</p>
+              </div>
+            {/each}
+          </div>
+
+          <div class="privacy-note card-inset">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--gn);flex-shrink:0">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            <span>Enzo runs on Groq's API via your personal Cloudflare Worker. Your prompts and data are never stored by Anthropic, OpenAI, or any third party. Your GitHub token encrypts everything at rest.</span>
           </div>
         </div>
       {/if}
 
-    </div><!-- .guide-body -->
-  </div><!-- .guide-card -->
-</div><!-- .guide-overlay -->
+    </div>
+  </div>
+</div>
 
 <style>
-  .guide-overlay {
+  .overlay {
     position: fixed; inset: 0;
     background: rgba(0,0,0,0.55);
-    z-index: 1200;
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    padding: 20px;
-    overflow: hidden;
     backdrop-filter: blur(3px);
+    z-index: 500;
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
   }
 
-  .guide-card {
-    background: var(--sf);
+  .modal {
+    width: min(1020px, 96vw);
+    height: min(88vh, 760px);
+    background: var(--bg);
     border: 1px solid var(--bd);
     border-radius: 14px;
-    width: 100%;
-    max-width: 860px;
-    max-height: 92vh;
+    box-shadow: 0 32px 80px rgba(0,0,0,0.32);
     display: flex;
-    flex-direction: column;
     overflow: hidden;
-    box-shadow: 0 24px 80px rgba(0,0,0,0.28);
-    animation: card-in 0.18s ease;
-  }
-  @keyframes card-in {
-    from { opacity: 0; transform: translateY(-12px); }
-    to   { opacity: 1; transform: translateY(0); }
   }
 
-  .guide-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 14px 20px;
-    border-bottom: 1px solid var(--bd);
+  /* ── Side nav ── */
+  .side-nav {
+    width: 200px;
     flex-shrink: 0;
-  }
-  .guide-title { font-size: 0.88rem; font-weight: 800; letter-spacing: 0.02em; color: var(--tx); }
-  .close-btn { color: var(--mu); }
-  .close-btn:hover { color: var(--tx); background: var(--sf2); }
-
-  .guide-tabs {
-    display: flex;
-    gap: 3px;
-    padding: 10px 16px 8px;
-    border-bottom: 1px solid var(--bd);
-    flex-wrap: wrap;
-    flex-shrink: 0;
-    background: var(--sf2);
-  }
-  .guide-tab {
-    padding: 5px 12px;
-    border-radius: 6px;
-    font-size: 11px;
-    font-weight: 700;
-    cursor: pointer;
-    border: 1px solid transparent;
-    color: var(--mu);
-    background: none;
-    transition: 0.15s;
-    white-space: nowrap;
-  }
-  .guide-tab:hover:not(.active) { background: var(--sf3, var(--sf)); color: var(--tx); }
-  .guide-tab.active { color: #fff; }
-  .guide-tab.active.tab-ac   { background: var(--ac);   border-color: var(--ac); }
-  .guide-tab.active.tab-gn   { background: var(--gn);   border-color: var(--gn); }
-  .guide-tab.active.tab-pu   { background: var(--pu);   border-color: var(--pu); }
-  .guide-tab.active.tab-yw   { background: var(--yw);   border-color: var(--yw); color: #333; }
-  .guide-tab.active.tab-rd   { background: var(--rd);   border-color: var(--rd); }
-  .guide-tab.active.tab-enzo { background: var(--enzo); border-color: var(--enzo); }
-  .guide-tab.active.tab-mu   { background: var(--mu);   border-color: var(--mu); }
-
-  .guide-body {
-    overflow-y: auto;
-    flex: 1;
-    padding: 22px 26px 28px;
-  }
-
-  /* ── Overview ── */
-  .section-hero { margin-bottom: 16px; }
-  .hero-desc { font-size: 0.88rem; color: var(--tx2); line-height: 1.7; }
-
-  .how-flow {
-    display: flex;
-    align-items: flex-start;
-    gap: 0;
-    flex-wrap: wrap;
-    margin-bottom: 20px;
-    background: var(--sf2);
-    border: 1px solid var(--bd);
-    border-radius: 10px;
-    padding: 14px 16px;
-  }
-  .flow-item { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-  .flow-arr { color: var(--mu); font-size: 0.8rem; padding: 0 4px; line-height: 32px; }
-  .flow-pill {
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: 0.72rem;
-    font-weight: 700;
-    border: 1px solid;
-    white-space: nowrap;
-  }
-  .flow-item-desc { text-align: center; max-width: 90px; line-height: 1.3; }
-  .fc-ac   { background: var(--ac-bg);   color: var(--ac);   border-color: var(--ac); }
-  .fc-gn   { background: var(--gn-bg);   color: var(--gn);   border-color: var(--gn); }
-  .fc-enzo { background: var(--enzo-bg); color: var(--enzo); border-color: var(--enzo-bd, var(--enzo)); }
-  .fc-pu   { background: var(--pu-bg);   color: var(--pu);   border-color: var(--pu); }
-
-  .section-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
-  }
-  .section-card {
+    background: var(--sf);
+    border-right: 1px solid var(--bd);
     display: flex;
     flex-direction: column;
-    gap: 3px;
-    padding: 12px 14px;
+    padding: 20px 0 16px;
+  }
+
+  .brand {
+    display: flex; align-items: baseline; gap: 1px;
+    padding: 0 18px 20px;
+    border-bottom: 1px solid var(--bd);
+    margin-bottom: 12px;
+  }
+  .brand-mark { font-size: 1.3rem; font-weight: 900; color: var(--ac); letter-spacing: -0.04em; }
+  .brand-name { font-size: 1.1rem; font-weight: 700; color: var(--tx); letter-spacing: -0.02em; }
+
+  .side-links { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 0 8px; }
+
+  .side-link {
+    display: flex; align-items: center; gap: 9px;
+    padding: 9px 12px;
     border-radius: 8px;
-    border: 1px solid var(--bd);
-    background: var(--sf2);
-    text-align: left;
-    cursor: pointer;
-    transition: 0.15s;
+    font-size: 0.875rem; font-weight: 500;
+    color: var(--tx2);
+    background: transparent; border: none;
+    cursor: pointer; text-align: left;
+    transition: background var(--transition), color var(--transition);
   }
-  .section-card:hover { border-color: var(--ac); background: var(--ac-bg); }
-  .sc-label { font-size: 0.82rem; font-weight: 700; color: var(--tx); }
-  .sc-desc  { color: var(--tx2); line-height: 1.4; }
-  .sc-go    { font-size: 0.7rem; color: var(--ac); margin-top: 4px; font-weight: 600; }
-  .sc-ac:hover   { border-color: var(--ac); }
-  .sc-gn:hover   { border-color: var(--gn); }
-  .sc-pu:hover   { border-color: var(--pu); }
-  .sc-enzo:hover { border-color: var(--enzo); }
-  .sc-rd:hover   { border-color: var(--rd); }
-  .sc-yw:hover   { border-color: var(--yw); }
+  .side-link:hover { background: var(--sf2); color: var(--tx); }
+  .side-active { background: var(--ac-bg); color: var(--ac); }
+  .side-active svg { stroke: var(--ac); }
 
-  /* ── Section tabs ── */
-  .tab-content { display: flex; flex-direction: column; gap: 18px; }
-
-  .tab-hero { display: flex; flex-direction: column; gap: 8px; }
-  .tab-hero h3 { font-size: 1.05rem; font-weight: 700; margin: 0; }
-  .tab-hero p  { font-size: 0.875rem; color: var(--tx2); line-height: 1.7; margin: 0; }
-
-  .go-btn {
-    align-self: flex-start;
-    padding: 7px 16px;
-    background: var(--ac);
-    color: #fff;
-    border: none;
-    border-radius: 7px;
-    font-size: 0.82rem;
-    font-weight: 700;
-    cursor: pointer;
-    transition: 0.15s;
+  .side-footer {
+    padding: 12px 16px 0;
+    border-top: 1px solid var(--bd);
+    display: flex; align-items: center; justify-content: space-between;
   }
-  .go-btn:hover { opacity: 0.88; }
+  .version-label { font-size: 0.68rem; color: var(--mu); letter-spacing: 0.04em; }
+  .close-x {
+    width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+    border-radius: 6px; background: transparent; border: none;
+    color: var(--mu); cursor: pointer;
+  }
+  .close-x:hover { background: var(--sf2); color: var(--rd); }
 
+  /* ── Right content ── */
+  .content {
+    flex: 1;
+    overflow-y: auto;
+    scroll-behavior: smooth;
+  }
+
+  .section-wrap {
+    padding: 32px 36px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    min-height: 100%;
+  }
+
+  .section-head { display: flex; flex-direction: column; gap: 5px; }
+  .section-head h2 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.03em; color: var(--tx); }
+  .section-sub { font-size: 0.9rem; color: var(--mu); }
+
+  /* ── What's New cards ── */
   .feature-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
   }
-  .feature-item {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    padding: 10px 12px;
-    background: var(--sf2);
-    border: 1px solid var(--bd);
-    border-radius: 8px;
-  }
-  .feat-label { font-size: 0.8rem; font-weight: 700; color: var(--tx); }
-  .feat-desc  { font-size: 0.75rem; color: var(--tx2); line-height: 1.45; }
-  .feat-desc code { font-size: 0.72rem; background: var(--sf3, var(--bd)); padding: 1px 4px; border-radius: 3px; }
 
-  /* ── Example blocks ── */
-  .example-block {
+  .feature-card {
     display: flex;
-    flex-direction: column;
-    gap: 8px;
+    gap: 14px;
+    padding: 16px;
+    border-radius: 10px;
+    border: 1px solid var(--bd);
+    background: var(--sf);
+    transition: border-color var(--transition), box-shadow var(--transition);
   }
-  .example-label {
-    font-size: 0.68rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: var(--mu);
+  .feature-card:hover { box-shadow: var(--shadow); }
+  .feature-ac:hover  { border-color: var(--ac); }
+  .feature-gn:hover  { border-color: var(--gn); }
+  .feature-pu:hover  { border-color: var(--pu, #8b5cf6); }
+  .feature-rd:hover  { border-color: var(--rd); }
+  .feature-yw:hover  { border-color: var(--yw); }
+  .feature-enzo:hover { border-color: var(--enzo); }
+
+  .fc-icon {
+    width: 36px; height: 36px; border-radius: 8px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
   }
-  .example-code {
-    background: var(--sf2);
+  .feature-icon-ac   { background: var(--ac-bg);   color: var(--ac);   }
+  .feature-icon-gn   { background: var(--gn-bg);   color: var(--gn);   }
+  .feature-icon-pu   { background: rgba(139,92,246,.1); color: #8b5cf6; }
+  .feature-icon-rd   { background: var(--rd-bg);   color: var(--rd);   }
+  .feature-icon-yw   { background: rgba(234,179,8,.1); color: var(--yw); }
+  .feature-icon-enzo { background: var(--enzo-bg); color: var(--enzo); }
+
+  .fc-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .fc-badge {
+    display: inline-block; font-size: 0.6rem; font-weight: 800;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 1px 7px; border-radius: 10px; width: fit-content;
+  }
+  .badge-ac   { background: var(--ac-bg);   color: var(--ac);   }
+  .badge-gn   { background: var(--gn-bg);   color: var(--gn);   }
+  .badge-pu   { background: rgba(139,92,246,.1); color: #8b5cf6; }
+  .badge-rd   { background: var(--rd-bg);   color: var(--rd);   }
+  .badge-yw   { background: rgba(234,179,8,.1); color: var(--yw); }
+  .badge-enzo { background: var(--enzo-bg); color: var(--enzo); }
+  .badge-mu   { background: var(--sf2);     color: var(--mu);   }
+
+  .fc-title { font-size: 0.9rem; font-weight: 700; color: var(--tx); }
+  .fc-desc  { font-size: 0.8rem; color: var(--tx2); line-height: 1.55; }
+
+  /* ── Getting started ── */
+  .steps-list { display: flex; flex-direction: column; gap: 12px; }
+
+  .step {
+    display: flex; gap: 16px; align-items: flex-start;
+    padding: 16px 18px;
+    border-radius: 10px;
+    border: 1px solid var(--bd);
+    background: var(--sf);
+  }
+
+  .step-num {
+    width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.9rem; font-weight: 800;
+  }
+  .step-num-ac   { background: var(--ac-bg);   color: var(--ac);   }
+  .step-num-gn   { background: var(--gn-bg);   color: var(--gn);   }
+  .step-num-pu   { background: rgba(139,92,246,.1); color: #8b5cf6; }
+  .step-num-enzo { background: var(--enzo-bg); color: var(--enzo); }
+  .step-num-yw   { background: rgba(234,179,8,.1); color: var(--yw); }
+  .step-num-rd   { background: var(--rd-bg);   color: var(--rd);   }
+
+  .step-body { flex: 1; }
+  .step-body h4 { font-size: 0.92rem; font-weight: 700; color: var(--tx); margin-bottom: 4px; }
+  .step-body p  { font-size: 0.82rem; color: var(--tx2); line-height: 1.55; }
+  .step-cta {
+    margin-top: 8px; display: inline-block;
+    font-size: 0.78rem; font-weight: 600; color: var(--ac);
+    background: transparent; border: none; cursor: pointer; padding: 0;
+    font-family: var(--font);
+  }
+  .step-cta:hover { text-decoration: underline; }
+
+  /* ── All modules ── */
+  .modules-grid { display: flex; flex-direction: column; gap: 6px; }
+
+  .mod-card {
+    display: flex; align-items: center; gap: 14px;
+    padding: 13px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--bd);
+    background: var(--sf);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color var(--transition), background var(--transition);
+    width: 100%;
+  }
+  .mod-card:hover { border-color: var(--ac); background: var(--ac-bg); }
+  .mod-card:hover .mod-arrow { opacity: 1; color: var(--ac); }
+  .mod-card:hover .mod-label { color: var(--ac); }
+
+  .mod-icon {
+    width: 32px; height: 32px; border-radius: 7px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .mod-icon-ac   { background: var(--ac-bg);   color: var(--ac);   }
+  .mod-icon-gn   { background: var(--gn-bg);   color: var(--gn);   }
+  .mod-icon-pu   { background: rgba(139,92,246,.1); color: #8b5cf6; }
+  .mod-icon-rd   { background: var(--rd-bg);   color: var(--rd);   }
+  .mod-icon-yw   { background: rgba(234,179,8,.1); color: var(--yw); }
+  .mod-icon-enzo { background: var(--enzo-bg); color: var(--enzo); }
+  .mod-icon-mu   { background: var(--sf2);     color: var(--mu);   }
+
+  .mod-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .mod-label { font-size: 0.875rem; font-weight: 600; color: var(--tx); }
+  .mod-desc  { font-size: 0.78rem; color: var(--mu); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mod-arrow { color: var(--mu); opacity: 0; transition: opacity var(--transition); flex-shrink: 0; }
+
+  /* ── Shortcuts ── */
+  .shortcuts-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .shortcut-group { display: flex; flex-direction: column; gap: 10px; }
+  .sg-title { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.09em; color: var(--mu); margin-bottom: 4px; }
+  .sg-items { display: flex; flex-direction: column; gap: 6px; }
+  .sg-row { display: flex; align-items: center; gap: 12px; }
+  .shortcut-key {
+    font-size: 0.72rem; font-weight: 700; font-family: var(--mono);
+    background: var(--sf2); border: 1px solid var(--bd);
+    border-radius: 5px; padding: 3px 8px;
+    color: var(--tx); white-space: nowrap; flex-shrink: 0;
+  }
+  .shortcut-desc { font-size: 0.82rem; color: var(--tx2); }
+
+  /* ── Enzo guide ── */
+  .enzo-who {
+    display: flex; gap: 14px; align-items: flex-start;
+  }
+  .enzo-orb {
+    width: 40px; height: 40px; flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--enzo-bg);
+    border: 2px solid var(--enzo-bd);
+    position: relative;
+  }
+  .enzo-orb::after {
+    content: ''; position: absolute;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--gn);
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+  }
+
+  .sub-heading {
+    font-size: 0.8rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.09em; color: var(--mu);
+  }
+
+  .enzo-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .enzo-mode {
+    padding: 13px 15px;
     border: 1px solid var(--bd);
     border-radius: 8px;
-    padding: 12px 14px;
-    font-size: 0.75rem;
-    line-height: 1.6;
+    background: var(--sf);
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .em-badge {
+    font-size: 0.65rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.07em; padding: 2px 8px; border-radius: 10px; width: fit-content;
+  }
+  .enzo-mode p { font-size: 0.82rem; color: var(--tx2); line-height: 1.55; margin: 0; }
+
+  .prompt-gallery { display: flex; flex-direction: column; gap: 8px; }
+  .pg-card {
+    padding: 12px 15px;
+    border-radius: 8px;
+    border: 1px solid var(--bd);
+    background: var(--sf);
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .pg-cat { font-size: 0.65rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em; color: var(--mu); }
+  .pg-text { font-size: 0.85rem; color: var(--tx2); line-height: 1.5; margin: 0; font-style: italic; }
+  .pg-ac   { border-left: 3px solid var(--ac); }
+  .pg-gn   { border-left: 3px solid var(--gn); }
+  .pg-pu   { border-left: 3px solid #8b5cf6; }
+  .pg-yw   { border-left: 3px solid var(--yw); }
+  .pg-rd   { border-left: 3px solid var(--rd); }
+  .pg-enzo { border-left: 3px solid var(--enzo); }
+
+  .privacy-note {
+    display: flex; gap: 10px; align-items: flex-start;
+  }
+  .privacy-note span { font-size: 0.82rem; color: var(--tx2); line-height: 1.6; }
+
+  /* ── Shared ── */
+  .card-inset {
+    padding: 14px 16px;
+    border-radius: 8px;
+    background: var(--sf2);
+    border: 1px solid var(--bd);
+  }
+
+  .shortcut-tip {
+    display: flex; gap: 10px; align-items: center;
+    font-size: 0.82rem; color: var(--tx2);
+  }
+  .shortcut-tip kbd {
+    font-size: 0.7rem; font-family: var(--mono);
+    background: var(--sf); border: 1px solid var(--bd);
+    border-radius: 3px; padding: 1px 5px;
     color: var(--tx);
-    overflow-x: auto;
-    white-space: pre-wrap;
-    font-family: 'JetBrains Mono', 'Fira Mono', ui-monospace, monospace;
   }
 
-  /* journal example */
-  .example-journal {
-    background: var(--sf2);
-    border: 1px solid var(--bd);
-    border-radius: 8px;
-    padding: 12px 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .ej-meta { display: flex; align-items: center; gap: 6px; }
-  .ej-date { font-size: 0.75rem; font-weight: 700; color: var(--tx2); }
-  .ej-mood { padding: 2px 8px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; }
-  .mood-focused { background: var(--ac-bg); color: var(--ac); border: 1px solid var(--ac); }
-  .ej-ctx { font-size: 0.68rem; color: var(--mu); background: var(--sf3, var(--bd)); padding: 2px 6px; border-radius: 4px; }
-  .ej-body { font-size: 0.78rem; color: var(--tx2); line-height: 1.65; margin: 0; }
-
-  /* task example */
-  .example-tasks { display: flex; flex-direction: column; gap: 4px; background: var(--sf2); border: 1px solid var(--bd); border-radius: 8px; padding: 12px 14px; }
-  .ex-task { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
-  .ex-done { opacity: 0.45; }
-  .ex-check { font-size: 0.75rem; color: var(--mu); width: 12px; }
-  .ex-done .ex-check { color: var(--gn); }
-  .ex-pri { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-  .pri-high   { background: var(--rd); }
-  .pri-medium { background: var(--yw); }
-  .pri-low    { background: var(--mu); }
-  .ex-text { font-size: 0.78rem; color: var(--tx); }
-  .ex-done .ex-text { text-decoration: line-through; }
-
-  /* calendar dots */
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 2px; vertical-align: middle; }
-  .dot-ac { background: var(--ac); }
-  .dot-yw { background: var(--yw); }
-  .dot-pu { background: var(--pu); }
-  .dot-rd { background: var(--rd); }
-  .dot-gn { background: var(--gn); }
-
-  /* pipeline steps */
-  .example-steps { display: flex; flex-direction: column; gap: 5px; background: var(--sf2); border: 1px solid var(--bd); border-radius: 8px; padding: 12px 14px; }
-  .ex-step { display: flex; align-items: center; gap: 8px; }
-  .step-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; border: 2px solid; }
-  .st-done    { background: var(--gn);  border-color: var(--gn); }
-  .st-running { background: var(--ac);  border-color: var(--ac); animation: pulse 1.5s infinite; }
-  .st-pending { background: transparent; border-color: var(--bd2, var(--bd)); }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
-  .ex-step-name { flex: 1; font-size: 0.78rem; color: var(--tx); }
-  .ex-step-tool { font-size: 0.72rem; }
-
-  /* prompts */
-  .example-prompts { display: flex; flex-direction: column; gap: 6px; background: var(--sf2); border: 1px solid var(--bd); border-radius: 8px; padding: 12px 14px; }
-  .ep-item { color: var(--tx2); line-height: 1.5; }
-
-  /* transcript */
-  .ex-transcript { background: var(--sf2); border: 1px solid var(--bd); border-radius: 8px; padding: 12px 14px; color: var(--tx2); line-height: 1.65; }
-
-  /* shortcuts */
-  .shortcuts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-  .sc-row { display: flex; align-items: center; gap: 8px; }
-  .sc-kbd {
-    display: inline-block;
-    padding: 2px 7px;
-    background: var(--sf2);
-    border: 1px solid var(--bd2, var(--bd));
-    border-bottom-width: 2px;
-    border-radius: 4px;
-    font-size: 0.7rem;
-    font-family: ui-monospace, monospace;
-    color: var(--tx);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  @media (max-width: 640px) {
-    .guide-overlay { padding: 12px; }
-    .guide-body { padding: 16px; }
-    .section-grid { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 720px) {
+    .modal { flex-direction: column; height: 95vh; }
+    .side-nav { width: 100%; height: auto; flex-direction: row; flex-wrap: wrap; padding: 10px; border-right: none; border-bottom: 1px solid var(--bd); }
+    .brand { display: none; }
+    .side-links { flex-direction: row; flex-wrap: wrap; gap: 4px; flex: 1; }
+    .side-footer { display: none; }
     .feature-grid { grid-template-columns: 1fr; }
-    .shortcuts-grid { grid-template-columns: 1fr; }
-    .how-flow { gap: 2px; }
+    .shortcuts-groups { grid-template-columns: 1fr; }
+    .enzo-modes { grid-template-columns: 1fr; }
+    .section-wrap { padding: 20px; }
   }
 </style>
