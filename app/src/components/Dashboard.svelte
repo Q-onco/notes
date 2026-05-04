@@ -100,6 +100,62 @@
     return prompts.slice(0, 5);
   })());
 
+  // ── Analytics ─────────────────────────────────────────────────
+  const heatmapCells = $derived((() => {
+    const now = Date.now();
+    return Array.from({ length: 84 }, (_, i) => {
+      const dayStart = now - (83 - i) * 86400000;
+      const dayEnd = dayStart + 86400000;
+      const a = store.notes.filter(n => n.updatedAt >= dayStart && n.updatedAt < dayEnd && !n.archived).length
+              + store.journal.filter(e => e.createdAt >= dayStart && e.createdAt < dayEnd).length;
+      return {
+        x: Math.floor(i / 7) * 14,
+        y: (i % 7) * 14,
+        a,
+        label: new Date(dayStart).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + ' · ' + a + ' edits',
+      };
+    });
+  })());
+
+  const papersReadWeekly = $derived((() => {
+    const weeks = Array<number>(8).fill(0);
+    const now = Date.now();
+    store.readingList.filter(r => r.read && r.readAt).forEach(r => {
+      const w = Math.floor((now - r.readAt!) / (7 * 86400000));
+      if (w >= 0 && w < 8) weeks[7 - w]++;
+    });
+    return weeks;
+  })());
+  const maxPW = $derived(Math.max(...papersReadWeekly, 1));
+
+  let pubStats = $state<{ hIndex: number; citations: number; works: number } | null>(null);
+  let pubLoading = $state(false);
+
+  async function fetchPubImpact() {
+    const orcid = store.cvProfile.orcid;
+    if (!orcid || pubStats || pubLoading) return;
+    pubLoading = true;
+    try {
+      const res = await fetch(`https://api.openalex.org/authors?filter=orcid:${orcid}&select=summary_stats,works_count,cited_by_count`);
+      const data = await res.json();
+      const a = data.results?.[0];
+      if (a) pubStats = { hIndex: a.summary_stats?.h_index ?? 0, citations: a.cited_by_count ?? 0, works: a.works_count ?? 0 };
+    } catch { /* offline */ }
+    pubLoading = false;
+  }
+  $effect(() => { fetchPubImpact(); });
+
+  const todayStartTs = $derived((() => { const d = new Date(); d.setHours(0,0,0,0); return d.getTime(); })());
+  const journalToday = $derived(store.journal.some(e => e.createdAt >= todayStartTs));
+  const todayTopTasks = $derived(store.activeTasks.slice(0, 4));
+  const upcomingDeadlines = $derived((() => {
+    const soon = Date.now() + 7 * 86400000;
+    return [
+      ...store.savedJobs.filter(j => j.listing.deadline && j.listing.deadline > Date.now() && j.listing.deadline < soon)
+        .map(j => ({ label: j.listing.company, at: j.listing.deadline! })),
+    ].sort((a, b) => a.at - b.at).slice(0, 3);
+  })());
+
   // ── Weekly digest ─────────────────────────────────────────────
   let digestText = $state('');
   let digestStreaming = $state(false);
@@ -221,6 +277,139 @@
         </div>
       {/if}
     {/if}
+
+    <!-- Analytics strip -->
+    <div class="analytics-strip">
+
+      <!-- Activity heatmap -->
+      <div class="analytics-card">
+        <div class="ac-head">
+          <span class="ac-label">Writing activity</span>
+          <span class="ac-sub">12 weeks</span>
+        </div>
+        <svg class="heatmap-svg" viewBox="0 0 168 110" width="168" height="110">
+          {#each heatmapCells as cell}
+            <rect x={cell.x} y={cell.y} width={12} height={12} rx="2"
+              fill={cell.a === 0 ? 'var(--sf3)' : cell.a === 1 ? 'var(--gn-muted)' : cell.a >= 2 ? 'var(--gn)' : 'var(--sf3)'}
+              opacity={cell.a === 0 ? 1 : 0.85}
+            >
+              <title>{cell.label}</title>
+            </rect>
+          {/each}
+        </svg>
+        <div class="heatmap-legend">
+          <span>Less</span>
+          <div class="hm-box" style="background:var(--sf3)"></div>
+          <div class="hm-box" style="background:var(--gn-muted)"></div>
+          <div class="hm-box" style="background:var(--gn)"></div>
+          <span>More</span>
+        </div>
+      </div>
+
+      <!-- Papers read per week -->
+      <div class="analytics-card">
+        <div class="ac-head">
+          <span class="ac-label">Papers read</span>
+          <span class="ac-sub">8 weeks</span>
+        </div>
+        <div class="bar-chart">
+          {#each papersReadWeekly as count, i}
+            <div class="bar-col">
+              <div class="bar" style="height:{count > 0 ? Math.max((count / maxPW) * 72, 6) : 3}px; background:{count > 0 ? 'var(--ac)' : 'var(--sf3)'};" title="{count} papers · week {i+1}"></div>
+              {#if i === 7}<span class="bar-label">now</span>{/if}
+            </div>
+          {/each}
+        </div>
+        <div class="ac-total">
+          <span class="ac-num">{store.readingList.filter(r => r.read).length}</span>
+          <span class="ac-unit">total read</span>
+        </div>
+      </div>
+
+      <!-- Publication impact -->
+      <div class="analytics-card pub-card" onclick={fetchPubImpact}>
+        <div class="ac-head">
+          <span class="ac-label">Publication impact</span>
+          <span class="ac-sub">via OpenAlex</span>
+        </div>
+        {#if pubLoading}
+          <div class="pub-loading"><span class="spinner-xs-inline"></span> Fetching…</div>
+        {:else if pubStats}
+          <div class="pub-stats">
+            <div class="pub-stat">
+              <span class="pub-val">{pubStats.hIndex}</span>
+              <span class="pub-key">h-index</span>
+            </div>
+            <div class="pub-divider"></div>
+            <div class="pub-stat">
+              <span class="pub-val">{pubStats.citations}</span>
+              <span class="pub-key">citations</span>
+            </div>
+            <div class="pub-divider"></div>
+            <div class="pub-stat">
+              <span class="pub-val">{pubStats.works}</span>
+              <span class="pub-key">works</span>
+            </div>
+          </div>
+        {:else if store.cvProfile.orcid}
+          <button class="fetch-pub-btn" onclick={fetchPubImpact}>Fetch from OpenAlex →</button>
+        {:else}
+          <p class="pub-no-orcid text-xs text-mu">Set your ORCID in Settings → CV Profile to see impact stats</p>
+        {/if}
+      </div>
+
+    </div>
+
+    <!-- Daily focus -->
+    <div class="daily-focus">
+      <div class="df-head">
+        <div>
+          <span class="df-label">Daily focus</span>
+          <span class="df-date text-mu text-xs">{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
+        </div>
+        {#if !journalToday}
+          <button class="df-journal-btn" onclick={() => store.view = 'journal'}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
+            </svg>
+            Write today's journal
+          </button>
+        {:else}
+          <span class="df-done text-xs">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color:var(--gn)"><path d="M20 6L9 17l-5-5"/></svg>
+            Journal written
+          </span>
+        {/if}
+      </div>
+      <div class="df-body">
+        <div class="df-tasks">
+          {#if todayTopTasks.length > 0}
+            {#each todayTopTasks as task}
+              <div class="df-task">
+                <span class="df-priority df-{task.priority}"></span>
+                <span class="df-task-text">{task.text}</span>
+              </div>
+            {/each}
+            {#if store.activeTasks.length > 4}
+              <button class="df-more" onclick={() => store.view = 'tasks'}>+{store.activeTasks.length - 4} more tasks →</button>
+            {/if}
+          {:else}
+            <p class="text-xs text-mu" style="padding:4px 0">No open tasks — <button class="btn-link" onclick={() => store.view = 'tasks'}>add one</button></p>
+          {/if}
+        </div>
+        {#if upcomingDeadlines.length > 0}
+          <div class="df-deadlines">
+            {#each upcomingDeadlines as dl}
+              <div class="df-dl">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--yw);flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                <span class="text-xs">{dl.label}</span>
+                <span class="text-xs text-mu">{Math.ceil((dl.at - Date.now()) / 86400000)}d</span>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    </div>
 
     <!-- Main grid -->
     <div class="dash-grid">
@@ -581,11 +770,127 @@
   .pinned-row:hover .unpin-btn { opacity: 1; }
   .unpin-btn:hover { color: var(--rd); background: var(--rd-bg); opacity: 1; }
 
+  /* ── Analytics strip ── */
+  .analytics-strip {
+    display: grid;
+    grid-template-columns: auto 1fr 1fr;
+    gap: 12px;
+    align-items: stretch;
+  }
+
+  .analytics-card {
+    background: var(--sf);
+    border: 1px solid var(--bd);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .ac-head { display: flex; align-items: center; justify-content: space-between; }
+  .ac-label { font-size: 0.78rem; font-weight: 700; color: var(--tx); }
+  .ac-sub   { font-size: 0.68rem; color: var(--mu); }
+
+  .heatmap-svg { display: block; }
+  .heatmap-legend {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 0.65rem; color: var(--mu);
+  }
+  .hm-box { width: 10px; height: 10px; border-radius: 2px; }
+
+  :global(.dashboard) { --gn-muted: rgba(34,197,94,0.35); --sf3: var(--sf2); }
+
+  /* ── Bar chart ── */
+  .bar-chart {
+    flex: 1; display: flex; align-items: flex-end; gap: 5px;
+    height: 80px; padding-bottom: 4px;
+  }
+  .bar-col { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 1; }
+  .bar { width: 100%; border-radius: 2px 2px 0 0; transition: height 0.3s ease; }
+  .bar-label { font-size: 0.55rem; color: var(--mu); }
+  .ac-total { display: flex; align-items: baseline; gap: 4px; }
+  .ac-num { font-size: 1.4rem; font-weight: 800; color: var(--tx); letter-spacing: -0.03em; }
+  .ac-unit { font-size: 0.72rem; color: var(--mu); }
+
+  /* ── Publication impact ── */
+  .pub-card { cursor: default; }
+  .pub-loading { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--mu); }
+  .pub-stats { display: flex; align-items: center; gap: 0; flex: 1; }
+  .pub-stat { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+  .pub-val { font-size: 1.6rem; font-weight: 800; color: var(--tx); letter-spacing: -0.03em; }
+  .pub-key { font-size: 0.68rem; color: var(--mu); }
+  .pub-divider { width: 1px; height: 40px; background: var(--bd); }
+  .fetch-pub-btn {
+    font-size: 0.8rem; color: var(--ac); background: transparent; border: none;
+    cursor: pointer; font-family: var(--font); padding: 0; text-align: left;
+  }
+  .fetch-pub-btn:hover { text-decoration: underline; }
+  .pub-no-orcid { line-height: 1.5; }
+
+  /* ── Daily focus ── */
+  .daily-focus {
+    background: var(--sf);
+    border: 1px solid var(--bd);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .df-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .df-label {
+    font-size: 0.78rem; font-weight: 700; color: var(--tx);
+    display: block;
+  }
+  .df-date { display: block; }
+  .df-journal-btn {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.78rem; font-weight: 600;
+    background: var(--enzo-bg); color: var(--enzo);
+    border: 1px solid var(--enzo-bd); border-radius: 20px;
+    padding: 4px 12px; cursor: pointer;
+    white-space: nowrap; flex-shrink: 0;
+    transition: opacity var(--transition);
+    font-family: var(--font);
+  }
+  .df-journal-btn:hover { opacity: 0.8; }
+  .df-done {
+    display: flex; align-items: center; gap: 5px;
+    color: var(--gn); flex-shrink: 0;
+  }
+  .df-body { display: flex; gap: 20px; flex-wrap: wrap; }
+  .df-tasks { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 5px; }
+  .df-task { display: flex; align-items: center; gap: 8px; }
+  .df-priority { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .df-high   { background: var(--rd); }
+  .df-medium { background: var(--yw); }
+  .df-low    { background: var(--gn); }
+  .df-task-text { font-size: 0.84rem; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .df-more {
+    font-size: 0.75rem; color: var(--ac); background: transparent; border: none;
+    cursor: pointer; font-family: var(--font); padding: 2px 0; text-align: left;
+  }
+  .df-deadlines {
+    display: flex; flex-direction: column; gap: 5px;
+    min-width: 140px;
+  }
+  .df-dl { display: flex; align-items: center; gap: 6px; }
+  .btn-link {
+    background: transparent; border: none; color: var(--ac); cursor: pointer;
+    font-size: inherit; font-family: var(--font); padding: 0;
+  }
+  .btn-link:hover { text-decoration: underline; }
+
   @media (max-width: 900px) {
     .stats-row { grid-template-columns: repeat(3, 1fr); }
+    .analytics-strip { grid-template-columns: 1fr 1fr; }
   }
   @media (max-width: 680px) {
     .stats-row { grid-template-columns: repeat(2, 1fr); }
     .dash-grid { grid-template-columns: 1fr; }
+    .analytics-strip { grid-template-columns: 1fr; }
   }
 </style>
