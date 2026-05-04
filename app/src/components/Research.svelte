@@ -402,10 +402,56 @@ Format your response as:
     return `@article{${key},\n  author  = {${authorField}},\n  title   = {${paper.title}},\n  journal = {${paper.journal}},\n  year    = {${paper.year}},${paper.doi ? '\n  doi     = {' + paper.doi + '},' : ''}\n}`;
   }
 
-  async function copyCitation(paper: PaperResult, fmt: 'apa' | 'bibtex') {
-    const text = fmt === 'apa' ? buildAPA(paper) : buildBibTeX(paper);
+  function buildVancouver(paper: PaperResult): string {
+    const authors = paper.authors.length
+      ? paper.authors.slice(0, 6).map(a => { const p = a.trim().split(/\s+/); const last = p.pop() ?? ''; const ini = p.map(n => n[0]).join(''); return `${last} ${ini}`; }).join(', ') + (paper.authors.length > 6 ? ' et al.' : '')
+      : 'Unknown authors';
+    return `${authors}. ${paper.title}. ${paper.journal}. ${paper.year}${paper.doi ? ';doi:' + paper.doi : ''}.`;
+  }
+
+  async function copyCitation(paper: PaperResult, fmt: 'apa' | 'bibtex' | 'vancouver') {
+    const text = fmt === 'apa' ? buildAPA(paper) : fmt === 'bibtex' ? buildBibTeX(paper) : buildVancouver(paper);
     await navigator.clipboard.writeText(text);
-    showToast(`Copied ${fmt.toUpperCase()} citation`);
+    showToast(`Copied ${fmt === 'bibtex' ? 'BibTeX' : fmt.toUpperCase()} citation`);
+  }
+
+  // ── DOI resolver ─────────────────────────────────────────────
+  let doiInput = $state('');
+  let doiLoading = $state(false);
+  let doiOpen = $state(false);
+
+  async function resolveDoi() {
+    const doi = doiInput.replace(/^https?:\/\/doi\.org\//i, '').trim();
+    if (!doi) return;
+    doiLoading = true;
+    try {
+      const res = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}`);
+      if (!res.ok) throw new Error('Not found');
+      const { message: m } = await res.json();
+      const paper: PaperResult = {
+        id: `doi:${doi}`,
+        title: m.title?.[0] ?? doi,
+        authors: (m.author ?? []).map((a: { family?: string; given?: string }) => [a.given, a.family].filter(Boolean).join(' ')),
+        abstract: m.abstract?.replace(/<[^>]*>/g, ' ').trim() ?? '',
+        journal: m['container-title']?.[0] ?? m.publisher ?? '',
+        year: m.published?.['date-parts']?.[0]?.[0] ?? new Date().getFullYear(),
+        doi,
+        url: `https://doi.org/${doi}`,
+        source: 'pubmed',
+        pdfUrl: m.link?.[0]?.URL,
+      };
+      doiInput = '';
+      doiOpen = false;
+      showToast(`Resolved: ${paper.title.slice(0, 40)}…`);
+      if (!store.pinnedPapers.some(p => p.id === paper.id)) {
+        store.readingList = [{ id: crypto.randomUUID(), paper, addedAt: Date.now(), note: '', read: false, priority: 'medium' }, ...store.readingList];
+        await store.saveResearch();
+        researchTab = 'reading-list';
+      }
+    } catch {
+      showToast('DOI not found or CrossRef unavailable', 'error');
+    }
+    doiLoading = false;
   }
 
   // ── Reading time ──────────────────────────────────────────────
@@ -587,6 +633,26 @@ Format your response as:
           Reading list {#if store.readingList.length > 0}<span class="tab-count">{store.readingList.length}</span>{/if}
         </button>
       </div>
+      <!-- DOI resolver -->
+      <div class="doi-wrap">
+        <button class="btn btn-ghost btn-sm" onclick={() => doiOpen = !doiOpen} title="Resolve a DOI to add a paper">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          DOI
+        </button>
+        {#if doiOpen}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <div class="doi-backdrop" onclick={() => doiOpen = false}></div>
+          <div class="doi-popover">
+            <p class="doi-hint">Paste a DOI (or doi.org URL) to fetch paper metadata and add it to your reading list.</p>
+            <div class="doi-input-row">
+              <input class="doi-input" bind:value={doiInput} placeholder="10.1038/s43018-023-00550-x" onkeydown={e => e.key === 'Enter' && resolveDoi()} />
+              <button class="btn btn-primary btn-sm" onclick={resolveDoi} disabled={!doiInput.trim() || doiLoading}>
+                {#if doiLoading}<span class="spinner-xs"></span>{:else}Resolve{/if}
+              </button>
+            </div>
+          </div>
+        {/if}
+      </div>
       {#if store.pinnedPapers.length > 0}
         <button class="btn btn-ghost btn-sm" onclick={() => exportPapers(store.pinnedPapers)}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -761,8 +827,9 @@ Format your response as:
               <button class="btn-icon" onclick={() => sendToEnzo(paper)} title="Ask Enzo about this">
                 <span class="text-enzo text-xs" style="font-family:var(--mono);font-weight:700">E</span>
               </button>
-              <button class="btn-icon" onclick={() => copyCitation(paper, 'apa')} title="Copy APA citation" style="font-size:0.6rem;font-weight:700;font-family:var(--mono)">APA</button>
-              <button class="btn-icon" onclick={() => copyCitation(paper, 'bibtex')} title="Copy BibTeX" style="font-size:0.6rem;font-weight:700;font-family:var(--mono)">BIB</button>
+              <button class="btn-icon cite-btn" onclick={() => copyCitation(paper, 'apa')} title="Copy APA citation">APA</button>
+              <button class="btn-icon cite-btn" onclick={() => copyCitation(paper, 'vancouver')} title="Copy Vancouver citation">VAN</button>
+              <button class="btn-icon cite-btn" onclick={() => copyCitation(paper, 'bibtex')} title="Copy BibTeX">BIB</button>
               <button class="btn-icon save-note-btn" onclick={() => saveAsNote(paper)} title="Save as note">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
@@ -987,8 +1054,9 @@ Format your response as:
                           </svg>
                         </a>
                       {/if}
-                      <button class="btn-icon" onclick={() => copyCitation(item.paper, 'apa')} title="Copy APA citation">APA</button>
-                      <button class="btn-icon" onclick={() => copyCitation(item.paper, 'bibtex')} title="Copy BibTeX">BIB</button>
+                      <button class="btn-icon cite-btn" onclick={() => copyCitation(item.paper, 'apa')} title="Copy APA">APA</button>
+                      <button class="btn-icon cite-btn" onclick={() => copyCitation(item.paper, 'vancouver')} title="Copy Vancouver">VAN</button>
+                      <button class="btn-icon cite-btn" onclick={() => copyCitation(item.paper, 'bibtex')} title="Copy BibTeX">BIB</button>
                       <button class="btn-icon" onclick={() => removeReadingItem(item.id)} title="Remove">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                           <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -1443,6 +1511,33 @@ Format your response as:
     text-decoration: line-through;
     color: var(--mu);
   }
+
+  /* DOI resolver */
+  .doi-wrap { position: relative; }
+  .doi-backdrop { position: fixed; inset: 0; z-index: 30; }
+  .doi-popover {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 31;
+    background: var(--sf); border: 1px solid var(--bd); border-radius: var(--radius);
+    box-shadow: var(--shadow-lg); padding: 14px 16px; width: 340px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .doi-hint { font-size: 0.8rem; color: var(--mu); line-height: 1.5; margin: 0; }
+  .doi-input-row { display: flex; gap: 8px; }
+  .doi-input { flex: 1; font-size: 0.82rem; }
+  .spinner-xs {
+    display: inline-block; width: 10px; height: 10px;
+    border: 1.5px solid var(--bd2); border-top-color: #fff;
+    border-radius: 50%; animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Citation buttons */
+  .cite-btn {
+    font-size: 0.58rem; font-weight: 800; font-family: var(--mono);
+    letter-spacing: 0.04em; color: var(--mu);
+    padding: 2px 5px; border-radius: 3px; border: 1px solid var(--bd);
+  }
+  .cite-btn:hover { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); }
 
   @media (max-width: 640px) {
     .research { padding: 16px; }
