@@ -5,6 +5,7 @@
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
   import { exportJournal, exportJournalDocx, exportJournalPdf } from '../lib/export';
+  import RichEditor from './RichEditor.svelte';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -125,7 +126,7 @@
   }
 
   async function save() {
-    if (!draftBody.trim()) return;
+    if (!draftBody.replace(/<[^>]*>/g, '').trim()) return;
     saving = true;
     try {
       if (editingId === 'new') {
@@ -182,40 +183,10 @@
     }
   });
 
-  // ── Markdown toolbar ──────────────────────────────────────────
-  let jBodyEl = $state<HTMLTextAreaElement | undefined>(undefined);
-
-  function mdInsert(prefix: string, suffix = '', placeholder = 'text') {
-    if (!jBodyEl) return;
-    const start = jBodyEl.selectionStart;
-    const end   = jBodyEl.selectionEnd;
-    const sel   = jBodyEl.value.slice(start, end);
-    const replacement = prefix + (sel || placeholder) + suffix;
-    jBodyEl.setRangeText(replacement, start, end, 'select');
-    jBodyEl.focus();
-    draftBody = jBodyEl.value;
+  function renderBody(body: string): string {
+    const html = body.trimStart().startsWith('<') ? body : (marked.parse(body) as string);
+    return DOMPurify.sanitize(html);
   }
-
-  function mdBlock(prefix: string) {
-    if (!jBodyEl) return;
-    const start   = jBodyEl.selectionStart;
-    const lineStart = jBodyEl.value.lastIndexOf('\n', start - 1) + 1;
-    jBodyEl.setRangeText(prefix, lineStart, lineStart, 'end');
-    jBodyEl.focus();
-    draftBody = jBodyEl.value;
-  }
-
-  const J_MD_TOOLS = [
-    { label: 'B',   title: 'Bold',        action: () => mdInsert('**', '**', 'bold text') },
-    { label: 'I',   title: 'Italic',      action: () => mdInsert('*', '*', 'italic text') },
-    { label: 'H2',  title: 'Heading',     action: () => mdBlock('## ') },
-    { label: 'UL',  title: 'List',        action: () => mdBlock('- ') },
-    { label: '[ ]', title: 'Task',        action: () => mdBlock('- [ ] ') },
-    { label: '`',   title: 'Code',        action: () => mdInsert('`', '`', 'code') },
-    { label: '```', title: 'Code block',  action: () => mdInsert('```\n', '\n```', 'code') },
-    { label: '>',   title: 'Quote',       action: () => mdBlock('> ') },
-    { label: '🔗',  title: 'Link',        action: () => mdInsert('[', '](url)', 'link text') },
-  ];
 </script>
 
 <div class="journal">
@@ -287,22 +258,15 @@
         </div>
       </div>
 
-      <div class="md-toolbar">
-        {#each J_MD_TOOLS as tool}
-          <button class="md-btn" onclick={tool.action} title={tool.title} type="button">{tool.label}</button>
-        {/each}
-      </div>
-      <textarea
-        class="journal-textarea"
+      <RichEditor
         bind:value={draftBody}
-        bind:this={jBodyEl}
-        placeholder="What happened today? What did you discover, struggle with, or learn? Write freely in Markdown."
-        rows={8}
-      ></textarea>
+        placeholder="What happened today? What did you discover, struggle with, or learn?"
+        minHeight="180px"
+      />
 
       <div class="form-actions">
         <button class="btn btn-ghost" onclick={() => editingId = null}>Cancel</button>
-        <button class="btn btn-primary" onclick={save} disabled={saving || !draftBody.trim()}>
+        <button class="btn btn-primary" onclick={save} disabled={saving || !draftBody.replace(/<[^>]*>/g, '').trim()}>
           {saving ? 'Saving...' : 'Save entry'}
         </button>
       </div>
@@ -406,7 +370,7 @@
         </div>
         <div class="entry-body md">
           <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-          {@html DOMPurify.sanitize(marked.parse(entry.body) as string)}
+          {@html renderBody(entry.body)}
         </div>
       </article>
     {:else}
@@ -422,7 +386,7 @@
           </div>
           <div class="entry-body md">
             <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-            {@html DOMPurify.sanitize(marked.parse(entry.body) as string)}
+            {@html renderBody(entry.body)}
           </div>
         </article>
       {/each}
@@ -479,38 +443,6 @@
   }
   .chip.active { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); }
   .chip:hover:not(.active) { border-color: var(--bd2); }
-
-  .md-toolbar {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    flex-wrap: wrap;
-    padding: 4px 0;
-    border-bottom: 1px solid var(--bd);
-    margin-bottom: 4px;
-  }
-  .md-btn {
-    padding: 3px 7px;
-    border-radius: var(--radius-sm);
-    font-size: 0.72rem;
-    font-weight: 700;
-    font-family: var(--mono);
-    background: transparent;
-    border: 1px solid transparent;
-    color: var(--tx2);
-    cursor: pointer;
-    transition: all var(--transition);
-    line-height: 1.4;
-    min-width: 24px;
-    text-align: center;
-  }
-  .md-btn:hover { background: var(--sf2); border-color: var(--bd); color: var(--tx); }
-
-  .journal-textarea {
-    font-family: var(--mono);
-    font-size: 0.9rem;
-    min-height: 180px;
-  }
 
   .form-actions { display: flex; justify-content: flex-end; gap: 8px; }
 

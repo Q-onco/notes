@@ -3,6 +3,7 @@
   import { transcribeAudio } from '../lib/groq';
   import { nanoid } from 'nanoid';
   import type { Note } from '../lib/types';
+  import RichEditor from './RichEditor.svelte';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -137,7 +138,7 @@
 
   // ── Save / export ────────────────────────────────────────────
   async function saveRecording() {
-    if (!draftTranscript.trim()) return;
+    if (!draftTranscript.replace(/<[^>]*>/g, '').trim()) return;
 
     const rec = {
       id: nanoid(),
@@ -155,7 +156,7 @@
       if (note) {
         const ts = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
         note.audioIds = [...note.audioIds, rec.id];
-        note.body += `\n\n---\n*Transcript (${ts}):*\n\n${draftTranscript}`;
+        note.body += `<hr><p><em>Transcript (${ts}):</em></p>${draftTranscript}`;
         note.updatedAt = Date.now();
         await store.saveNotes();
       }
@@ -170,9 +171,10 @@
   }
 
   function exportMarkdown() {
-    if (!draftTranscript.trim()) return;
+    if (!draftTranscript.replace(/<[^>]*>/g, '').trim()) return;
     const date = new Date().toISOString().slice(0, 16).replace('T', ' ');
-    const md = `# Audio Transcript\n\n**Date:** ${date}  \n**Duration:** ${fmtDur(durationSec)}\n\n---\n\n${draftTranscript}\n`;
+    const plain = draftTranscript.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    const md = `# Audio Transcript\n\n**Date:** ${date}  \n**Duration:** ${fmtDur(durationSec)}\n\n---\n\n${plain}\n`;
     const blob = new Blob([md], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -259,8 +261,9 @@
   }
 
   function sendDraftToEnzo() {
-    if (!draftTranscript.trim()) return;
-    store.enzoSearchQuery = `I just recorded the following (${fmtDur(durationSec)}). Analyse it — identify key scientific points, questions, and action items:\n\n${draftTranscript}`;
+    if (!draftTranscript.replace(/<[^>]*>/g, '').trim()) return;
+    const plain = draftTranscript.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    store.enzoSearchQuery = `I just recorded the following (${fmtDur(durationSec)}). Analyse it — identify key scientific points, questions, and action items:\n\n${plain}`;
     store.enzoOpen = true;
   }
 
@@ -382,12 +385,11 @@
         <label class="draft-label text-xs text-mu" for="draft-area">
           Transcript — edit before saving
         </label>
-        <textarea
-          id="draft-area"
+        <RichEditor
           bind:value={draftTranscript}
-          rows={5}
-          class="draft-area"
-        ></textarea>
+          placeholder="Transcript will appear here — edit before saving"
+          minHeight="120px"
+        />
         <div class="draft-actions">
           <select bind:value={linkNoteId} class="note-select">
             <option value="">Save standalone</option>

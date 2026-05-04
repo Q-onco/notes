@@ -3,6 +3,7 @@
   import { generateCoverLetter, improveExpBullets } from '../lib/groq';
   import { exportCvHtml, exportCvPdf, exportCoverLetterDocx, exportCoverLetterPdf } from '../lib/export';
   import { nanoid } from 'nanoid';
+  import RichEditor from './RichEditor.svelte';
   import type {
     SavedJob, JobListing, JobStatus, JobRegion, JobType,
     InterviewRecord, CvExperience, CvEducation, CvPublication,
@@ -834,7 +835,7 @@
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
               </div>
-              <textarea class="modal-textarea" bind:value={editingNotesDraft} rows={6} placeholder="Notes, contacts, timeline…"></textarea>
+              <RichEditor bind:value={editingNotesDraft} placeholder="Notes, contacts, timeline…" minHeight="140px" />
               <div class="modal-actions">
                 <button class="btn btn-ghost btn-sm" onclick={() => editingNotesId = null}>Cancel</button>
                 <button class="btn btn-primary btn-sm" onclick={saveNotes}>Save</button>
@@ -934,7 +935,7 @@
                 </div>
                 <div class="field full">
                   <label>Professional summary</label>
-                  <textarea rows={4} bind:value={store.cvProfile.summary} placeholder="2–3 sentence research identity statement…"></textarea>
+                  <RichEditor bind:value={store.cvProfile.summary} placeholder="2–3 sentence research identity statement…" minHeight="90px" />
                 </div>
                 <div class="field">
                   <label>Languages (comma-separated)</label>
@@ -1266,7 +1267,11 @@
               {#if clContent}
                 <div class="field full">
                   <label>Generated cover letter — edit before saving</label>
-                  <textarea class="cl-textarea" rows={18} bind:value={clContent}></textarea>
+                  {#if clGenerating}
+                    <div class="cl-stream-box">{clContent}</div>
+                  {:else}
+                    <RichEditor bind:value={clContent} placeholder="Cover letter content…" minHeight="360px" />
+                  {/if}
                 </div>
                 <div class="cl-save-row">
                   <button class="btn btn-ghost btn-sm" onclick={() => { const b = new Blob([clContent], {type:'text/markdown'}); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href=u; a.download='cover-letter.md'; a.click(); URL.revokeObjectURL(u); }}>Export .md</button>
@@ -1287,9 +1292,12 @@
                 </div>
                 <button class="btn btn-ghost btn-sm" onclick={() => exportLetter(clSelectedLetter!)}>Export</button>
               </div>
-              <textarea class="cl-textarea" rows={20} bind:value={clSelectedLetter.content}
+              <RichEditor
+                bind:value={clSelectedLetter.content}
                 onchange={async () => { clSelectedLetter!.editedAt = Date.now(); await store.saveCoverLetters(); showToast('Saved'); }}
-              ></textarea>
+                placeholder="Cover letter content…"
+                minHeight="400px"
+              />
             </div>
           {/if}
         </div>
@@ -1787,6 +1795,7 @@
   .cl-cv-hint svg { color: var(--ac); flex-shrink: 0; }
   .cl-generate-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .cl-textarea { font-family: var(--mono); font-size: 0.85rem; line-height: 1.7; width: 100%; box-sizing: border-box; }
+  .cl-stream-box { font-family: var(--mono); font-size: 0.85rem; line-height: 1.7; white-space: pre-wrap; padding: 12px 14px; border: 1px solid var(--bd); border-radius: var(--radius-sm); background: var(--sf); min-height: 200px; color: var(--tx2); }
   .cl-save-row { display: flex; gap: 8px; justify-content: flex-end; }
   .cl-view-letter { display: flex; flex-direction: column; gap: 14px; }
   .cl-view-head { display: flex; align-items: flex-start; gap: 12px; }
