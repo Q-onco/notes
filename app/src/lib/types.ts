@@ -28,6 +28,7 @@ export interface Task {
   createdAt: number;
   dueAt: number | null;
   priority: 'high' | 'medium' | 'low';
+  repeat?: 'daily' | 'weekly' | 'monthly';
 }
 
 export interface AudioRecord {
@@ -133,6 +134,7 @@ export interface ReadingListItem {
   addedAt: number;
   note: string;
   read: boolean;
+  readAt?: number;
   priority: 'high' | 'medium' | 'low';
 }
 
@@ -377,6 +379,29 @@ export interface JobDeadline {
   done: boolean;
 }
 
+// ── AI feature toggles ────────────────────────────────────────────────────────
+
+export interface AiFeatureSettings {
+  coverLetter:  boolean;  // default false
+  writerBullets: boolean; // default false
+  weeklyDigest: boolean;  // default false
+  deepRead:     boolean;  // default false
+  readingNote:  boolean;  // default false
+}
+
+// ── Hypothesis tracker ────────────────────────────────────────────────────────
+
+export interface Hypothesis {
+  id: string;
+  text: string;
+  rationale: string;
+  status: 'active' | 'supported' | 'refuted' | 'inconclusive';
+  result: string;
+  linkedNotes: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+
 // ── Settings extension ────────────────────────────────────────────────────────
 
 export interface AppSettings {
@@ -390,4 +415,6 @@ export interface AppSettings {
   alarms?: AlarmItem[];
   groqKey?: string;
   groqModel?: string;
+  ai?: AiFeatureSettings;
+  weeklyReadingGoal?: number;
 }

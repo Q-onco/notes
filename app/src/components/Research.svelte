@@ -3,7 +3,7 @@
   import type { PaperResult, ReadingListItem, SavedSearch, Note } from '../lib/types';
   import { store } from '../lib/store.svelte';
   import { exportPapers, exportPapersDocx } from '../lib/export';
-  import { askResearch } from '../lib/groq';
+  import { askResearch, deepReadPaper, generateReadingNote } from '../lib/groq';
   import { nanoid } from 'nanoid';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
@@ -383,9 +383,101 @@ Format your response as:
 
   async function toggleReadItem(id: string) {
     store.readingList = store.readingList.map(r =>
-      r.id === id ? { ...r, read: !r.read } : r
+      r.id === id ? { ...r, read: !r.read, readAt: !r.read ? Date.now() : r.readAt } : r
     );
     await store.saveResearch();
+  }
+
+  // ── Citation copy ─────────────────────────────────────────────
+  function buildAPA(paper: PaperResult): string {
+    const authors = paper.authors.length
+      ? paper.authors.slice(0, 6).join(', ') + (paper.authors.length > 6 ? ', et al.' : '')
+      : 'Unknown authors';
+    return `${authors} (${paper.year}). ${paper.title}. *${paper.journal}*. ${paper.doi ? 'https://doi.org/' + paper.doi : paper.url}`;
+  }
+
+  function buildBibTeX(paper: PaperResult): string {
+    const key = (paper.authors[0]?.split(' ').pop() ?? 'Unknown') + paper.year;
+    const authorField = paper.authors.join(' and ');
+    return `@article{${key},\n  author  = {${authorField}},\n  title   = {${paper.title}},\n  journal = {${paper.journal}},\n  year    = {${paper.year}},${paper.doi ? '\n  doi     = {' + paper.doi + '},' : ''}\n}`;
+  }
+
+  async function copyCitation(paper: PaperResult, fmt: 'apa' | 'bibtex') {
+    const text = fmt === 'apa' ? buildAPA(paper) : buildBibTeX(paper);
+    await navigator.clipboard.writeText(text);
+    showToast(`Copied ${fmt.toUpperCase()} citation`);
+  }
+
+  // ── Reading time ──────────────────────────────────────────────
+  function readingTimeMins(paper: PaperResult): number {
+    const words = paper.abstract ? paper.abstract.split(/\s+/).length : 0;
+    return words > 150 ? 35 : 5;
+  }
+
+  // ── Weekly reading progress ───────────────────────────────────
+  const weekStart = $derived(Date.now() - 7 * 86400000);
+  const readThisWeek = $derived(store.readingList.filter(r => r.read && r.readAt && r.readAt > weekStart).length);
+
+  // ── Deep Read & Reading Note state ───────────────────────────
+  let deepReadId = $state<string | null>(null);
+  let deepReadText = $state('');
+  let deepReadStreaming = $state(false);
+  let deepReadAbort: AbortController | null = null;
+
+  let readingNoteId = $state<string | null>(null);
+  let readingNoteStreaming = $state(false);
+
+  async function doDeepRead(paper: PaperResult) {
+    if (deepReadId === paper.id && deepReadStreaming) {
+      deepReadAbort?.abort();
+      deepReadStreaming = false;
+      return;
+    }
+    deepReadAbort?.abort();
+    deepReadAbort = new AbortController();
+    deepReadId = paper.id;
+    deepReadText = '';
+    deepReadStreaming = true;
+    const abs = abstractText[paper.id] || paper.abstract || '';
+    try {
+      await deepReadPaper(paper.title, abs, (chunk) => { deepReadText += chunk; }, deepReadAbort.signal);
+    } catch { /* aborted or error */ }
+    deepReadStreaming = false;
+  }
+
+  async function doReadingNote(paper: PaperResult) {
+    readingNoteId = paper.id;
+    readingNoteStreaming = true;
+    let full = '';
+    try {
+      await generateReadingNote(
+        { title: paper.title, authors: paper.authors, journal: paper.journal, year: paper.year, abstract: abstractText[paper.id] || paper.abstract, doi: paper.doi },
+        (chunk) => { full += chunk; }
+      );
+    } catch (e) {
+      showToast('Failed to generate reading note', 'error');
+      readingNoteStreaming = false;
+      readingNoteId = null;
+      return;
+    }
+    const note: Note = {
+      id: nanoid(),
+      title: `Reading note: ${paper.title.slice(0, 70)}`,
+      body: `# ${paper.title}\n\n**Citation:** ${buildAPA(paper)}\n\n${full}`,
+      tags: ['reading-note', 'paper', paper.source],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      pinned: false,
+      archived: false,
+      audioIds: []
+    };
+    store.notes = [note, ...store.notes];
+    store.currentNoteId = note.id;
+    await store.saveNotes();
+    store.view = 'notes';
+    showToast('Reading note created');
+    readingNoteStreaming = false;
+    readingNoteId = null;
   }
 
   async function removeReadingItem(id: string) {
@@ -669,11 +761,43 @@ Format your response as:
               <button class="btn-icon" onclick={() => sendToEnzo(paper)} title="Ask Enzo about this">
                 <span class="text-enzo text-xs" style="font-family:var(--mono);font-weight:700">E</span>
               </button>
+              <button class="btn-icon" onclick={() => copyCitation(paper, 'apa')} title="Copy APA citation" style="font-size:0.6rem;font-weight:700;font-family:var(--mono)">APA</button>
+              <button class="btn-icon" onclick={() => copyCitation(paper, 'bibtex')} title="Copy BibTeX" style="font-size:0.6rem;font-weight:700;font-family:var(--mono)">BIB</button>
               <button class="btn-icon save-note-btn" onclick={() => saveAsNote(paper)} title="Save as note">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                 </svg>
               </button>
+              {#if store.aiSettings.deepRead}
+                <button
+                  class="btn-icon deep-read-btn"
+                  class:deep-read-active={deepReadId === paper.id}
+                  onclick={() => doDeepRead(paper)}
+                  title="Deep Read — Enzo asks 5 critical questions"
+                >
+                  {#if deepReadStreaming && deepReadId === paper.id}
+                    <span class="spinner-xs"></span>
+                  {:else}
+                    <span style="font-size:0.6rem;font-weight:700;font-family:var(--mono)">DR</span>
+                  {/if}
+                </button>
+              {/if}
+              {#if store.aiSettings.readingNote}
+                <button
+                  class="btn-icon reading-note-btn"
+                  onclick={() => doReadingNote(paper)}
+                  disabled={readingNoteStreaming && readingNoteId === paper.id}
+                  title="Generate AI reading note"
+                >
+                  {#if readingNoteStreaming && readingNoteId === paper.id}
+                    <span class="spinner-xs"></span>
+                  {:else}
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                      <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                    </svg>
+                  {/if}
+                </button>
+              {/if}
               <!-- Summarise button -->
               <button
                 class="btn-icon summarise-btn"
@@ -753,6 +877,19 @@ Format your response as:
               <div class="summary-body text-sm">{summaryText[paper.id] || ''}</div>
             </div>
           {/if}
+          {#if deepReadId === paper.id && (deepReadText || deepReadStreaming)}
+            <div class="summary-box deep-read-box">
+              <div class="summary-header">
+                <span class="summary-label">Deep Read · Enzo's questions</span>
+                {#if deepReadStreaming}
+                  <span class="spinner-xs"></span>
+                {:else}
+                  <button class="btn-link" onclick={() => { deepReadId = null; deepReadText = ''; }}>Close</button>
+                {/if}
+              </div>
+              <div class="summary-body text-sm">{deepReadText}</div>
+            </div>
+          {/if}
         </article>
       {:else}
         {#if !loading}
@@ -783,6 +920,19 @@ Format your response as:
   {:else}
     <!-- Reading list tab -->
     <div class="reading-list">
+      {#if store.readingList.length > 0}
+        {@const goal = store.settings.weeklyReadingGoal ?? 3}
+        {@const pct = Math.min(100, Math.round((readThisWeek / goal) * 100))}
+        <div class="reading-goal-bar card">
+          <div class="reading-goal-head">
+            <span class="reading-goal-label">Weekly goal</span>
+            <span class="reading-goal-count">{readThisWeek} / {goal} papers read this week</span>
+          </div>
+          <div class="goal-track">
+            <div class="goal-fill" style="width: {pct}%" class:goal-done={readThisWeek >= goal}></div>
+          </div>
+        </div>
+      {/if}
       {#if store.readingList.length === 0}
         <div class="empty-state">
           <p class="text-mu">No papers in your reading list yet. Bookmark papers from search results.</p>
@@ -837,6 +987,8 @@ Format your response as:
                           </svg>
                         </a>
                       {/if}
+                      <button class="btn-icon" onclick={() => copyCitation(item.paper, 'apa')} title="Copy APA citation">APA</button>
+                      <button class="btn-icon" onclick={() => copyCitation(item.paper, 'bibtex')} title="Copy BibTeX">BIB</button>
                       <button class="btn-icon" onclick={() => removeReadingItem(item.id)} title="Remove">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                           <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -846,7 +998,7 @@ Format your response as:
                   </div>
                   <p class="rl-title" class:rl-title-done={item.read}>{item.paper.title}</p>
                   {#if item.paper.authors.length > 0}
-                    <p class="text-xs text-mu">{item.paper.authors.slice(0, 4).join(', ')}{item.paper.authors.length > 4 ? ' et al.' : ''}</p>
+                    <p class="text-xs text-mu">{item.paper.authors.slice(0, 4).join(', ')}{item.paper.authors.length > 4 ? ' et al.' : ''} · ~{readingTimeMins(item.paper)} min</p>
                   {/if}
                 </div>
               {/each}
@@ -1193,6 +1345,20 @@ Format your response as:
     border-radius: var(--radius-sm);
     padding: 12px;
   }
+  .deep-read-box { background: var(--enzo-bg); border-color: var(--enzo-bd); }
+  .deep-read-box .summary-label { color: var(--enzo); }
+  .deep-read-btn { color: var(--enzo); }
+  .deep-read-btn:hover, .deep-read-active { background: var(--enzo-bg); }
+  .reading-note-btn { color: var(--ac); }
+  .reading-note-btn:hover { background: var(--ac-bg); }
+
+  .reading-goal-bar { padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; }
+  .reading-goal-head { display: flex; align-items: center; justify-content: space-between; }
+  .reading-goal-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--mu); }
+  .reading-goal-count { font-size: 0.78rem; color: var(--tx2); }
+  .goal-track { height: 5px; background: var(--sf2); border-radius: 3px; overflow: hidden; }
+  .goal-fill { height: 100%; background: var(--ac); border-radius: 3px; transition: width 0.4s; }
+  .goal-fill.goal-done { background: var(--gn); }
   .summary-header {
     display: flex;
     align-items: center;

@@ -3,6 +3,7 @@
   import { nanoid } from 'nanoid';
   import type { Note } from '../lib/types';
   import { exportPapers } from '../lib/export';
+  import { generateWeeklyDigest } from '../lib/groq';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -98,6 +99,36 @@
     prompts.push('Suggest an experiment to probe PARPi resistance mechanisms in my HGSOC cohort.');
     return prompts.slice(0, 5);
   })());
+
+  // ── Weekly digest ─────────────────────────────────────────────
+  let digestText = $state('');
+  let digestStreaming = $state(false);
+  let digestOpen = $state(false);
+  let digestAbort: AbortController | null = null;
+
+  async function runDigest() {
+    if (digestStreaming) { digestAbort?.abort(); digestStreaming = false; return; }
+    digestAbort = new AbortController();
+    digestOpen = true;
+    digestText = '';
+    digestStreaming = true;
+    const ws = Date.now() - 7 * 86400000;
+    const data = {
+      papersRead: store.readingList.filter(r => r.read && r.readAt && r.readAt > ws).map(r => ({ title: r.paper.title, journal: r.paper.journal })),
+      papersAdded: store.readingList.filter(r => r.addedAt > ws).map(r => ({ title: r.paper.title })),
+      journalEntries: [...store.journal].filter(e => e.createdAt > ws).sort((a,b) => b.createdAt - a.createdAt).map(e => ({
+        date: new Date(e.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+        body: e.body.slice(0, 200),
+        mood: e.mood,
+      })),
+      tasksDone: store.tasks.filter(t => t.done).slice(0, 10).map(t => t.text),
+      tasksOpen: store.tasks.filter(t => !t.done).slice(0, 10).map(t => t.text),
+    };
+    try {
+      await generateWeeklyDigest(data, (chunk) => { digestText += chunk; }, digestAbort.signal);
+    } catch { /* aborted */ }
+    digestStreaming = false;
+  }
 </script>
 
 <div class="dashboard">
@@ -167,6 +198,28 @@
         </span>
         <button class="btn btn-ghost btn-sm deadline-go" onclick={() => store.view = 'jobs'}>Go →</button>
       </div>
+    {/if}
+
+    <!-- Weekly digest -->
+    {#if store.aiSettings.weeklyDigest}
+      <div class="digest-row">
+        <button class="btn btn-ghost btn-sm" onclick={runDigest}>
+          {#if digestStreaming}
+            <span class="spinner-xs-inline"></span> Stop
+          {:else}
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            Weekly digest
+          {/if}
+        </button>
+        {#if digestOpen}
+          <button class="btn-link" onclick={() => digestOpen = false}>Close ✕</button>
+        {/if}
+      </div>
+      {#if digestOpen && (digestText || digestStreaming)}
+        <div class="digest-panel card">
+          <div class="digest-body text-sm">{digestText || '…'}</div>
+        </div>
+      {/if}
     {/if}
 
     <!-- Main grid -->
@@ -350,6 +403,14 @@
   .stat-label { font-size: 0.75rem; color: var(--mu); }
   .stat-week { font-size: 0.68rem; color: var(--gn); font-weight: 600; }
   .stat-deadline { color: var(--yw) !important; }
+
+  .digest-row { display: flex; align-items: center; gap: 10px; }
+  .digest-panel { padding: 16px; white-space: pre-wrap; line-height: 1.7; }
+  .digest-body { white-space: pre-wrap; }
+  .spinner-xs-inline { display: inline-block; width: 10px; height: 10px; border: 1.5px solid var(--bd2); border-top-color: var(--ac); border-radius: 50%; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .btn-link { background: transparent; border: none; color: var(--ac); cursor: pointer; font-size: 0.78rem; padding: 2px 6px; border-radius: var(--radius-sm); font-family: var(--font); }
+  .btn-link:hover { background: var(--ac-bg); }
 
   .deadline-banner {
     display: flex; align-items: center; gap: 10px;

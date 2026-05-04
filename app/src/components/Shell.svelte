@@ -26,6 +26,12 @@
   let searchQuery = $state('');
   let searchSelected = $state(0);
   let searchInputEl = $state<HTMLInputElement | undefined>(undefined);
+
+  // ── Quick capture ─────────────────────────────────────────────
+  let captureOpen = $state(false);
+  let captureText = $state('');
+  let captureRoute = $state<'note' | 'task' | 'journal' | 'reading'>('note');
+  let captureInputEl = $state<HTMLInputElement | undefined>(undefined);
   let newAlarmTime = $state('');
   let newAlarmLabel = $state('');
   const firedToday = new Set<string>();
@@ -146,6 +152,38 @@
     setTimeout(() => searchInputEl?.focus(), 30);
   }
 
+  function openCapture() {
+    captureOpen = true;
+    captureText = '';
+    captureRoute = 'note';
+    setTimeout(() => captureInputEl?.focus(), 30);
+  }
+
+  async function submitCapture() {
+    if (!captureText.trim()) return;
+    const text = captureText.trim();
+    if (captureRoute === 'task') {
+      store.tasks = [{ id: nanoid(), text, done: false, noteId: null, createdAt: Date.now(), dueAt: null, priority: 'medium' }, ...store.tasks];
+      await store.saveTasks();
+      store.view = 'tasks';
+    } else if (captureRoute === 'journal') {
+      store.journal = [{ id: nanoid(), body: text, mood: '', contextTag: 'Research', createdAt: Date.now(), updatedAt: Date.now(), audioIds: [] }, ...store.journal];
+      await store.saveJournal();
+      store.view = 'journal';
+    } else if (captureRoute === 'reading') {
+      showToast('Paste the title into Research → search to add to reading list');
+      store.view = 'research';
+    } else {
+      const note = { id: nanoid(), title: text.split('\n')[0].slice(0, 80) || 'Quick note', body: text, tags: [], createdAt: Date.now(), updatedAt: Date.now(), pinned: false, archived: false, audioIds: [] };
+      store.notes = [note, ...store.notes];
+      store.currentNoteId = note.id;
+      await store.saveNotes();
+      store.view = 'notes';
+    }
+    showToast('Captured');
+    captureOpen = false;
+  }
+
   function navigateToResult(result: SearchResult) {
     searchOpen = false;
     if (result.section === 'enzo') {
@@ -163,7 +201,13 @@
       openSearch();
       return;
     }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'j') {
+      e.preventDefault();
+      openCapture();
+      return;
+    }
     if (e.key === 'Escape') {
+      if (captureOpen) { captureOpen = false; return; }
       if (searchOpen) { searchOpen = false; return; }
       helpOpen = false;
       clockOpen = false;
@@ -259,6 +303,32 @@
         <span class="search-hint-keys"><kbd>↑↓</kbd> navigate · <kbd>↵</kbd> open</span>
       </div>
     {/if}
+  </div>
+{/if}
+
+{#if captureOpen}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="search-backdrop" onclick={() => captureOpen = false}></div>
+  <div class="capture-overlay" role="dialog" aria-label="Quick capture" aria-modal="true">
+    <div class="capture-route-row">
+      {#each ([['note','Note'],['task','Task'],['journal','Journal entry'],['reading','Reading list']] as const) as [val, label]}
+        <button class="capture-route-btn" class:capture-route-active={captureRoute === val} onclick={() => captureRoute = val}>{label}</button>
+      {/each}
+    </div>
+    <div class="capture-input-row">
+      <input
+        class="capture-input"
+        bind:value={captureText}
+        bind:this={captureInputEl}
+        placeholder={captureRoute === 'task' ? 'Task description…' : captureRoute === 'journal' ? 'What\'s on your mind?' : captureRoute === 'reading' ? 'Paper title or note…' : 'Note title or first line…'}
+        onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitCapture(); } }}
+      />
+      <button class="btn btn-primary" onclick={submitCapture} disabled={!captureText.trim()}>
+        Capture <kbd style="font-size:0.6rem;opacity:0.7;margin-left:4px">↵</kbd>
+      </button>
+    </div>
+    <p class="capture-hint text-xs text-mu">Ctrl+J to capture · Esc to close</p>
   </div>
 {/if}
 
@@ -853,6 +923,32 @@
     color: var(--mu);
   }
   .search-hint-keys { display: flex; gap: 8px; align-items: center; }
+  /* ── Quick capture ── */
+  .capture-overlay {
+    position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
+    width: min(520px, 94vw); background: var(--sf);
+    border: 1px solid var(--bd); border-radius: var(--radius);
+    box-shadow: 0 24px 64px rgba(0,0,0,0.28); z-index: 201;
+    padding: 14px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .capture-route-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .capture-route-btn {
+    padding: 4px 12px; border-radius: 20px; font-size: 0.78rem; font-weight: 500;
+    background: var(--sf2); border: 1px solid var(--bd); color: var(--tx2); cursor: pointer;
+    transition: all var(--transition);
+  }
+  .capture-route-btn:hover { border-color: var(--ac); color: var(--ac); }
+  .capture-route-active { background: var(--ac-bg); border-color: var(--ac); color: var(--ac); }
+  .capture-input-row { display: flex; gap: 8px; }
+  .capture-input {
+    flex: 1; font-size: 0.95rem; font-family: var(--font);
+    border: 1px solid var(--bd); border-radius: var(--radius-sm);
+    padding: 8px 12px; background: var(--sf2); color: var(--tx);
+    outline: none;
+  }
+  .capture-input:focus { border-color: var(--ac); }
+  .capture-hint { text-align: right; }
+
   .search-hint-keys kbd {
     font-size: 0.62rem;
     background: var(--sf2);

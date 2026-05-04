@@ -1,11 +1,56 @@
 <script lang="ts">
-  import type { PipelineRun, PipelineStep, QCMetric, Protocol } from '../lib/types';
+  import type { PipelineRun, PipelineStep, QCMetric, Protocol, Hypothesis } from '../lib/types';
   import { store } from '../lib/store.svelte';
   import { nanoid } from 'nanoid';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
-  type PanelTab = 'runs' | 'protocols';
+  type PanelTab = 'runs' | 'protocols' | 'hypotheses';
+
+  // ── Hypothesis state ──────────────────────────────────────────
+  let showHypForm = $state(false);
+  let editHypId = $state<string | null>(null);
+  let hypText = $state('');
+  let hypRationale = $state('');
+  let hypStatus = $state<Hypothesis['status']>('active');
+  let hypResult = $state('');
+
+  function startNewHyp() {
+    editHypId = null; hypText = ''; hypRationale = ''; hypStatus = 'active'; hypResult = '';
+    showHypForm = true;
+  }
+
+  function startEditHyp(h: Hypothesis) {
+    editHypId = h.id; hypText = h.text; hypRationale = h.rationale;
+    hypStatus = h.status; hypResult = h.result; showHypForm = true;
+  }
+
+  async function saveHyp() {
+    if (!hypText.trim()) return;
+    if (editHypId) {
+      store.hypotheses = store.hypotheses.map(h =>
+        h.id === editHypId ? { ...h, text: hypText, rationale: hypRationale, status: hypStatus, result: hypResult, updatedAt: Date.now() } : h
+      );
+    } else {
+      store.hypotheses = [{ id: nanoid(), text: hypText, rationale: hypRationale, status: hypStatus, result: hypResult, linkedNotes: [], createdAt: Date.now(), updatedAt: Date.now() }, ...store.hypotheses];
+    }
+    await store.savePipelines();
+    showHypForm = false;
+  }
+
+  async function deleteHyp(id: string) {
+    if (!confirm('Delete this hypothesis?')) return;
+    store.hypotheses = store.hypotheses.filter(h => h.id !== id);
+    await store.savePipelines();
+  }
+
+  const HYP_STATUS_LABELS: Record<Hypothesis['status'], string> = {
+    active: 'Active', supported: 'Supported', refuted: 'Refuted', inconclusive: 'Inconclusive'
+  };
+  const HYP_STATUS_CLS: Record<Hypothesis['status'], string> = {
+    active: 'hyp-active', supported: 'hyp-supported', refuted: 'hyp-refuted', inconclusive: 'hyp-inconclusive'
+  };
+
   type PipelineType = PipelineRun['pipelineType'];
   type ProtocolType = Protocol['type'];
 
@@ -440,6 +485,9 @@
         <div class="left-tabs">
           <button class="ltab" class:active={panelTab === 'runs'} onclick={() => panelTab = 'runs'}>Runs</button>
           <button class="ltab" class:active={panelTab === 'protocols'} onclick={() => panelTab = 'protocols'}>Protocols</button>
+          <button class="ltab" class:active={panelTab === 'hypotheses'} onclick={() => panelTab = 'hypotheses'}>
+            Hypotheses {#if store.hypotheses.length > 0}<span class="tab-count">{store.hypotheses.length}</span>{/if}
+          </button>
         </div>
         {#if panelTab === 'runs'}
           <button
@@ -572,6 +620,59 @@
               </div>
             </button>
           {/each}
+        {/if}
+
+        <!-- ── Hypotheses tab ── -->
+        {#if panelTab === 'hypotheses'}
+          <div class="hyp-list-panel">
+            <button class="btn btn-primary btn-sm hyp-new-btn" onclick={startNewHyp}>+ New hypothesis</button>
+            {#if showHypForm}
+              <div class="hyp-form card">
+                <textarea class="hyp-textarea" bind:value={hypText} placeholder="State the hypothesis clearly…" rows={3}></textarea>
+                <textarea class="hyp-textarea" bind:value={hypRationale} placeholder="Rationale / supporting evidence…" rows={2}></textarea>
+                <div class="hyp-form-row">
+                  <select bind:value={hypStatus} class="priority-select">
+                    <option value="active">Active</option>
+                    <option value="supported">Supported</option>
+                    <option value="refuted">Refuted</option>
+                    <option value="inconclusive">Inconclusive</option>
+                  </select>
+                  <button class="btn btn-primary btn-sm" onclick={saveHyp} disabled={!hypText.trim()}>Save</button>
+                  <button class="btn btn-ghost btn-sm" onclick={() => showHypForm = false}>Cancel</button>
+                </div>
+                {#if hypStatus !== 'active'}
+                  <textarea class="hyp-textarea" bind:value={hypResult} placeholder="Result / conclusion…" rows={2}></textarea>
+                {/if}
+              </div>
+            {/if}
+            {#each store.hypotheses as h (h.id)}
+              <div class="hyp-card card">
+                <div class="hyp-card-head">
+                  <span class="hyp-status-badge {HYP_STATUS_CLS[h.status]}">{HYP_STATUS_LABELS[h.status]}</span>
+                  <div class="hyp-actions">
+                    <button class="btn-icon" onclick={() => startEditHyp(h)} title="Edit">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4z"/></svg>
+                    </button>
+                    <button class="btn-icon danger" onclick={() => deleteHyp(h.id)} title="Delete">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <p class="hyp-text">{h.text}</p>
+                {#if h.rationale}
+                  <p class="hyp-rationale text-xs text-mu">{h.rationale}</p>
+                {/if}
+                {#if h.result && h.status !== 'active'}
+                  <p class="hyp-result text-xs">→ {h.result}</p>
+                {/if}
+                <p class="hyp-date text-xs text-mu">{new Date(h.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+              </div>
+            {:else}
+              {#if !showHypForm}
+                <p class="text-mu text-sm" style="padding:12px 0">No hypotheses yet. Add your first.</p>
+              {/if}
+            {/each}
+          </div>
         {/if}
       </div>
     </aside>
@@ -1342,6 +1443,28 @@
     padding: 1px 4px;
     border-radius: 3px;
   }
+
+  /* ── Hypotheses ── */
+  .hyp-list-panel { display: flex; flex-direction: column; gap: 10px; padding: 10px 0; }
+  .hyp-new-btn { align-self: flex-start; }
+  .hyp-form { display: flex; flex-direction: column; gap: 8px; border-color: var(--ac); }
+  .hyp-textarea { font-family: var(--font); font-size: 0.85rem; resize: vertical; }
+  .hyp-form-row { display: flex; gap: 8px; align-items: center; }
+  .hyp-card { display: flex; flex-direction: column; gap: 6px; }
+  .hyp-card-head { display: flex; align-items: center; justify-content: space-between; }
+  .hyp-actions { display: flex; gap: 2px; }
+  .hyp-text { font-size: 0.87rem; font-weight: 500; color: var(--tx); line-height: 1.5; }
+  .hyp-rationale { line-height: 1.5; }
+  .hyp-result { color: var(--gn); font-style: italic; }
+  .hyp-date { margin-top: 2px; }
+  .hyp-status-badge {
+    font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    padding: 2px 8px; border-radius: 10px;
+  }
+  .hyp-active       { background: var(--ac-bg); color: var(--ac); }
+  .hyp-supported    { background: color-mix(in srgb, var(--gn) 15%, transparent); color: var(--gn); }
+  .hyp-refuted      { background: var(--rd-bg); color: var(--rd); }
+  .hyp-inconclusive { background: var(--sf2); color: var(--mu); }
 
   /* Status colors */
   .status-planned  { background: var(--mu); }
