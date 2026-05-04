@@ -127,7 +127,10 @@
 <svelte:window onkeydown={onWindowKey} />
 
 {#if helpOpen}
-  <Help onclose={() => helpOpen = false} />
+  <Help
+    onclose={() => helpOpen = false}
+    onnavigate={(section) => { store.view = section as typeof store.view; helpOpen = false; }}
+  />
 {/if}
 
 <div class="shell">

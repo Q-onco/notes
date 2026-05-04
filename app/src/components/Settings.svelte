@@ -114,16 +114,6 @@
     store.logout();
   }
 
-  const SHORTCUTS = [
-    { key: '?',        desc: 'Open help' },
-    { key: 'Ctrl+K',   desc: 'Focus Enzo input' },
-    { key: 'Ctrl+N',   desc: 'New note' },
-    { key: 'Ctrl+J',   desc: 'New journal entry' },
-    { key: 'Ctrl+T',   desc: 'New task' },
-    { key: 'Esc',      desc: 'Close Enzo / dialog' },
-    { key: '←/→',      desc: 'Calendar month navigation' },
-    { key: 'T',        desc: 'Jump calendar to today' },
-  ];
 </script>
 
 <div class="settings-view">
@@ -314,24 +304,8 @@
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         {exporting ? 'Exporting…' : 'Export all data (JSON)'}
       </button>
-      <button class="btn btn-ghost btn-sm" onclick={clearSessionToggles}>
-        Reset section toggles
-      </button>
     </div>
     <p class="field-hint">All data is encrypted with AES-256-GCM and stored as commits in your GitHub repository at Q-onco/notes.</p>
-  </div>
-
-  <!-- ── Keyboard shortcuts ── -->
-  <div class="card settings-card">
-    <span class="section-title">Keyboard shortcuts</span>
-    <div class="shortcuts-grid">
-      {#each SHORTCUTS as s}
-        <div class="shortcut-row">
-          <kbd class="kbd">{s.key}</kbd>
-          <span class="text-sm text-mu">{s.desc}</span>
-        </div>
-      {/each}
-    </div>
   </div>
 
   <!-- ── Danger zone ── -->

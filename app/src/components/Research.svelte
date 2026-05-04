@@ -2,7 +2,7 @@
   import { searchPubMed, fetchBioRxiv, fetchNatureCell, fetchPubMedAbstract, searchOpenAlex, searchEuropePMC } from '../lib/pubmed';
   import type { PaperResult, ReadingListItem, SavedSearch } from '../lib/types';
   import { store } from '../lib/store.svelte';
-  import { exportPapers } from '../lib/export';
+  import { exportPapers, exportPapersDocx } from '../lib/export';
   import { askResearch } from '../lib/groq';
   import { nanoid } from 'nanoid';
 
@@ -469,8 +469,9 @@ Format your response as:
       {#if store.pinnedPapers.length > 0}
         <button class="btn btn-ghost btn-sm" onclick={() => exportPapers(store.pinnedPapers)}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Export pinned ({store.pinnedPapers.length})
+          Export .md ({store.pinnedPapers.length})
         </button>
+        <button class="btn btn-ghost btn-sm" onclick={() => exportPapersDocx(store.pinnedPapers)}>Export .doc</button>
       {/if}
     </div>
   </div>

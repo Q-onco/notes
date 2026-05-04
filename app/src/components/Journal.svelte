@@ -4,7 +4,7 @@
   import type { JournalEntry } from '../lib/types';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
-  import { exportJournal } from '../lib/export';
+  import { exportJournal, exportJournalDocx, exportJournalPdf } from '../lib/export';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -149,8 +149,10 @@
       {#if store.journal.length > 0}
         <button class="btn btn-ghost" onclick={() => exportJournal(store.journal)} title="Export journal as .md">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Export
+          .md
         </button>
+        <button class="btn btn-ghost" onclick={() => exportJournalDocx(store.journal)} title="Export as Word .doc">.doc</button>
+        <button class="btn btn-ghost" onclick={() => exportJournalPdf(store.journal)} title="Print / PDF">PDF</button>
       {/if}
       <button class="btn btn-primary" onclick={startNew}>New entry</button>
     </div>
