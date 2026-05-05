@@ -3,7 +3,7 @@
   import type { PaperResult, ReadingListItem, SavedSearch, Note } from '../lib/types';
   import { store } from '../lib/store.svelte';
   import { exportPapers, exportPapersDocx } from '../lib/export';
-  import { askResearch, deepReadPaper, generateReadingNote } from '../lib/groq';
+  import { askResearch, deepReadPaper, generateReadingNote, critiquePaper } from '../lib/groq';
   import { nanoid } from 'nanoid';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
@@ -464,6 +464,30 @@ Format your response as:
   const weekStart = $derived(Date.now() - 7 * 86400000);
   const readThisWeek = $derived(store.readingList.filter(r => r.read && r.readAt && r.readAt > weekStart).length);
 
+  // ── Paper Critique state ─────────────────────────────────────
+  let critiqueId = $state<string | null>(null);
+  let critiqueText = $state('');
+  let critiqueStreaming = $state(false);
+  let critiqueAbort: AbortController | null = null;
+
+  async function doCritique(paper: PaperResult) {
+    if (critiqueId === paper.id && critiqueStreaming) {
+      critiqueAbort?.abort();
+      critiqueStreaming = false;
+      return;
+    }
+    critiqueAbort?.abort();
+    critiqueAbort = new AbortController();
+    critiqueId = paper.id;
+    critiqueText = '';
+    critiqueStreaming = true;
+    const abs = abstractText[paper.id] || paper.abstract || '';
+    try {
+      await critiquePaper(paper.title, abs, (chunk) => { critiqueText += chunk; }, critiqueAbort.signal);
+    } catch { /* aborted or error */ }
+    critiqueStreaming = false;
+  }
+
   // ── Deep Read & Reading Note state ───────────────────────────
   let deepReadId = $state<string | null>(null);
   let deepReadText = $state('');
@@ -827,6 +851,18 @@ Format your response as:
               <button class="btn-icon" onclick={() => sendToEnzo(paper)} title="Ask Enzo about this">
                 <span class="text-enzo text-xs" style="font-family:var(--mono);font-weight:700">E</span>
               </button>
+              <button
+                class="btn-icon critique-btn"
+                class:critique-active={critiqueId === paper.id}
+                onclick={() => doCritique(paper)}
+                title="Enzo peer critique"
+              >
+                {#if critiqueStreaming && critiqueId === paper.id}
+                  <span class="spinner-xs"></span>
+                {:else}
+                  <span style="font-size:0.6rem;font-weight:700;font-family:var(--mono)">CR</span>
+                {/if}
+              </button>
               <button class="btn-icon cite-btn" onclick={() => copyCitation(paper, 'apa')} title="Copy APA citation">APA</button>
               <button class="btn-icon cite-btn" onclick={() => copyCitation(paper, 'vancouver')} title="Copy Vancouver citation">VAN</button>
               <button class="btn-icon cite-btn" onclick={() => copyCitation(paper, 'bibtex')} title="Copy BibTeX">BIB</button>
@@ -955,6 +991,19 @@ Format your response as:
                 {/if}
               </div>
               <div class="summary-body text-sm">{deepReadText}</div>
+            </div>
+          {/if}
+          {#if critiqueId === paper.id && (critiqueText || critiqueStreaming)}
+            <div class="summary-box critique-box">
+              <div class="summary-header">
+                <span class="summary-label">Enzo Peer Critique</span>
+                {#if critiqueStreaming}
+                  <span class="spinner-xs"></span>
+                {:else}
+                  <button class="btn-link" onclick={() => { critiqueId = null; critiqueText = ''; }}>Close</button>
+                {/if}
+              </div>
+              <div class="summary-body text-sm" style="white-space:pre-wrap">{critiqueText}</div>
             </div>
           {/if}
         </article>
@@ -1415,6 +1464,10 @@ Format your response as:
   }
   .deep-read-box { background: var(--enzo-bg); border-color: var(--enzo-bd); }
   .deep-read-box .summary-label { color: var(--enzo); }
+  .critique-box { background: rgba(251,146,60,0.07); border-color: rgba(251,146,60,0.25); }
+  .critique-box .summary-label { color: #fb923c; }
+  .critique-btn { color: #fb923c; }
+  .critique-btn:hover, .critique-active { background: rgba(251,146,60,0.12); }
   .deep-read-btn { color: var(--enzo); }
   .deep-read-btn:hover, .deep-read-active { background: var(--enzo-bg); }
   .reading-note-btn { color: var(--ac); }

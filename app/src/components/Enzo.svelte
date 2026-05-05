@@ -120,7 +120,15 @@
           }).join('\n\n')
         : '';
 
-      const contextParts: string[] = [];
+      const VIEW_NAMES: Record<string, string> = {
+        dashboard: 'Dashboard', notes: 'Notes', journal: 'Lab Journal', tasks: 'Tasks',
+        research: 'Literature Research', pipeline: 'Pipeline & Hypotheses', jobs: 'Job Tracker',
+        presentations: 'Presentations', files: 'Files', grants: 'Grants & Abstracts',
+        manuscript: 'Manuscript Writing', audio: 'Audio', settings: 'Settings'
+      };
+      const viewCtx = `## Active section\nUser is currently in: ${VIEW_NAMES[store.view] ?? store.view}`;
+
+      const contextParts: string[] = [viewCtx];
       if (journalPart) contextParts.push(`## Recent journal\n${journalPart}`);
       if (memoryPart) contextParts.push(`## Working memory — past 7 days\n${memoryPart}`);
       const journalContext = contextParts.join('\n\n');
