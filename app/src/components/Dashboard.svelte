@@ -323,6 +323,7 @@
         <button class="btn-link" onclick={() => { piOpen = false; piText = ''; }}>Close ✕</button>
         {#if piText && !piStreaming}
           <button class="btn-link" onclick={() => { navigator.clipboard.writeText(piText); showToast('Report copied'); }}>Copy</button>
+          <button class="btn-link" onclick={() => store.openCompose({ subject: 'Progress Report', body: piText })}>Email</button>
         {/if}
       {/if}
     </div>

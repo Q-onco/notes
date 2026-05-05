@@ -130,6 +130,22 @@ export function exportPapers(papers: PaperResult[], label = 'Pinned Research Pap
   download('qonco-research.md', header + body, 'text/markdown');
 }
 
+export function exportPapersBibTeX(papers: PaperResult[]): void {
+  if (papers.length === 0) return;
+  const entries = papers.map(p => {
+    const key = `${p.authors[0]?.split(' ').pop() ?? 'Unknown'}${p.year}${p.title.split(' ')[0]}`.replace(/[^a-zA-Z0-9]/g, '');
+    const authors = p.authors.join(' and ') || 'Unknown';
+    return `@article{${key},\n  author  = {${authors}},\n  title   = {${p.title}},\n  journal = {${p.journal}},\n  year    = {${p.year || ''}},\n${p.doi ? `  doi     = {${p.doi}},\n  url     = {https://doi.org/${p.doi}},\n` : p.url ? `  url     = {${p.url}},\n` : ''}  abstract = {${(p.abstract || '').replace(/[{}]/g, '')}}\n}`;
+  });
+  download('qonco-reading-list.bib', entries.join('\n\n'), 'text/plain');
+}
+
+export function exportManuscriptPdf(title: string, sections: { label: string; content: string }[], targetJournal?: string): void {
+  const meta = targetJournal ? `<p class="meta">Target journal: ${targetJournal}</p>` : '';
+  const html = `<h1>${title}</h1>${meta}` + sections.map(s => `<h2>${s.label}</h2>${s.content}`).join('');
+  printWindow(title, html);
+}
+
 export function exportPapersDocx(papers: PaperResult[], label = 'Research Papers'): void {
   if (papers.length === 0) return;
   const html = `<h1>${label}</h1><p class="meta">Exported ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })} · ${papers.length} papers</p>` +

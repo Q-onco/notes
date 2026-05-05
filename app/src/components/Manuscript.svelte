@@ -2,6 +2,7 @@
   import { store } from '../lib/store.svelte';
   import { nanoid } from 'nanoid';
   import { assistManuscriptSection } from '../lib/groq';
+  import { exportManuscriptPdf } from '../lib/export';
   import RichEditor from './RichEditor.svelte';
   import type { Manuscript, ManuscriptSection, ManuscriptStatus } from '../lib/types';
 
@@ -357,6 +358,17 @@
         <button class="btn btn-ghost btn-sm" onclick={exportMarkdown} title="Export as Markdown">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Export
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick={() => exportManuscriptPdf(ms.title, ms.sections, ms.targetJournal)} title="Print / Save as PDF">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          PDF
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick={() => {
+          const body = ms.sections.map(s => `## ${s.label}\n\n${s.content.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()}`).join('\n\n');
+          store.openCompose({ subject: `Manuscript draft — ${ms.title}`, body: `${ms.title}\nTarget journal: ${ms.targetJournal || 'TBD'}\nStatus: ${ms.status}\n\n${body}` });
+        }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          Email
         </button>
         <button class="btn btn-ghost btn-sm del-ms-btn" onclick={() => deleteManuscript(ms.id)}>Delete</button>
       </div>

@@ -1,40 +1,79 @@
 <script lang="ts">
   import { store } from '../lib/store.svelte';
   import { MODELS, DAILY_TOKEN_REF, getAllTokenUsage, type ModelKey, WORKER_URL } from '../lib/groq';
+  import { nanoid } from 'nanoid';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
-  let saving = $state(false);
-  let tokenUsage = $state(getAllTokenUsage());
-  let workerTesting = $state(false);
-  let workerStatus = $state<'idle' | 'ok' | 'error'>('idle');
-  let workerMsg = $state('');
-  let exporting = $state(false);
-  let specInput = $state(store.profile.specializations.join(', '));
-  let targetRolesInput = $state(store.profile.targetRoles.join(', '));
-  let targetLocInput = $state(store.profile.targetLocations.join(', '));
+  type Tab = 'identity' | 'appearance' | 'ai' | 'notifications' | 'data';
+  let activeTab = $state<Tab>('identity');
 
-  // Refresh token counts every 3s while view is open
+  let saving       = $state(false);
+  let importing    = $state(false);
+  let exporting    = $state(false);
+  let testSending  = $state(false);
+  let workerTesting = $state(false);
+  let workerStatus  = $state<'idle' | 'ok' | 'error'>('idle');
+  let workerMsg     = $state('');
+  let tokenUsage    = $state(getAllTokenUsage());
+
+  let specInput       = $state(store.profile.specializations.join(', '));
+  let targetRolesInput = $state(store.profile.targetRoles.join(', '));
+  let targetLocInput  = $state(store.profile.targetLocations.join(', '));
+
+  // Refresh token counts every 3s while open
   $effect(() => {
     tokenUsage = getAllTokenUsage();
     const t = setInterval(() => { tokenUsage = getAllTokenUsage(); }, 3000);
     return () => clearInterval(t);
   });
 
-  const MODEL_ROWS: { key: ModelKey; label: string; note: string }[] = [
-    { key: 'enzo',     label: 'Enzo chat',              note: '70B · always' },
-    { key: 'research', label: 'Research & summaries',   note: '120B · on click' },
-    { key: 'quick',    label: 'Light tasks',             note: '8B · on click' },
-    { key: 'whisper',  label: 'Transcription',          note: 'audio · see Audio tab' },
+  // Apply font size whenever it changes
+  $effect(() => { store.applyFontSize(); });
+
+  const TABS: { id: Tab; label: string }[] = [
+    { id: 'identity',      label: 'Identity' },
+    { id: 'appearance',    label: 'Appearance' },
+    { id: 'ai',            label: 'AI' },
+    { id: 'notifications', label: 'Notifications' },
+    { id: 'data',          label: 'Data' },
   ];
 
-  function fmtTokens(n: number): string {
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-    if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k`;
+  const MODEL_ROWS: { key: ModelKey; label: string; note: string }[] = [
+    { key: 'enzo',     label: 'Enzo chat',            note: '70B · always' },
+    { key: 'research', label: 'Research & summaries',  note: '120B · on click' },
+    { key: 'quick',    label: 'Light tasks',           note: '8B · on click' },
+    { key: 'whisper',  label: 'Transcription',         note: 'audio · see Audio tab' },
+  ];
+
+  const AI_TOGGLES: { key: keyof typeof store.aiSettings; label: string; desc: string }[] = [
+    { key: 'coverLetter',    label: 'Cover letter generator',   desc: 'WRITER — job-application cover letters. Enable during job-search sessions.' },
+    { key: 'writerBullets',  label: 'WRITER bullet improver',   desc: 'CAR-format CV bullet rewrites. Enable during CV editing.' },
+    { key: 'weeklyDigest',   label: 'Weekly digest',            desc: 'Enzo compiles a research week summary. Enable on Mondays.' },
+    { key: 'deepRead',       label: 'Deep Read (Socratic)',      desc: '5 critical questions per paper. Enable during focused reading.' },
+    { key: 'readingNote',    label: 'AI reading note',          desc: 'Structured note (Claims · Methods · Limits · Relevance) from abstract.' },
+    { key: 'critique',       label: 'Paper critique',           desc: 'Enzo critiques methodology and assumptions. Enable during literature review.' },
+    { key: 'devilsAdvocate', label: "Devil's advocate",         desc: 'Challenges hypotheses with counter-evidence. Enable during hypothesis work.' },
+    { key: 'interviewPrep',  label: 'Interview prep',           desc: 'Generates interview questions from job description + your CV.' },
+    { key: 'manuscriptEnzo', label: 'Manuscript Enzo assist',   desc: 'Enzo drafts and improves manuscript sections. Enable during writing.' },
+  ];
+
+  const SHORTCUTS = [
+    { keys: ['?'],         desc: 'Open help' },
+    { keys: ['Ctrl', 'K'], desc: 'Global search' },
+    { keys: ['Ctrl', 'E'], desc: 'Toggle Enzo panel' },
+    { keys: ['Ctrl', 'B'], desc: 'Toggle sidebar' },
+    { keys: ['Ctrl', '/'], desc: 'Quick capture' },
+    { keys: ['Esc'],       desc: 'Close overlay / deselect' },
+  ];
+
+  function fmtTokens(n: number) {
+    if (n >= 1_000_000) return `${(n/1_000_000).toFixed(1)}M`;
+    if (n >= 1_000)     return `${(n/1_000).toFixed(1)}k`;
     return String(n);
   }
 
-  function tokenPct(key: ModelKey): number {
+  function tokenPct(key: ModelKey) {
     const ref = DAILY_TOKEN_REF[key];
     if (!ref) return 0;
     return Math.min(100, Math.round((tokenUsage[key] / ref) * 100));
@@ -43,70 +82,81 @@
   async function save() {
     saving = true;
     try {
-      // sync profile fields
-      store.profile.specializations = specInput.split(',').map(s => s.trim()).filter(Boolean);
-      store.profile.targetRoles = targetRolesInput.split(',').map(s => s.trim()).filter(Boolean);
-      store.profile.targetLocations = targetLocInput.split(',').map(s => s.trim()).filter(Boolean);
+      store.profile.specializations  = specInput.split(',').map(s => s.trim()).filter(Boolean);
+      store.profile.targetRoles      = targetRolesInput.split(',').map(s => s.trim()).filter(Boolean);
+      store.profile.targetLocations  = targetLocInput.split(',').map(s => s.trim()).filter(Boolean);
       await Promise.all([store.saveSettings(), store.saveProfile()]);
+      store.applyFontSize();
       showToast('Settings saved');
-    } catch (e) {
-      showToast((e as Error).message, 'error');
-    } finally {
-      saving = false;
-    }
+    } catch (e) { showToast((e as Error).message, 'error'); }
+    finally { saving = false; }
   }
 
   async function testWorker() {
     const url = store.settings.workerUrl || WORKER_URL;
-    workerTesting = true;
-    workerStatus = 'idle';
-    workerMsg = '';
+    workerTesting = true; workerStatus = 'idle'; workerMsg = '';
     try {
       const res = await fetch(`${url}/ping`, { signal: AbortSignal.timeout(8000) });
-      if (res.ok) {
-        workerStatus = 'ok';
-        workerMsg = `Online — ${url}`;
-      } else {
-        workerStatus = 'error';
-        workerMsg = `HTTP ${res.status}`;
-      }
-    } catch (e) {
-      workerStatus = 'error';
-      workerMsg = (e as Error).message;
-    } finally {
-      workerTesting = false;
-    }
+      workerStatus = res.ok ? 'ok' : 'error';
+      workerMsg = res.ok ? `Online — ${url}` : `HTTP ${res.status}`;
+    } catch (e) { workerStatus = 'error'; workerMsg = (e as Error).message; }
+    finally { workerTesting = false; }
+  }
+
+  async function sendTestEmail() {
+    if (!store.settings.supervisorEmail) { showToast('Enter supervisor email first', 'error'); return; }
+    testSending = true;
+    try {
+      await store.sendMail(store.settings.supervisorEmail, 'Supervisor', 'Q·onco test email', 'This is a test email from Q·onco. Your email integration is working correctly.');
+      showToast('Test email sent!');
+    } catch (e) { showToast((e as Error).message, 'error'); }
+    finally { testSending = false; }
   }
 
   async function exportData() {
     exporting = true;
     try {
       const data = {
-        notes: store.notes,
-        journal: store.journal,
-        tasks: store.tasks,
-        audioRecords: store.audioRecords,
-        savedJobs: store.savedJobs,
-        settings: store.settings,
+        notes: store.notes, journal: store.journal, tasks: store.tasks,
+        audioRecords: store.audioRecords, savedJobs: store.savedJobs,
+        settings: store.settings, grants: store.grants,
+        manuscripts: store.manuscripts, hypotheses: store.hypotheses,
+        pipelineRuns: store.pipelineRuns, readingList: store.readingList,
         exportedAt: new Date().toISOString(),
       };
-      const json = JSON.stringify(data, null, 2);
-      const blob = new Blob([json], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `qonco-export-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url  = URL.createObjectURL(blob);
+      Object.assign(document.createElement('a'), { href: url, download: `qonco-export-${new Date().toISOString().slice(0,10)}.json` }).click();
       URL.revokeObjectURL(url);
       showToast('Data exported');
-    } finally {
-      exporting = false;
-    }
+    } finally { exporting = false; }
+  }
+
+  let importInput = $state<HTMLInputElement | undefined>(undefined);
+
+  async function importData(e: Event) {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    importing = true;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (data.notes)        { store.notes        = data.notes;        await store.saveNotes(); }
+      if (data.journal)      { store.journal      = data.journal;      await store.saveJournal(); }
+      if (data.tasks)        { store.tasks        = data.tasks;        await store.saveTasks(); }
+      if (data.grants)       { store.grants       = data.grants;       await store.saveGrants(); }
+      if (data.manuscripts)  { store.manuscripts  = data.manuscripts;  await store.saveManuscripts(); }
+      if (data.hypotheses)   { store.hypotheses   = data.hypotheses;   }
+      if (data.pipelineRuns) { store.pipelineRuns = data.pipelineRuns; await store.savePipelines(); }
+      if (data.readingList)  { store.readingList  = data.readingList;  await store.saveResearch(); }
+      showToast('Data imported successfully');
+    } catch (err) { showToast('Import failed: invalid file', 'error'); }
+    finally { importing = false; if (importInput) importInput.value = ''; }
   }
 
   function clearSessionToggles() {
-    ['qonco_jobs_on', 'qonco_pipeline_on', 'qonco_research_on', 'qonco_audio_on'].forEach(k => sessionStorage.removeItem(k));
-    showToast('Section toggles reset (refresh to apply)');
+    ['qonco_jobs_on','qonco_pipeline_on','qonco_research_on','qonco_audio_on'].forEach(k => sessionStorage.removeItem(k));
+    showToast('Section toggles reset — refresh to apply');
   }
 
   function logout() {
@@ -114,303 +164,369 @@
     store.logout();
   }
 
+  function toggleAi(key: keyof typeof store.aiSettings) {
+    store.settings.ai = { ...store.aiSettings, [key]: !store.aiSettings[key] };
+  }
+
+  const SYNC_STATS: { label: string; val: () => number }[] = [
+    { label: 'Notes',        val: () => store.notes.length },
+    { label: 'Journal',      val: () => store.journal.length },
+    { label: 'Tasks',        val: () => store.tasks.length },
+    { label: 'Audio',        val: () => store.audioRecords.length },
+    { label: 'Files',        val: () => store.files.length },
+    { label: 'Reading list', val: () => store.readingList.length },
+    { label: 'Hypotheses',   val: () => store.hypotheses.length },
+    { label: 'Pipeline runs',val: () => store.pipelineRuns.length },
+    { label: 'Protocols',    val: () => store.protocols.length },
+    { label: 'Grants',       val: () => store.grants.length },
+    { label: 'Conferences',  val: () => store.conferences.length },
+    { label: 'Peer reviews', val: () => store.peerReviews.length },
+    { label: 'Manuscripts',  val: () => store.manuscripts.length },
+    { label: 'Jobs tracked', val: () => store.savedJobs.length },
+    { label: 'Cover letters',val: () => store.coverLetters.length },
+    { label: 'Chat sessions',val: () => store.chatSessions.length },
+    { label: 'Pinned papers',val: () => store.pinnedPapers.length },
+    { label: 'Mail contacts',val: () => store.mailContacts.length },
+  ];
 </script>
+
+<input type="file" accept=".json" bind:this={importInput} onchange={importData} style="display:none" />
 
 <div class="settings-view">
   <div class="settings-header">
     <h2>Settings</h2>
-    <p class="text-sm text-mu">Profile, appearance, sync, and AI configuration</p>
+    <p class="text-sm text-mu">Profile · Appearance · AI · Notifications · Data</p>
   </div>
 
-  <!-- ── Profile ── -->
-  <div class="card settings-card">
-    <span class="section-title">Profile</span>
-    <div class="field-grid">
-      <div class="field">
-        <label for="display-name">Display name</label>
-        <input id="display-name" type="text" bind:value={store.settings.userName} placeholder="Your name" />
-      </div>
-      <div class="field">
-        <label for="orcid-field">ORCID</label>
-        <input id="orcid-field" type="text" bind:value={store.settings.orcid} placeholder="0000-0000-0000-0000" />
-      </div>
-      <div class="field form-full">
-        <label for="institution-field">Institution</label>
-        <input id="institution-field" type="text" bind:value={store.settings.institution} placeholder="Heidelberg University" />
-      </div>
-      <div class="field form-full">
-        <label for="dept-field">Department</label>
-        <input id="dept-field" type="text" bind:value={store.settings.department} placeholder="Department name" />
-      </div>
-    </div>
+  <!-- Tab bar -->
+  <div class="tab-bar">
+    {#each TABS as tab}
+      <button
+        class="tab-btn"
+        class:active={activeTab === tab.id}
+        onclick={() => activeTab = tab.id}
+      >{tab.label}</button>
+    {/each}
   </div>
 
-  <!-- ── Researcher profile ── -->
-  <div class="card settings-card">
-    <span class="section-title">Researcher profile</span>
-    <p class="section-hint text-xs text-mu">Used by Enzo for job matching and cover letter generation.</p>
-    <div class="field">
-      <label for="spec-field">Specializations <span class="hint-label">(comma-separated)</span></label>
-      <input id="spec-field" type="text" bind:value={specInput} placeholder="ovarian cancer, scRNA-seq, PARP inhibitors…" />
-    </div>
-    <div class="field">
-      <label for="roles-field">Target roles <span class="hint-label">(comma-separated)</span></label>
-      <input id="roles-field" type="text" bind:value={targetRolesInput} placeholder="Senior Scientist, Translational Scientist…" />
-    </div>
-    <div class="field">
-      <label for="loc-field">Target locations <span class="hint-label">(comma-separated)</span></label>
-      <input id="loc-field" type="text" bind:value={targetLocInput} placeholder="Germany, UK, Switzerland…" />
-    </div>
-  </div>
+  <!-- ══════════════════════════════════════════════════════════════════════════
+       IDENTITY
+  ══════════════════════════════════════════════════════════════════════════ -->
+  {#if activeTab === 'identity'}
+    <div class="tab-content">
+      <div class="card settings-card">
+        <span class="section-title">Profile</span>
+        <div class="field-grid">
+          <div class="field">
+            <label for="s-name">Display name</label>
+            <input id="s-name" type="text" bind:value={store.settings.userName} placeholder="Your name" />
+          </div>
+          <div class="field">
+            <label for="s-orcid">
+              ORCID
+              {#if store.settings.orcid}
+                <a class="orcid-link" href="https://orcid.org/{store.settings.orcid}" target="_blank" rel="noreferrer">↗ view</a>
+              {/if}
+            </label>
+            <input id="s-orcid" type="text" bind:value={store.settings.orcid} placeholder="0000-0000-0000-0000" />
+          </div>
+          <div class="field form-full">
+            <label for="s-inst">Institution</label>
+            <input id="s-inst" type="text" bind:value={store.settings.institution} placeholder="Heidelberg University" />
+          </div>
+          <div class="field form-full">
+            <label for="s-dept">Department</label>
+            <input id="s-dept" type="text" bind:value={store.settings.department} placeholder="Department name" />
+          </div>
+        </div>
+      </div>
 
-  <!-- ── Appearance ── -->
-  <div class="card settings-card">
-    <span class="section-title">Appearance</span>
-    <div class="field">
-      <span class="field-label">Theme</span>
-      <div class="theme-row">
-        {#each [['auto','◐ Auto'],['light','☀ Light'],['dark','☾ Dark']] as [val, label]}
-          <button
-            class="theme-btn"
-            class:sel={store.settings.themeOverride === val}
-            onclick={() => { store.settings.themeOverride = val as 'auto' | 'light' | 'dark'; }}
-          >{label}</button>
-        {/each}
+      <div class="card settings-card">
+        <span class="section-title">Researcher profile</span>
+        <p class="section-hint text-xs text-mu">Used by Enzo for job matching, interview prep, and cover letter generation.</p>
+        <div class="field">
+          <label for="s-spec">Specializations <span class="hint-label">(comma-separated)</span></label>
+          <input id="s-spec" type="text" bind:value={specInput} placeholder="ovarian cancer, scRNA-seq, PARP inhibitors…" />
+        </div>
+        <div class="field">
+          <label for="s-roles">Target roles <span class="hint-label">(comma-separated)</span></label>
+          <input id="s-roles" type="text" bind:value={targetRolesInput} placeholder="Senior Scientist, Translational Scientist…" />
+        </div>
+        <div class="field">
+          <label for="s-locs">Target locations <span class="hint-label">(comma-separated)</span></label>
+          <input id="s-locs" type="text" bind:value={targetLocInput} placeholder="Germany, UK, Switzerland…" />
+        </div>
       </div>
     </div>
-    <div class="field">
-      <span class="field-label">Accent colour</span>
-      <div class="accent-row">
-        {#each [['blue','#5b8fd4'],['green','#4caf7d'],['purple','#9b7fe8'],['teal','#38a89d'],['rose','#d45b87']] as [val, hex]}
-          <button
-            class="accent-btn"
-            class:sel={store.settings.accentColor === val || (!store.settings.accentColor && val === 'blue')}
-            onclick={() => { store.settings.accentColor = val as 'blue'|'green'|'purple'|'teal'|'rose'; }}
-            title={val}
-            style="background:{hex}"
-          ></button>
-        {/each}
+
+  <!-- ══════════════════════════════════════════════════════════════════════════
+       APPEARANCE
+  ══════════════════════════════════════════════════════════════════════════ -->
+  {:else if activeTab === 'appearance'}
+    <div class="tab-content">
+      <div class="card settings-card">
+        <span class="section-title">Theme</span>
+        <div class="choice-row">
+          {#each [['auto','◐ Auto'],['light','☀ Light'],['dark','☾ Dark']] as [val, label]}
+            <button
+              class="choice-btn"
+              class:sel={store.settings.themeOverride === val}
+              onclick={() => { store.settings.themeOverride = val as 'auto'|'light'|'dark'; }}
+            >{label}</button>
+          {/each}
+        </div>
       </div>
-      <p class="field-hint">Accent colour applies after saving — the app will use it on next load.</p>
+
+      <div class="card settings-card">
+        <span class="section-title">Accent colour</span>
+        <div class="accent-row">
+          {#each [['blue','#5b8fd4'],['green','#4caf7d'],['purple','#9b7fe8'],['teal','#38a89d'],['rose','#d45b87']] as [val, hex]}
+            <button
+              class="accent-btn"
+              class:sel={store.settings.accentColor === val || (!store.settings.accentColor && val === 'blue')}
+              onclick={() => { store.settings.accentColor = val as 'blue'|'green'|'purple'|'teal'|'rose'; }}
+              title={val}
+              style="background:{hex}"
+            ></button>
+          {/each}
+          <span class="text-xs text-mu" style="margin-left:4px">Takes effect after saving</span>
+        </div>
+      </div>
+
+      <div class="card settings-card">
+        <span class="section-title">Font size</span>
+        <p class="section-hint text-xs text-mu">Useful when switching between your laptop and a lab monitor.</p>
+        <div class="choice-row">
+          {#each [['compact','Compact'],['normal','Normal'],['large','Large']] as [val, label]}
+            <button
+              class="choice-btn"
+              class:sel={(store.settings.fontSize ?? 'normal') === val}
+              onclick={() => { store.settings.fontSize = val as 'compact'|'normal'|'large'; store.applyFontSize(); }}
+            >{label}</button>
+          {/each}
+        </div>
+      </div>
     </div>
-  </div>
 
-  <!-- ── AI & Worker ── -->
-  <div class="card settings-card">
-    <span class="section-title">AI &amp; Worker</span>
-
-    <div class="field">
-      <label for="worker-url">Worker URL</label>
-      <div class="worker-row">
-        <input
-          id="worker-url"
-          type="url"
-          bind:value={store.settings.workerUrl}
-          placeholder="https://enzo.quant-onco.workers.dev"
-          class="worker-input"
-        />
-        <button class="btn btn-ghost btn-sm" onclick={testWorker} disabled={workerTesting}>
-          {workerTesting ? 'Testing…' : 'Test'}
-        </button>
+  <!-- ══════════════════════════════════════════════════════════════════════════
+       AI
+  ══════════════════════════════════════════════════════════════════════════ -->
+  {:else if activeTab === 'ai'}
+    <div class="tab-content">
+      <div class="card settings-card">
+        <span class="section-title">Worker</span>
+        <div class="field">
+          <label for="s-worker">Worker URL</label>
+          <div class="worker-row">
+            <input id="s-worker" type="url" bind:value={store.settings.workerUrl} placeholder="https://enzo.quant-onco.workers.dev" class="worker-input" />
+            <button class="btn btn-ghost btn-sm" onclick={testWorker} disabled={workerTesting}>
+              {workerTesting ? 'Testing…' : 'Test'}
+            </button>
+          </div>
+          {#if workerStatus === 'ok'}
+            <p class="status-ok text-xs">✓ {workerMsg}</p>
+          {:else if workerStatus === 'error'}
+            <p class="status-err text-xs">✗ {workerMsg}</p>
+          {:else}
+            <p class="field-hint">Cloudflare Worker — proxies Groq, Whisper, PubMed, bioRxiv, R2, mail.</p>
+          {/if}
+        </div>
       </div>
-      {#if workerStatus === 'ok'}
-        <p class="status-ok text-xs">✓ {workerMsg}</p>
-      {:else if workerStatus === 'error'}
-        <p class="status-err text-xs">✗ {workerMsg}</p>
-      {:else}
-        <p class="field-hint">Cloudflare Worker proxying Groq, Whisper, PubMed, bioRxiv, Nature/Cell.</p>
-      {/if}
-    </div>
 
-    <!-- Model table with token usage -->
-    <div class="field">
-      <div class="model-header">
-        <span class="field-label">Models &amp; today's usage</span>
-        {#if store.aiPending > 0}
-          <span class="pending-badge">
-            <span class="pending-dot"></span>
-            {store.aiPending} request{store.aiPending !== 1 ? 's' : ''} in flight
-          </span>
-        {/if}
-      </div>
-      <div class="model-table">
-        {#each MODEL_ROWS as row}
-          {@const pct = tokenPct(row.key)}
-          {@const used = tokenUsage[row.key]}
-          {@const ref = DAILY_TOKEN_REF[row.key]}
-          <div class="model-row">
-            <div class="model-left">
-              <span class="model-fn">{row.label}</span>
-              <code class="model-id">{MODELS[row.key]}</code>
-            </div>
-            <div class="model-right">
-              <div class="model-stats">
-                <span class="model-note">{row.note}</span>
+      <div class="card settings-card">
+        <div class="model-header">
+          <span class="section-title">Models &amp; today's usage</span>
+          {#if store.aiPending > 0}
+            <span class="pending-badge">
+              <span class="pending-dot"></span>
+              {store.aiPending} in flight
+            </span>
+          {/if}
+        </div>
+        <div class="model-table">
+          {#each MODEL_ROWS as row}
+            {@const pct  = tokenPct(row.key)}
+            {@const used = tokenUsage[row.key]}
+            {@const ref  = DAILY_TOKEN_REF[row.key]}
+            <div class="model-row">
+              <div class="model-left">
+                <span class="model-fn">{row.label}</span>
+                <code class="model-id">{MODELS[row.key]}</code>
+              </div>
+              <div class="model-right">
+                <div class="model-stats">
+                  <span class="model-note">{row.note}</span>
+                  {#if ref > 0}<span class="tok-count" class:tok-warn={pct > 75}>{fmtTokens(used)} / {fmtTokens(ref)} tok</span>{/if}
+                </div>
                 {#if ref > 0}
-                  <span class="tok-count" class:tok-warn={pct > 75}>
-                    {fmtTokens(used)} / {fmtTokens(ref)} tok
-                  </span>
+                  <div class="tok-track">
+                    <div class="tok-fill" class:tok-fill-warn={pct > 75} style="width:{pct}%"></div>
+                    {#if store.aiPending > 0 && used > 0}<div class="tok-pending-pulse"></div>{/if}
+                  </div>
+                {:else if row.key === 'whisper'}
+                  <p class="text-xs text-mu">Quota tracked in Audio section</p>
                 {/if}
               </div>
-              {#if ref > 0}
-                <div class="tok-track">
-                  <div class="tok-fill" class:tok-fill-warn={pct > 75} style="width: {pct}%"></div>
-                  {#if store.aiPending > 0 && used > 0}
-                    <div class="tok-pending-pulse"></div>
-                  {/if}
-                </div>
-              {:else if row.key === 'whisper'}
-                <p class="text-xs text-mu whisper-hint">Quota tracked in Audio section</p>
-              {/if}
             </div>
+          {/each}
+        </div>
+        <p class="field-hint">Daily counts reset at midnight. Reference limits are indicative.</p>
+      </div>
+
+      <div class="card settings-card">
+        <span class="section-title">AI features</span>
+        <p class="section-hint text-xs text-mu">Features not used daily default to <strong>off</strong>. Toggle on before a session, off after.</p>
+        {#each AI_TOGGLES as t}
+          <div class="ai-feature-row">
+            <div class="ai-feature-info">
+              <span class="ai-feature-label">{t.label}</span>
+              <span class="ai-feature-desc text-xs text-mu">{t.desc}</span>
+            </div>
+            <button
+              class="toggle-btn"
+              class:toggle-on={!!(store.aiSettings as Record<string, boolean>)[t.key]}
+              onclick={() => toggleAi(t.key)}
+            ><span class="toggle-knob"></span></button>
           </div>
         {/each}
-      </div>
-      <p class="field-hint">Daily counts reset at midnight. Reference limits are indicative.</p>
-    </div>
-  </div>
 
-  <!-- ── AI Features ── -->
-  <div class="card settings-card">
-    <span class="section-title">AI features</span>
-    <p class="section-hint text-xs text-mu">Features not used daily default to <strong>off</strong> to avoid unnecessary token spend. Toggle on before a session, off after.</p>
-
-    <div class="ai-feature-row">
-      <div class="ai-feature-info">
-        <span class="ai-feature-label">Cover letter generator</span>
-        <span class="ai-feature-desc text-xs text-mu">WRITER — job-application cover letters. Enable during job-search sessions.</span>
+        <div class="field" style="margin-top:8px; padding-top:8px; border-top:1px solid var(--bd)">
+          <label for="s-goal">Weekly reading goal <span class="hint-label">(papers)</span></label>
+          <input id="s-goal" type="number" min="1" max="20" style="width:80px"
+            value={store.settings.weeklyReadingGoal ?? 3}
+            oninput={(e) => { store.settings.weeklyReadingGoal = parseInt((e.target as HTMLInputElement).value) || 3; }} />
+        </div>
       </div>
-      <button
-        class="toggle-btn"
-        class:toggle-on={store.aiSettings.coverLetter}
-        onclick={() => { store.settings.ai = { ...store.aiSettings, coverLetter: !store.aiSettings.coverLetter }; }}
-        title={store.aiSettings.coverLetter ? 'On — click to disable' : 'Off — click to enable'}
-      >
-        <span class="toggle-knob"></span>
-      </button>
     </div>
 
-    <div class="ai-feature-row">
-      <div class="ai-feature-info">
-        <span class="ai-feature-label">WRITER bullet improver</span>
-        <span class="ai-feature-desc text-xs text-mu">CAR-format CV bullet rewrites. Enable during CV editing sessions.</span>
+  <!-- ══════════════════════════════════════════════════════════════════════════
+       NOTIFICATIONS
+  ══════════════════════════════════════════════════════════════════════════ -->
+  {:else if activeTab === 'notifications'}
+    <div class="tab-content">
+      <div class="card settings-card">
+        <span class="section-title">Email — outbox</span>
+        <p class="section-hint text-xs text-mu">Sends via Brevo from <strong>quant.onco@gmail.com</strong>. Replies arrive in your normal Gmail.</p>
+
+        <div class="field">
+          <label for="s-sup-email">Supervisor / PI email</label>
+          <input id="s-sup-email" type="email" bind:value={store.settings.supervisorEmail} placeholder="supervisor@hospital.org" />
+          <p class="field-hint">Pre-filled in compose when sending progress reports, note shares, and summaries.</p>
+        </div>
+
+        <div class="field">
+          <label for="s-prefix">Subject prefix <span class="hint-label">(optional)</span></label>
+          <input id="s-prefix" type="text" bind:value={store.settings.emailSubjectPrefix} placeholder="[Q-onco]" style="max-width:180px" />
+          <p class="field-hint">Prepended to every email subject, e.g. <em>[Q-onco] Weekly Progress Report</em>.</p>
+        </div>
+
+        <div class="notif-test-row">
+          <button class="btn btn-ghost btn-sm" onclick={sendTestEmail} disabled={testSending || !store.settings.supervisorEmail}>
+            {testSending ? 'Sending…' : 'Send test email'}
+          </button>
+          {#if !store.settings.supervisorEmail}
+            <span class="text-xs text-mu">Enter supervisor email above first</span>
+          {/if}
+        </div>
       </div>
-      <button
-        class="toggle-btn"
-        class:toggle-on={store.aiSettings.writerBullets}
-        onclick={() => { store.settings.ai = { ...store.aiSettings, writerBullets: !store.aiSettings.writerBullets }; }}
-      >
-        <span class="toggle-knob"></span>
-      </button>
+
+      <div class="card settings-card">
+        <span class="section-title">Send as email — available in</span>
+        <div class="send-locations">
+          {#each ['Dashboard (progress report)', 'Journal entries', 'Notes', 'Task plans', 'Research (reading list)', 'Manuscripts (section drafts)', 'Grants summaries', 'Pipeline hypotheses', 'Audio transcripts'] as loc}
+            <div class="send-loc-item">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color:var(--gn);flex-shrink:0"><polyline points="20 6 9 17 4 12"/></svg>
+              <span class="text-xs">{loc}</span>
+            </div>
+          {/each}
+        </div>
+      </div>
     </div>
 
-    <div class="ai-feature-row">
-      <div class="ai-feature-info">
-        <span class="ai-feature-label">Weekly digest</span>
-        <span class="ai-feature-desc text-xs text-mu">Enzo compiles a research week summary from your store data. Enable on Mondays.</span>
+  <!-- ══════════════════════════════════════════════════════════════════════════
+       DATA
+  ══════════════════════════════════════════════════════════════════════════ -->
+  {:else if activeTab === 'data'}
+    <div class="tab-content">
+      <div class="card settings-card">
+        <span class="section-title">Sync stats</span>
+        <div class="sync-grid">
+          {#each SYNC_STATS as s}
+            <div class="sync-stat">
+              <span class="sync-label">{s.label}</span>
+              <span class="sync-val">{s.val()}</span>
+            </div>
+          {/each}
+        </div>
+        <p class="field-hint">All research data is encrypted AES-256-GCM and stored in GitHub. Files and audio in Cloudflare R2.</p>
       </div>
-      <button
-        class="toggle-btn"
-        class:toggle-on={store.aiSettings.weeklyDigest}
-        onclick={() => { store.settings.ai = { ...store.aiSettings, weeklyDigest: !store.aiSettings.weeklyDigest }; }}
-      >
-        <span class="toggle-knob"></span>
-      </button>
-    </div>
 
-    <div class="ai-feature-row">
-      <div class="ai-feature-info">
-        <span class="ai-feature-label">Deep Read (Enzo Socratic)</span>
-        <span class="ai-feature-desc text-xs text-mu">5 critical questions per paper. Enable during focused reading sessions.</span>
+      <div class="card settings-card">
+        <span class="section-title">Import &amp; export</span>
+        <div class="io-row">
+          <div class="io-item">
+            <p class="io-label">Export all data</p>
+            <p class="field-hint">Downloads notes, journal, tasks, grants, manuscripts, hypotheses, and reading list as JSON.</p>
+            <button class="btn btn-ghost btn-sm" onclick={exportData} disabled={exporting}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              {exporting ? 'Exporting…' : 'Export JSON'}
+            </button>
+          </div>
+          <div class="io-item">
+            <p class="io-label">Import data</p>
+            <p class="field-hint">Imports from a previous Q·onco JSON export. Existing data is overwritten.</p>
+            <button class="btn btn-ghost btn-sm" onclick={() => importInput?.click()} disabled={importing}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 5 17 10"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              {importing ? 'Importing…' : 'Import JSON'}
+            </button>
+          </div>
+        </div>
       </div>
-      <button
-        class="toggle-btn"
-        class:toggle-on={store.aiSettings.deepRead}
-        onclick={() => { store.settings.ai = { ...store.aiSettings, deepRead: !store.aiSettings.deepRead }; }}
-      >
-        <span class="toggle-knob"></span>
-      </button>
-    </div>
 
-    <div class="ai-feature-row">
-      <div class="ai-feature-info">
-        <span class="ai-feature-label">AI reading note</span>
-        <span class="ai-feature-desc text-xs text-mu">Structured note (Claims · Methods · Limits · Relevance) auto-generated from abstract.</span>
+      <div class="card settings-card">
+        <span class="section-title">Keyboard shortcuts</span>
+        <div class="shortcuts-grid">
+          {#each SHORTCUTS as s}
+            <div class="shortcut-row">
+              <div class="shortcut-keys">
+                {#each s.keys as k}
+                  <kbd class="kbd">{k}</kbd>
+                {/each}
+              </div>
+              <span class="text-sm">{s.desc}</span>
+            </div>
+          {/each}
+        </div>
       </div>
-      <button
-        class="toggle-btn"
-        class:toggle-on={store.aiSettings.readingNote}
-        onclick={() => { store.settings.ai = { ...store.aiSettings, readingNote: !store.aiSettings.readingNote }; }}
-      >
-        <span class="toggle-knob"></span>
-      </button>
-    </div>
 
-    <div class="field">
-      <label for="reading-goal">Weekly reading goal <span class="hint-label">(papers)</span></label>
-      <input
-        id="reading-goal"
-        type="number"
-        min="1"
-        max="20"
-        style="width: 80px;"
-        value={store.settings.weeklyReadingGoal ?? 3}
-        oninput={(e) => { store.settings.weeklyReadingGoal = parseInt((e.target as HTMLInputElement).value) || 3; }}
-      />
-    </div>
-  </div>
+      <div class="card settings-card">
+        <span class="section-title">Session</span>
+        <div class="session-row">
+          <div>
+            <p class="session-label">Reset section toggles</p>
+            <p class="text-xs text-mu">Clears the session-storage flags that hide advanced sections (Jobs, Pipeline, Research, Audio).</p>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick={clearSessionToggles}>Reset</button>
+        </div>
+      </div>
 
-  <!-- ── Sync & Storage ── -->
-  <div class="card settings-card">
-    <span class="section-title">Sync &amp; storage</span>
-    <div class="sync-grid">
-      <div class="sync-stat">
-        <span class="sync-label">Notes</span>
-        <span class="sync-val">{store.notes.length}</span>
+      <div class="card settings-card danger-card">
+        <span class="section-title danger-title">Danger zone</span>
+        <div class="danger-row">
+          <div>
+            <p class="danger-label">Log out</p>
+            <p class="text-xs text-mu">Clears your session. Data remains encrypted in GitHub.</p>
+          </div>
+          <button class="btn btn-danger-outline btn-sm" onclick={logout}>Log out</button>
+        </div>
       </div>
-      <div class="sync-stat">
-        <span class="sync-label">Journal</span>
-        <span class="sync-val">{store.journal.length}</span>
-      </div>
-      <div class="sync-stat">
-        <span class="sync-label">Tasks</span>
-        <span class="sync-val">{store.tasks.length}</span>
-      </div>
-      <div class="sync-stat">
-        <span class="sync-label">Audio</span>
-        <span class="sync-val">{store.audioRecords.length}</span>
-      </div>
-      <div class="sync-stat">
-        <span class="sync-label">Saved jobs</span>
-        <span class="sync-val">{store.savedJobs.length}</span>
-      </div>
-      <div class="sync-stat">
-        <span class="sync-label">Chat sessions</span>
-        <span class="sync-val">{store.chatSessions.length}</span>
-      </div>
-    </div>
-    <div class="sync-actions">
-      <button class="btn btn-ghost btn-sm" onclick={exportData} disabled={exporting}>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        {exporting ? 'Exporting…' : 'Export all data (JSON)'}
-      </button>
-    </div>
-    <p class="field-hint">All data is encrypted with AES-256-GCM and stored as commits in your GitHub repository at Q-onco/notes.</p>
-  </div>
 
-  <!-- ── Danger zone ── -->
-  <div class="card settings-card danger-card">
-    <span class="section-title danger-title">Danger zone</span>
-    <div class="danger-row">
-      <div>
-        <p class="danger-label">Log out</p>
-        <p class="text-xs text-mu">Clears your session. Data remains encrypted in GitHub.</p>
-      </div>
-      <button class="btn btn-danger-outline btn-sm" onclick={logout}>Log out</button>
+      <div class="app-version text-xs text-mu">Q·onco Research Notes · v2.0 · encrypted · GitHub + Cloudflare</div>
     </div>
-  </div>
+  {/if}
 
-  <div class="save-row">
+  <!-- Sticky save bar -->
+  <div class="save-bar">
     <button class="btn btn-primary" onclick={save} disabled={saving}>
       {saving ? 'Saving…' : 'Save settings'}
     </button>
@@ -421,158 +537,146 @@
 <style>
   .settings-view {
     height: 100%;
-    overflow-y: auto;
-    padding: 24px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    max-width: 680px;
+    overflow: hidden;
   }
 
+  .settings-header {
+    padding: 20px 24px 0;
+    flex-shrink: 0;
+  }
   .settings-header h2 { margin-bottom: 2px; }
 
-  .settings-sections { display: flex; flex-direction: column; gap: 14px; }
-  .settings-card { display: flex; flex-direction: column; gap: 14px; }
+  /* ── Tab bar ── */
+  .tab-bar {
+    display: flex;
+    gap: 2px;
+    padding: 12px 24px 0;
+    border-bottom: 1px solid var(--bd);
+    background: var(--bg);
+    flex-shrink: 0;
+  }
+  .tab-btn {
+    padding: 6px 14px;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    border: 1px solid transparent;
+    border-bottom: none;
+    background: transparent;
+    color: var(--tx2);
+    font-size: 0.82rem;
+    font-family: var(--font);
+    cursor: pointer;
+    transition: all var(--transition);
+    margin-bottom: -1px;
+  }
+  .tab-btn:hover { color: var(--tx); background: var(--sf2); }
+  .tab-btn.active {
+    color: var(--tx);
+    background: var(--bg);
+    border-color: var(--bd);
+    border-bottom-color: var(--bg);
+    font-weight: 600;
+  }
 
+  .tab-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  /* ── Cards ── */
+  .settings-card { display: flex; flex-direction: column; gap: 14px; }
   .section-title {
     display: block;
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--mu);
+    font-size: 0.7rem; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--mu);
   }
   .section-hint { margin-top: -6px; }
 
-  .field-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-  .form-full { grid-column: 1 / -1; }
-
   .field { display: flex; flex-direction: column; gap: 5px; }
-  .field label, .field-label {
-    font-size: 0.82rem;
-    font-weight: 500;
-    color: var(--tx);
-  }
+  .field label, .field-label { font-size: 0.82rem; font-weight: 500; color: var(--tx); }
   .hint-label { font-weight: 400; color: var(--mu); font-size: 0.72rem; }
-  .field-hint { font-size: 0.77rem; color: var(--mu); line-height: 1.5; }
+  .field-hint { font-size: 0.77rem; color: var(--mu); line-height: 1.5; margin-top: 2px; }
 
-  /* Worker test */
+  .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-full { grid-column: 1/-1; }
+
+  .orcid-link { font-size: 0.72rem; font-weight: 400; color: var(--ac); margin-left: 6px; }
+
+  /* ── Appearance choices ── */
+  .choice-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .choice-btn {
+    padding: 6px 16px; border-radius: var(--radius-sm);
+    border: 1px solid var(--bd); background: transparent;
+    color: var(--tx2); font-size: 0.875rem; font-family: var(--font);
+    cursor: pointer; transition: all var(--transition);
+  }
+  .choice-btn:hover { background: var(--sf2); border-color: var(--bd2); }
+  .choice-btn.sel { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); }
+
+  .accent-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .accent-btn {
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 2px solid transparent; cursor: pointer; transition: all 0.15s;
+  }
+  .accent-btn.sel { border-color: var(--tx); transform: scale(1.2); }
+  .accent-btn:hover:not(.sel) { transform: scale(1.1); }
+
+  /* ── Worker ── */
   .worker-row { display: flex; gap: 8px; align-items: center; }
   .worker-input { flex: 1; }
-  .status-ok { color: var(--gn); margin-top: 2px; }
+  .status-ok  { color: var(--gn); margin-top: 2px; }
   .status-err { color: var(--rd); margin-top: 2px; }
 
   /* ── Model table ── */
-  .model-header {
-    display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px;
-  }
+  .model-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
   .pending-badge {
-    display: flex; align-items: center; gap: 5px; font-size: 0.72rem;
-    color: var(--ac); background: var(--ac-bg); border: 1px solid var(--ac);
+    display: flex; align-items: center; gap: 5px;
+    font-size: 0.72rem; color: var(--ac);
+    background: var(--ac-bg); border: 1px solid var(--ac);
     border-radius: 20px; padding: 2px 8px;
   }
-  .pending-dot {
-    width: 6px; height: 6px; background: var(--ac); border-radius: 50%;
-    animation: blink 0.9s ease-in-out infinite;
-  }
+  .pending-dot { width: 6px; height: 6px; background: var(--ac); border-radius: 50%; animation: blink 0.9s ease-in-out infinite; }
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
 
-  .model-table {
-    border: 1px solid var(--bd); border-radius: var(--radius-sm); overflow: hidden;
-  }
+  .model-table { border: 1px solid var(--bd); border-radius: var(--radius-sm); overflow: hidden; }
   .model-row {
-    display: flex; align-items: flex-start; gap: 12px; padding: 9px 12px;
-    border-bottom: 1px solid var(--bd); background: var(--sf);
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 9px 12px; border-bottom: 1px solid var(--bd); background: var(--sf);
   }
   .model-row:last-child { border-bottom: none; }
   .model-row:nth-child(even) { background: var(--sf2); }
-  .model-left { display: flex; flex-direction: column; gap: 2px; width: 170px; flex-shrink: 0; }
-  .model-fn { font-size: 0.82rem; font-weight: 500; color: var(--tx); }
-  .model-id { font-size: 0.7rem; color: var(--ac); background: transparent; padding: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .model-left { display: flex; flex-direction: column; gap: 2px; width: 160px; flex-shrink: 0; }
+  .model-fn { font-size: 0.82rem; font-weight: 500; }
+  .model-id { font-size: 0.68rem; color: var(--ac); background: transparent; padding: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .model-right { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; padding-top: 1px; }
   .model-stats { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
   .model-note { font-size: 0.72rem; color: var(--mu); }
   .tok-count { font-size: 0.72rem; color: var(--tx2); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .tok-count.tok-warn { color: var(--yw); }
   .tok-track { height: 4px; background: var(--sf3); border-radius: 2px; overflow: hidden; position: relative; }
-  .tok-fill { height: 100%; background: var(--gn); border-radius: 2px; transition: width 0.6s ease; min-width: 0; }
+  .tok-fill { height: 100%; background: var(--gn); border-radius: 2px; transition: width 0.6s; }
   .tok-fill-warn { background: var(--yw); }
-  .tok-pending-pulse {
-    position: absolute; top: 0; right: 0; height: 100%; width: 20%;
-    background: linear-gradient(90deg, transparent, rgba(91,143,212,0.5));
-    animation: pulse-right 1.2s ease-in-out infinite;
-  }
+  .tok-pending-pulse { position: absolute; top:0; right:0; height:100%; width:20%; background: linear-gradient(90deg, transparent, rgba(91,143,212,0.5)); animation: pulse-right 1.2s ease-in-out infinite; }
   @keyframes pulse-right { 0%{transform:translateX(-100%);opacity:0} 50%{opacity:1} 100%{transform:translateX(100%);opacity:0} }
-  .whisper-hint { padding-top: 1px; }
 
-  /* ── Appearance ── */
-  .theme-row { display: flex; gap: 8px; flex-wrap: wrap; }
-  .theme-btn {
-    padding: 6px 14px; border-radius: var(--radius-sm); border: 1px solid var(--bd);
-    background: transparent; color: var(--tx2); font-size: 0.875rem;
-    font-family: var(--font); cursor: pointer; transition: all var(--transition);
-  }
-  .theme-btn:hover { background: var(--sf2); border-color: var(--bd2); }
-  .theme-btn.sel { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); }
-
-  .accent-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .accent-btn {
-    width: 24px; height: 24px; border-radius: 50%;
-    border: 2px solid transparent; cursor: pointer; transition: all 0.15s;
-  }
-  .accent-btn.sel { border-color: var(--tx); transform: scale(1.2); }
-  .accent-btn:hover:not(.sel) { transform: scale(1.1); }
-
-  /* ── Sync grid ── */
-  .sync-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
-  }
-  .sync-stat {
-    background: var(--sf2);
-    border: 1px solid var(--bd);
-    border-radius: var(--radius-sm);
-    padding: 8px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .sync-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--mu); }
-  .sync-val { font-size: 1.1rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--tx); }
-  .sync-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-
-  /* ── Shortcuts ── */
-  .shortcuts-grid { display: flex; flex-direction: column; gap: 6px; }
-  .shortcut-row { display: flex; align-items: center; gap: 10px; }
-  .kbd {
-    display: inline-flex; align-items: center; justify-content: center;
-    padding: 2px 8px; min-width: 48px;
-    background: var(--sf2); border: 1px solid var(--bd2);
-    border-radius: var(--radius-sm); font-family: var(--mono);
-    font-size: 0.72rem; font-weight: 600; color: var(--tx2);
-    white-space: nowrap;
-  }
-
-  /* ── AI Feature toggles ── */
+  /* ── AI feature toggles ── */
   .ai-feature-row {
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    padding: 10px 0; border-bottom: 1px solid var(--bd);
+    padding: 9px 0; border-bottom: 1px solid var(--bd);
   }
   .ai-feature-row:last-of-type { border-bottom: none; }
   .ai-feature-info { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
-  .ai-feature-label { font-size: 0.87rem; font-weight: 500; color: var(--tx); }
+  .ai-feature-label { font-size: 0.87rem; font-weight: 500; }
   .ai-feature-desc { line-height: 1.4; }
-
   .toggle-btn {
     width: 40px; height: 22px; border-radius: 11px; flex-shrink: 0;
     background: var(--bd2); border: none; cursor: pointer;
-    position: relative; transition: background 0.2s;
-    padding: 0;
+    position: relative; transition: background 0.2s; padding: 0;
   }
   .toggle-btn.toggle-on { background: var(--ac); }
   .toggle-knob {
@@ -583,13 +687,49 @@
   }
   .toggle-on .toggle-knob { left: 21px; }
 
-  /* ── Danger zone ── */
-  .danger-card { border-color: var(--rd); }
-  .danger-title { color: var(--rd); }
-  .danger-row {
+  /* ── Notifications ── */
+  .notif-test-row { display: flex; align-items: center; gap: 10px; }
+  .send-locations { display: flex; flex-direction: column; gap: 5px; }
+  .send-loc-item { display: flex; align-items: center; gap: 8px; }
+
+  /* ── Data ── */
+  .sync-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .sync-stat {
+    background: var(--sf2); border: 1px solid var(--bd);
+    border-radius: var(--radius-sm); padding: 8px 12px;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .sync-label { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--mu); }
+  .sync-val { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  .io-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .io-item { display: flex; flex-direction: column; gap: 6px; }
+  .io-label { font-size: 0.82rem; font-weight: 500; }
+
+  .shortcuts-grid { display: flex; flex-direction: column; gap: 7px; }
+  .shortcut-row { display: flex; align-items: center; gap: 10px; }
+  .shortcut-keys { display: flex; gap: 4px; align-items: center; }
+  .kbd {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 2px 7px; min-width: 32px;
+    background: var(--sf2); border: 1px solid var(--bd2);
+    border-radius: var(--radius-sm); font-family: var(--mono);
+    font-size: 0.72rem; font-weight: 600; color: var(--tx2); white-space: nowrap;
+  }
+
+  .session-row {
     display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
   }
-  .danger-label { font-size: 0.85rem; font-weight: 500; color: var(--tx); margin-bottom: 2px; }
+  .session-label { font-size: 0.85rem; font-weight: 500; margin-bottom: 2px; }
+
+  .danger-card { border-color: var(--rd); }
+  .danger-title { color: var(--rd); }
+  .danger-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .danger-label { font-size: 0.85rem; font-weight: 500; margin-bottom: 2px; }
   .btn-danger-outline {
     border: 1px solid var(--rd); color: var(--rd); background: transparent;
     padding: 5px 12px; border-radius: var(--radius-sm); cursor: pointer;
@@ -597,12 +737,25 @@
   }
   .btn-danger-outline:hover { background: var(--rd-bg); }
 
-  .save-row { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; }
+  .app-version { text-align: center; padding: 4px 0 12px; }
+
+  /* ── Sticky save bar ── */
+  .save-bar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 24px;
+    border-top: 1px solid var(--bd);
+    background: var(--bg);
+    flex-shrink: 0;
+  }
   .save-hint { margin-top: 2px; }
 
-  @media (max-width: 600px) {
+  @media (max-width: 640px) {
+    .tab-content { padding: 16px; }
     .field-grid { grid-template-columns: 1fr; }
     .sync-grid { grid-template-columns: 1fr 1fr; }
-    .settings-view { padding: 16px; }
+    .io-row { grid-template-columns: 1fr; }
+    .settings-header { padding: 16px 16px 0; }
+    .tab-bar { padding: 10px 16px 0; }
+    .save-bar { padding: 12px 16px; }
   }
 </style>

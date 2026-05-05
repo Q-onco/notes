@@ -5,11 +5,13 @@ import type {
   SavedJob, ResearcherProfile, Hypothesis,
   CvProfile, CoverLetter, JobContact, JobEmailTemplate, SalaryEntry, JobDeadline,
   Presentation, FileRecord,
-  Grant, ConferenceAbstract, PeerReview, Manuscript
+  Grant, ConferenceAbstract, PeerReview, Manuscript,
+  MailContact, MailSent, MailDraft, MailComposeDraft
 } from './types';
 import { loadEncFile, saveEncFile, PATHS, validateToken } from './github';
+import { WORKER_URL } from './groq';
 
-type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs' | 'presentations' | 'files' | 'grants' | 'manuscript';
+type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs' | 'presentations' | 'files' | 'grants' | 'manuscript' | 'mail';
 
 const DEFAULT_PROFILE: ResearcherProfile = {
   currentRole: 'Postdoctoral Researcher',
@@ -111,6 +113,16 @@ class Store {
 
   profile = $state<ResearcherProfile>({ ...DEFAULT_PROFILE });
   profileSha = $state<string | null>(null);
+
+  // Mail (D1-backed via worker)
+  mailContacts = $state<MailContact[]>([]);
+  mailSent = $state<MailSent[]>([]);
+  mailDrafts = $state<MailDraft[]>([]);
+  mailLoaded = $state(false);
+
+  // Global compose sheet
+  mailComposeOpen = $state(false);
+  mailComposeDraft = $state<MailComposeDraft>({ to: '', toName: '', subject: '', body: '' });
 
   // Cross-section navigation state
   selectedJournalId = $state<string | null>(null);
@@ -412,6 +424,76 @@ class Store {
     if (!this.tok) return;
     const sha = await saveEncFile(this.tok, PATHS.settings, this.settings, this.settingsSha, 'settings: update');
     this.settingsSha = sha;
+  }
+
+  // ── Mail (D1 via worker) ────────────────────────────────────────────────────
+
+  get workerBase(): string { return this.settings.workerUrl || WORKER_URL; }
+
+  async loadMail(): Promise<void> {
+    if (this.mailLoaded) return;
+    try {
+      const [c, s, d] = await Promise.all([
+        fetch(`${this.workerBase}/mail/contacts`).then(r => r.ok ? r.json() : []),
+        fetch(`${this.workerBase}/mail/sent?limit=100`).then(r => r.ok ? r.json() : []),
+        fetch(`${this.workerBase}/mail/drafts`).then(r => r.ok ? r.json() : []),
+      ]);
+      this.mailContacts = c as MailContact[];
+      this.mailSent = s as MailSent[];
+      this.mailDrafts = d as MailDraft[];
+      this.mailLoaded = true;
+    } catch { /* worker not yet configured */ }
+  }
+
+  async saveMailContact(contact: MailContact): Promise<void> {
+    await fetch(`${this.workerBase}/mail/contact`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(contact) });
+    const idx = this.mailContacts.findIndex(c => c.id === contact.id);
+    if (idx >= 0) this.mailContacts[idx] = contact; else this.mailContacts = [contact, ...this.mailContacts];
+  }
+
+  async deleteMailContact(id: string): Promise<void> {
+    await fetch(`${this.workerBase}/mail/contact/${id}`, { method: 'DELETE' });
+    this.mailContacts = this.mailContacts.filter(c => c.id !== id);
+  }
+
+  async sendMail(to: string, toName: string, subject: string, body: string): Promise<void> {
+    const prefix = this.settings.emailSubjectPrefix ? `${this.settings.emailSubjectPrefix} ` : '';
+    const res = await fetch(`${this.workerBase}/send-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to, toName, subject: `${prefix}${subject}`, html: body.replace(/\n/g, '<br>'), text: body }),
+    });
+    if (!res.ok) throw new Error(`Send failed: ${res.status}`);
+    const sent: MailSent = { id: crypto.randomUUID(), toEmail: to, toName, subject: `${prefix}${subject}`, body, sentAt: Date.now() };
+    await fetch(`${this.workerBase}/mail/sent`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sent) });
+    this.mailSent = [sent, ...this.mailSent];
+  }
+
+  async saveDraft(draft: MailDraft): Promise<void> {
+    await fetch(`${this.workerBase}/mail/draft`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(draft) });
+    const idx = this.mailDrafts.findIndex(d => d.id === draft.id);
+    if (idx >= 0) this.mailDrafts[idx] = draft; else this.mailDrafts = [draft, ...this.mailDrafts];
+  }
+
+  async deleteDraft(id: string): Promise<void> {
+    await fetch(`${this.workerBase}/mail/draft/${id}`, { method: 'DELETE' });
+    this.mailDrafts = this.mailDrafts.filter(d => d.id !== id);
+  }
+
+  openCompose(opts: Partial<MailComposeDraft> = {}): void {
+    this.mailComposeDraft = {
+      to: opts.to ?? this.settings.supervisorEmail ?? '',
+      toName: opts.toName ?? '',
+      subject: opts.subject ?? '',
+      body: opts.body ?? '',
+    };
+    this.mailComposeOpen = true;
+  }
+
+  applyFontSize(): void {
+    const size = this.settings.fontSize;
+    document.documentElement.style.fontSize =
+      size === 'compact' ? '13px' : size === 'large' ? '17px' : '15px';
   }
 }
 

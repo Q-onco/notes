@@ -189,6 +189,15 @@
         <button class="btn-icon" onclick={() => exportNotePdf(note!)} title="Print / Save as PDF">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
         </button>
+        <button class="btn-icon" onclick={() => {
+          if (!note) return;
+          const plain = note.body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+          store.openCompose({ subject: note.title || 'Note', body: plain });
+        }} title="Send as email">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
+          </svg>
+        </button>
         <button class="btn-icon danger" onclick={deleteNote} title="Delete">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6m5 0V4h4v2"/>

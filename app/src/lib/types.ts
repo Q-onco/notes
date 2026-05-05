@@ -39,6 +39,8 @@ export interface AudioRecord {
   noteId: string | null;
   journalId: string | null;
   sizeBytes: number;
+  r2Key?: string;       // R2 object key for audio blob (enables replay)
+  mimeType?: string;    // e.g. audio/webm
 }
 
 export interface ChatMessage {
@@ -405,7 +407,8 @@ export interface FileRecord {
   name: string;
   mimeType: string;
   size: number;            // bytes (original)
-  data?: string;           // base64 (no prefix)
+  data?: string;           // base64 (legacy — pre-R2 uploads only)
+  r2Key?: string;          // R2 object key (new uploads)
   url?: string;            // external link alternative
   tags: string[];
   linkedNoteIds: string[];
@@ -513,11 +516,15 @@ export interface Manuscript {
 // ── AI feature toggles ────────────────────────────────────────────────────────
 
 export interface AiFeatureSettings {
-  coverLetter:  boolean;  // default false
-  writerBullets: boolean; // default false
-  weeklyDigest: boolean;  // default false
-  deepRead:     boolean;  // default false
-  readingNote:  boolean;  // default false
+  coverLetter:    boolean;  // default false
+  writerBullets:  boolean;  // default false
+  weeklyDigest:   boolean;  // default false
+  deepRead:       boolean;  // default false
+  readingNote:    boolean;  // default false
+  critique?:      boolean;  // paper critique
+  devilsAdvocate?: boolean; // hypothesis devil's advocate
+  interviewPrep?: boolean;  // interview prep
+  manuscriptEnzo?: boolean; // manuscript Enzo assist
 }
 
 // ── Hypothesis tracker ────────────────────────────────────────────────────────
@@ -540,12 +547,55 @@ export interface AppSettings {
   workerUrl: string;
   themeOverride: 'auto' | 'light' | 'dark';
   accentColor?: 'blue' | 'green' | 'purple' | 'teal' | 'rose';
+  fontSize?: 'compact' | 'normal' | 'large';
   institution?: string;
   department?: string;
   orcid?: string;
+  supervisorEmail?: string;
+  emailSubjectPrefix?: string;
   alarms?: AlarmItem[];
   groqKey?: string;
   groqModel?: string;
   ai?: AiFeatureSettings;
   weeklyReadingGoal?: number;
+}
+
+// ── FileRecord extension ──────────────────────────────────────────────────────
+
+// (FileRecord is defined earlier; r2Key added here for reference — actual
+//  field lives on the interface above in the file)
+
+// ── Mail (D1-backed, worker-proxied) ─────────────────────────────────────────
+
+export interface MailContact {
+  id: string;
+  name: string;
+  email: string;
+  role: 'supervisor' | 'collaborator' | 'pi' | 'lab-manager' | 'other';
+  createdAt: number;
+}
+
+export interface MailSent {
+  id: string;
+  toEmail: string;
+  toName: string;
+  subject: string;
+  body: string;
+  sentAt: number;
+}
+
+export interface MailDraft {
+  id: string;
+  toEmail: string;
+  toName: string;
+  subject: string;
+  body: string;
+  updatedAt: number;
+}
+
+export interface MailComposeDraft {
+  to: string;
+  toName: string;
+  subject: string;
+  body: string;
 }

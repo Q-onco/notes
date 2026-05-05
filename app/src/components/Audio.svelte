@@ -30,6 +30,7 @@
   let stream: MediaStream | null = null;
   let currentMR: MediaRecorder | null = null;
   let chunkBuffer: Blob[] = [];
+  let fullAudioChunks: Blob[] = [];  // accumulates entire session for R2 upload
   let chunkMime = '';
   let isRecordingSession = false;
   let durationTimer: ReturnType<typeof setInterval>;
@@ -52,6 +53,7 @@
     draftTranscript = '';
     durationSec = 0;
     transcribingCount = 0;
+    fullAudioChunks = [];
     whisperUsed = getUsed();
 
     try {
@@ -85,7 +87,7 @@
     chunkBuffer = [];
 
     const mr = new MediaRecorder(stream, { mimeType: chunkMime });
-    mr.ondataavailable = (e) => { if (e.data.size > 0) chunkBuffer.push(e.data); };
+    mr.ondataavailable = (e) => { if (e.data.size > 0) { chunkBuffer.push(e.data); fullAudioChunks.push(e.data); } };
     mr.onstop = handleChunkStop;
     mr.start(500);
     currentMR = mr;
@@ -140,6 +142,21 @@
   async function saveRecording() {
     if (!draftTranscript.replace(/<[^>]*>/g, '').trim()) return;
 
+    let r2Key: string | undefined;
+    const mime = chunkMime || 'audio/webm';
+
+    if (fullAudioChunks.length > 0 && store.workerBase) {
+      try {
+        const fullBlob = new Blob(fullAudioChunks, { type: mime });
+        const ext = mime.includes('ogg') ? 'ogg' : 'webm';
+        const res = await fetch(
+          `${store.workerBase}/upload?prefix=audio&ext=${ext}&mime=${encodeURIComponent(mime)}`,
+          { method: 'POST', body: fullBlob, headers: { 'Content-Type': mime } }
+        );
+        if (res.ok) { const d = await res.json(); r2Key = d.key; }
+      } catch { /* non-fatal — save transcript without audio blob */ }
+    }
+
     const rec = {
       id: nanoid(),
       createdAt: Date.now(),
@@ -147,7 +164,9 @@
       transcript: draftTranscript,
       noteId: linkNoteId || null,
       journalId: null,
-      sizeBytes: 0
+      sizeBytes: fullAudioChunks.reduce((a, b) => a + b.size, 0),
+      r2Key,
+      mimeType: mime
     };
     store.audioRecords = [rec, ...store.audioRecords];
 
@@ -265,6 +284,19 @@
     const plain = draftTranscript.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
     store.enzoSearchQuery = `I just recorded the following (${fmtDur(durationSec)}). Analyse it — identify key scientific points, questions, and action items:\n\n${plain}`;
     store.enzoOpen = true;
+  }
+
+  // ── Replay ───────────────────────────────────────────────────
+  let playingId = $state<string | null>(null);
+
+  function sendTranscriptAsEmail(rec: typeof EXAMPLE_RECORDS[0]) {
+    if (rec.id.startsWith('_')) return;
+    const date = new Date(rec.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    const plain = rec.transcript.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    store.openCompose({
+      subject: `Voice transcript — ${date}`,
+      body: `Audio transcript from ${date} (${fmtDur(rec.durationSec)}):\n\n${plain}`
+    });
   }
 
   // ── Research event extraction (Wave 9) ───────────────────────
@@ -607,6 +639,20 @@
             {/if}
           </div>
           {#if !rec.id.startsWith('_')}
+            {#if rec.r2Key && store.workerBase}
+              <button
+                class="btn-icon rec-action-btn"
+                class:rec-play-active={playingId === rec.id}
+                onclick={() => playingId = playingId === rec.id ? null : rec.id}
+                title={playingId === rec.id ? 'Hide player' : 'Play recording'}
+              >
+                {#if playingId === rec.id}
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                {:else}
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5,3 19,12 5,21"/></svg>
+                {/if}
+              </button>
+            {/if}
             <button class="btn-icon rec-action-btn" onclick={() => saveTranscriptAsNote(rec)} title="Save as note">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
@@ -615,10 +661,19 @@
             <button class="btn-icon rec-action-btn" onclick={() => sendTranscriptToEnzo(rec)} title="Ask Enzo">
               <span class="text-enzo" style="font-family:var(--mono);font-weight:700;font-size:0.72rem">E</span>
             </button>
+            <button class="btn-icon rec-action-btn" onclick={() => sendTranscriptAsEmail(rec)} title="Send as email">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
+              </svg>
+            </button>
           {/if}
           <button
             class="btn-icon"
             onclick={async () => {
+              if (rec.r2Key && store.workerBase) {
+                fetch(`${store.workerBase}/file/${encodeURIComponent(rec.r2Key)}`, { method: 'DELETE' }).catch(() => {});
+              }
+              if (playingId === rec.id) playingId = null;
               store.audioRecords = store.audioRecords.filter(r => r.id !== rec.id);
               await store.saveAudio();
               showToast('Deleted');
@@ -630,6 +685,14 @@
             </svg>
           </button>
         </div>
+        {#if rec.r2Key && store.workerBase && playingId === rec.id}
+          <audio
+            class="rec-player"
+            src="{store.workerBase}/file/{encodeURIComponent(rec.r2Key)}"
+            controls
+            autoplay
+          ></audio>
+        {/if}
         {#if rec.transcript}
           <p class="rec-transcript text-sm">{rec.transcript}</p>
         {/if}
@@ -876,6 +939,14 @@
   }
   .rec-action-btn { color: var(--mu); }
   .rec-action-btn:hover { color: var(--ac); background: var(--ac-bg); }
+  .rec-play-active { color: var(--ac) !important; background: var(--ac-bg) !important; }
+
+  .rec-player {
+    width: 100%;
+    height: 36px;
+    border-radius: var(--radius-sm);
+    accent-color: var(--ac);
+  }
 
   .empty-state { padding: 40px; text-align: center; }
 </style>

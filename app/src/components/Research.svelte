@@ -2,7 +2,7 @@
   import { searchPubMed, fetchBioRxiv, fetchNatureCell, fetchPubMedAbstract, searchOpenAlex, searchEuropePMC } from '../lib/pubmed';
   import type { PaperResult, ReadingListItem, SavedSearch, Note } from '../lib/types';
   import { store } from '../lib/store.svelte';
-  import { exportPapers, exportPapersDocx } from '../lib/export';
+  import { exportPapers, exportPapersDocx, exportPapersBibTeX } from '../lib/export';
   import { askResearch, deepReadPaper, generateReadingNote, critiquePaper } from '../lib/groq';
   import { nanoid } from 'nanoid';
 
@@ -683,6 +683,14 @@ Format your response as:
           Export .md ({store.pinnedPapers.length})
         </button>
         <button class="btn btn-ghost btn-sm" onclick={() => exportPapersDocx(store.pinnedPapers)}>Export .doc</button>
+        <button class="btn btn-ghost btn-sm" onclick={() => exportPapersBibTeX(store.pinnedPapers)} title="Export as BibTeX (.bib)">Export .bib</button>
+        <button class="btn btn-ghost btn-sm" onclick={() => {
+          const list = store.pinnedPapers.map((p, i) => `${i + 1}. ${p.title} — ${p.authors[0] || ''} et al. (${p.year}). ${p.journal}.${p.doi ? ' DOI: ' + p.doi : ''}`).join('\n');
+          store.openCompose({ subject: 'Reading list', body: `My current reading list (${store.pinnedPapers.length} papers):\n\n${list}` });
+        }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          Email list
+        </button>
       {/if}
     </div>
   </div>
