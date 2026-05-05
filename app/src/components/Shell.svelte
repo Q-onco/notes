@@ -453,58 +453,43 @@
       </button>
       <span class="app-name">Q·onco</span>
 
-      <!-- Enzo activity widget: sleeping dog when idle, DNA when working -->
-      <div class="enzo-activity" class:enzo-active={dnaActive} aria-hidden="true" title={dnaActive ? 'Enzo is on it' : 'Enzo is resting'}>
-        <!-- Enzo dog face (golden shepherd, front view, floppy ears) -->
-        <svg class="enzo-face" width="24" height="24" viewBox="0 0 24 24">
-          <!-- Floppy ears — rendered behind head -->
-          <path d="M3,8 Q0,11 1,17 Q2,22 7,22 Q11,21 10,15 Q9,9 6,7 Z" fill="var(--ac)" opacity="0.52"/>
-          <path d="M21,8 Q24,11 23,17 Q22,22 17,22 Q13,21 14,15 Q15,9 18,7 Z" fill="var(--ac)" opacity="0.52"/>
-          <!-- Head -->
-          <circle cx="12" cy="12" r="8.5" fill="var(--sf)" stroke="var(--ac)" stroke-width="1.3"/>
-          <!-- Muzzle/snout area -->
-          <ellipse cx="12" cy="15.2" rx="4.5" ry="3" fill="color-mix(in srgb, var(--ac) 9%, var(--sf))"/>
-          <!-- Nose -->
-          <ellipse cx="12" cy="13.4" rx="2" ry="1.3" fill="var(--tx2)" opacity="0.65"/>
-          <!-- Sleeping eyes: closed arches (^) -->
-          <path class="enzo-eye-z" d="M7.5,11.5 Q9,9.8 10.5,11.5" stroke="var(--tx2)" stroke-width="1.4" stroke-linecap="round" fill="none"/>
-          <path class="enzo-eye-z" d="M13.5,11.5 Q15,9.8 16.5,11.5" stroke="var(--tx2)" stroke-width="1.4" stroke-linecap="round" fill="none"/>
-          <!-- Awake eyes: filled circles + highlight -->
-          <circle class="enzo-eye-a" cx="9" cy="10.8" r="2.1" fill="var(--tx)"/>
-          <circle class="enzo-eye-a" cx="15" cy="10.8" r="2.1" fill="var(--tx)"/>
-          <circle class="enzo-eye-a" cx="9.8" cy="10.1" r="0.85" fill="var(--sf)"/>
-          <circle class="enzo-eye-a" cx="15.8" cy="10.1" r="0.85" fill="var(--sf)"/>
+      <!-- DNA character: sleepy eyes + hanging arms when idle; wide eyes + raised arms when working -->
+      <div class="enzo-activity" class:enzo-active={dnaActive} aria-hidden="true" title={dnaActive ? 'Enzo is working' : 'Enzo is resting'}>
+        <svg class="dna-char" width="64" height="22" viewBox="0 0 64 22" aria-hidden="true">
+          <g class="dc-scroll">
+            <path class="dc-strand-a" d="M0,11 C8,3 12,3 20,11 C28,19 32,19 40,11 C48,3 52,3 60,11 C68,19 72,19 80,11 C88,3 92,3 100,11 C108,19 112,19 120,11"/>
+            <path class="dc-strand-b" d="M0,11 C8,19 12,19 20,11 C28,3 32,3 40,11 C48,19 52,19 60,11 C68,3 72,3 80,11 C88,19 92,19 100,11 C108,3 112,3 120,11"/>
+            <line class="dc-rung" x1="6"   y1="5" x2="6"   y2="17"/>
+            <line class="dc-rung dc-rung-f" x1="10"  y1="3" x2="10"  y2="19"/>
+            <line class="dc-rung" x1="16"  y1="5" x2="16"  y2="17"/>
+            <line class="dc-rung" x1="26"  y1="5" x2="26"  y2="17"/>
+            <line class="dc-rung dc-rung-f" x1="30"  y1="3" x2="30"  y2="19"/>
+            <line class="dc-rung" x1="36"  y1="5" x2="36"  y2="17"/>
+            <line class="dc-rung" x1="46"  y1="5" x2="46"  y2="17"/>
+            <line class="dc-rung dc-rung-f" x1="50"  y1="3" x2="50"  y2="19"/>
+            <line class="dc-rung" x1="56"  y1="5" x2="56"  y2="17"/>
+            <line class="dc-rung" x1="66"  y1="5" x2="66"  y2="17"/>
+            <line class="dc-rung dc-rung-f" x1="70"  y1="3" x2="70"  y2="19"/>
+            <line class="dc-rung" x1="76"  y1="5" x2="76"  y2="17"/>
+            <line class="dc-rung" x1="86"  y1="5" x2="86"  y2="17"/>
+            <line class="dc-rung dc-rung-f" x1="90"  y1="3" x2="90"  y2="19"/>
+            <line class="dc-rung" x1="96"  y1="5" x2="96"  y2="17"/>
+            <line class="dc-rung" x1="106" y1="5" x2="106" y2="17"/>
+            <line class="dc-rung dc-rung-f" x1="110" y1="3" x2="110" y2="19"/>
+            <line class="dc-rung" x1="116" y1="5" x2="116" y2="17"/>
+          </g>
+          <ellipse cx="32" cy="11" rx="17" ry="9" fill="var(--sf)" opacity="0.9"/>
+          <path class="dc-arm dc-arm-idle" d="M13,13 Q9,17 12,21" stroke="var(--ac)" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+          <path class="dc-arm dc-arm-idle" d="M51,13 Q55,17 52,21" stroke="var(--ac)" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+          <path class="dc-arm dc-arm-active" d="M13,13 Q8,8 11,2" stroke="var(--ac)" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+          <path class="dc-arm dc-arm-active" d="M51,13 Q56,8 53,2" stroke="var(--ac)" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+          <path class="dc-eye dc-eye-idle" d="M22,10 Q25.5,14 29,10" stroke="var(--tx2)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+          <path class="dc-eye dc-eye-idle" d="M35,10 Q38.5,14 42,10" stroke="var(--tx2)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+          <circle class="dc-eye dc-eye-active" cx="25.5" cy="10.5" r="2.8" fill="var(--tx)"/>
+          <circle class="dc-eye dc-eye-active" cx="38.5" cy="10.5" r="2.8" fill="var(--tx)"/>
+          <circle class="dc-eye dc-eye-active" cx="26.5" cy="9.4" r="1.1" fill="var(--sf)"/>
+          <circle class="dc-eye dc-eye-active" cx="39.5" cy="9.4" r="1.1" fill="var(--sf)"/>
         </svg>
-        <!-- Zzz (idle only) -->
-        <span class="enzo-zzz" aria-hidden="true">zzz</span>
-
-        <!-- DNA helix (active indicator) -->
-        <div class="dna-wrap">
-          <svg class="dna-svg" width="80" height="16" aria-hidden="true">
-            <g class="dna-scroll">
-              <path class="dna-a" d="M0,8 C8,1 12,1 20,8 C28,15 32,15 40,8 C48,1 52,1 60,8 C68,15 72,15 80,8 C88,1 92,1 100,8 C108,15 112,15 120,8"/>
-              <path class="dna-b" d="M0,8 C8,15 12,15 20,8 C28,1 32,1 40,8 C48,15 52,15 60,8 C68,1 72,1 80,8 C88,15 92,15 100,8 C108,1 112,1 120,8"/>
-              <line class="rung rung-s" x1="5"   y1="3.5" x2="5"   y2="12.5"/>
-              <line class="rung rung-f" x1="10"  y1="1.5" x2="10"  y2="14.5"/>
-              <line class="rung rung-s" x1="15"  y1="3.5" x2="15"  y2="12.5"/>
-              <line class="rung rung-s" x1="25"  y1="3.5" x2="25"  y2="12.5"/>
-              <line class="rung rung-f" x1="30"  y1="1.5" x2="30"  y2="14.5"/>
-              <line class="rung rung-s" x1="35"  y1="3.5" x2="35"  y2="12.5"/>
-              <line class="rung rung-s" x1="45"  y1="3.5" x2="45"  y2="12.5"/>
-              <line class="rung rung-f" x1="50"  y1="1.5" x2="50"  y2="14.5"/>
-              <line class="rung rung-s" x1="55"  y1="3.5" x2="55"  y2="12.5"/>
-              <line class="rung rung-s" x1="65"  y1="3.5" x2="65"  y2="12.5"/>
-              <line class="rung rung-f" x1="70"  y1="1.5" x2="70"  y2="14.5"/>
-              <line class="rung rung-s" x1="75"  y1="3.5" x2="75"  y2="12.5"/>
-              <line class="rung rung-s" x1="85"  y1="3.5" x2="85"  y2="12.5"/>
-              <line class="rung rung-f" x1="90"  y1="1.5" x2="90"  y2="14.5"/>
-              <line class="rung rung-s" x1="95"  y1="3.5" x2="95"  y2="12.5"/>
-              <line class="rung rung-s" x1="105" y1="3.5" x2="105" y2="12.5"/>
-              <line class="rung rung-f" x1="110" y1="1.5" x2="110" y2="14.5"/>
-              <line class="rung rung-s" x1="115" y1="3.5" x2="115" y2="12.5"/>
-            </g>
-          </svg>
-        </div>
       </div>
     </div>
 
@@ -768,93 +753,43 @@
     color: var(--tx);
   }
 
-  /* ── Enzo activity widget ──────────────────────────────────── */
+  /* ── DNA character widget ──────────────────────────────────── */
   .enzo-activity {
     display: flex;
     align-items: center;
-    gap: 3px;
     flex-shrink: 0;
     --dna-dur: 5s;
   }
-  .enzo-activity.enzo-active { --dna-dur: 0.65s; }
+  .enzo-activity.enzo-active { --dna-dur: 0.55s; }
 
-  /* Enzo face */
-  .enzo-face {
-    display: block;
-    flex-shrink: 0;
-    filter: drop-shadow(0 0 4px color-mix(in srgb, var(--ac) 30%, transparent));
-    transition: filter 0.35s ease;
-  }
-  .enzo-active .enzo-face {
-    filter: drop-shadow(0 0 8px color-mix(in srgb, var(--ac) 60%, transparent));
-  }
+  .dna-char { display: block; flex-shrink: 0; overflow: hidden; }
 
-  /* Sleeping vs awake eyes */
-  .enzo-eye-z { transition: opacity 0.3s ease; opacity: 1; }
-  .enzo-eye-a { transition: opacity 0.3s ease; opacity: 0; }
-  .enzo-active .enzo-eye-z { opacity: 0; }
-  .enzo-active .enzo-eye-a { opacity: 1; }
+  /* Helix strands */
+  .dc-strand-a { fill: none; stroke: var(--ac); stroke-width: 1.7; stroke-linecap: round; }
+  .dc-strand-b { fill: none; stroke: var(--pu); stroke-width: 1.4; stroke-linecap: round; opacity: 0.7; }
+  .dc-rung { stroke: var(--bd2); stroke-width: 1; stroke-linecap: round; opacity: 0.5; }
+  .dc-rung-f { stroke-width: 1.3; opacity: 0.8; }
 
-  /* Zzz bubbles */
-  .enzo-zzz {
-    font-size: 0.55rem;
-    font-weight: 700;
-    color: var(--mu);
-    letter-spacing: -0.02em;
-    animation: enzo-zzz-float 2.4s ease-in-out infinite;
-    transition: opacity 0.3s ease;
-    opacity: 0.55;
-    user-select: none;
-  }
-  .enzo-active .enzo-zzz { opacity: 0; animation: none; }
-
-  @keyframes enzo-zzz-float {
-    0%, 100% { transform: translateY(0) scale(1);   opacity: 0.55; }
-    50%       { transform: translateY(-3px) scale(1.15); opacity: 0.85; }
-  }
-
-  /* DNA helix clip */
-  .dna-wrap {
-    width: 40px;
-    height: 16px;
-    overflow: hidden;
-    flex-shrink: 0;
-    opacity: 0;
-    transition: opacity 0.4s ease;
-  }
-  .enzo-active .dna-wrap { opacity: 1; }
-
-  .dna-svg {
-    display: block;
-    width: 120px;
-    height: 16px;
-  }
-
-  .dna-scroll {
-    animation: dna-spin var(--dna-dur, 5s) linear infinite;
-  }
-
-  @keyframes dna-spin {
-    from { transform: translateX(0px); }
+  /* Scrolling helix animation */
+  .dc-scroll { animation: dc-spin var(--dna-dur, 5s) linear infinite; }
+  @keyframes dc-spin {
+    from { transform: translateX(0); }
     to   { transform: translateX(-40px); }
   }
 
-  .dna-a {
-    fill: none;
-    stroke: var(--ac);
-    stroke-width: 1.7;
-    stroke-linecap: round;
-  }
-  .dna-b {
-    fill: none;
-    stroke: var(--pu);
-    stroke-width: 1.4;
-    stroke-linecap: round;
-    opacity: 0.7;
-  }
-  .rung { stroke: var(--bd2); stroke-linecap: round; }
-  .rung-f { stroke-width: 1.3; opacity: 0.8; }
-  .rung-s { stroke-width: 1;   opacity: 0.5; }
+  /* Eyes */
+  .dc-eye { transition: opacity 0.3s ease; }
+  .dc-eye-idle   { opacity: 0.85; }
+  .dc-eye-active { opacity: 0; }
+  .enzo-active .dc-eye-idle   { opacity: 0; }
+  .enzo-active .dc-eye-active { opacity: 1; }
+
+  /* Arms */
+  .dc-arm { transition: opacity 0.3s ease; }
+  .dc-arm-idle   { opacity: 0.7; }
+  .dc-arm-active { opacity: 0; }
+  .enzo-active .dc-arm-idle   { opacity: 0; }
+  .enzo-active .dc-arm-active { opacity: 1; }
 
   .top-right {
     display: flex;

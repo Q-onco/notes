@@ -28,6 +28,269 @@
     return () => clearInterval(t);
   });
 
+  // ── Slash commands ────────────────────────────────────────────
+  interface EnzoCommand {
+    cmd: string;
+    usage: string;
+    desc: string;
+    group: string;
+    needsArg: boolean;
+  }
+
+  const COMMANDS: EnzoCommand[] = [
+    // Capture
+    { cmd: 'task',      usage: '/task <description>',    desc: 'Add a task',                   group: 'capture',  needsArg: true  },
+    { cmd: 'note',      usage: '/note <title>',          desc: 'Create a note',                group: 'capture',  needsArg: true  },
+    { cmd: 'log',       usage: '/log <entry>',           desc: 'Add journal entry',            group: 'capture',  needsArg: true  },
+    { cmd: 'hyp',       usage: '/hyp <hypothesis>',      desc: 'Record a hypothesis',          group: 'capture',  needsArg: true  },
+    // Research
+    { cmd: 'read',      usage: '/read',                  desc: 'Deep read — paste abstract',   group: 'research', needsArg: false },
+    { cmd: 'critique',  usage: '/critique',              desc: 'Critique — paste abstract',    group: 'research', needsArg: false },
+    { cmd: 'paper',     usage: '/paper <query>',         desc: 'Search literature',            group: 'research', needsArg: true  },
+    { cmd: 'cite',      usage: '/cite <DOI or title>',   desc: 'Format a citation',            group: 'research', needsArg: true  },
+    // Analysis
+    { cmd: 'r',         usage: '/r <code or question>',  desc: 'R code help',                  group: 'analysis', needsArg: true  },
+    { cmd: 'py',        usage: '/py <code or question>', desc: 'Python code help',             group: 'analysis', needsArg: true  },
+    { cmd: 'code',      usage: '/code <prompt>',         desc: 'Generate analysis code',       group: 'analysis', needsArg: true  },
+    // Writing
+    { cmd: 'draft',     usage: '/draft <prompt>',        desc: 'Draft scientific text',        group: 'writing',  needsArg: true  },
+    { cmd: 'abstract',  usage: '/abstract <title>',      desc: 'Draft an abstract',            group: 'writing',  needsArg: true  },
+    // Reports
+    { cmd: 'digest',    usage: '/digest',                desc: 'Generate weekly digest',       group: 'reports',  needsArg: false },
+    { cmd: 'pi',        usage: '/pi',                    desc: 'Draft PI weekly report',       group: 'reports',  needsArg: false },
+    // Files & mail
+    { cmd: 'files',     usage: '/files',                 desc: 'List stored files by folder',  group: 'files',    needsArg: false },
+    { cmd: 'find',      usage: '/find <query>',          desc: 'Search files',                 group: 'files',    needsArg: true  },
+    { cmd: 'send',      usage: '/send <recipient>',      desc: 'Open email compose',           group: 'mail',     needsArg: true  },
+    // Utility
+    { cmd: 'help',      usage: '/help',                  desc: 'Show all commands',            group: 'utility',  needsArg: false },
+    { cmd: 'clear',     usage: '/clear',                 desc: 'Clear this chat session',      group: 'utility',  needsArg: false },
+  ];
+
+  let showPicker = $state(false);
+  let pickerFilter = $state('');
+  let pickerSelected = $state(0);
+  let pickerEl = $state<HTMLDivElement | undefined>(undefined);
+  let inputEl = $state<HTMLTextAreaElement | undefined>(undefined);
+
+  const pickerCmds = $derived(
+    showPicker
+      ? COMMANDS.filter(c =>
+          pickerFilter === '' ||
+          c.cmd.startsWith(pickerFilter) ||
+          c.desc.toLowerCase().includes(pickerFilter)
+        ).slice(0, 14)
+      : []
+  );
+
+  function onInputChange() {
+    const val = inputText;
+    if (val.startsWith('/') && !val.includes(' ')) {
+      pickerFilter = val.slice(1).toLowerCase();
+      showPicker = true;
+      pickerSelected = 0;
+    } else {
+      showPicker = false;
+    }
+  }
+
+  function selectCommand(cmd: EnzoCommand) {
+    showPicker = false;
+    if (cmd.needsArg) {
+      inputText = '/' + cmd.cmd + ' ';
+      setTimeout(() => inputEl?.focus(), 10);
+    } else {
+      inputText = '/' + cmd.cmd;
+      send();
+    }
+  }
+
+  function addEnzoMessage(content: string) {
+    const session = getOrCreateSession();
+    const msg: ChatMessage = {
+      id: nanoid(), role: 'assistant', content,
+      timestamp: Date.now(), model: 'system', tokens: 0
+    };
+    session.messages = [...session.messages, msg];
+    scrollToBottom();
+    store.saveChat();
+  }
+
+  async function executeCommand(cmd: EnzoCommand, args: string) {
+    if (cmd.cmd === 'task') {
+      if (!args) { inputText = '/task '; showPicker = false; inputEl?.focus(); return; }
+      store.tasks = [{ id: nanoid(), text: args, done: false, noteId: null, createdAt: Date.now(), dueAt: null, priority: 'medium' }, ...store.tasks];
+      await store.saveTasks();
+      addEnzoMessage(`Added task: **${args}**`);
+      return;
+    }
+
+    if (cmd.cmd === 'note') {
+      if (!args) { inputText = '/note '; showPicker = false; inputEl?.focus(); return; }
+      const note = { id: nanoid(), title: args.slice(0, 80), body: `# ${args}\n\n`, tags: [] as string[], createdAt: Date.now(), updatedAt: Date.now(), pinned: false, archived: false, audioIds: [] as string[] };
+      store.notes = [note, ...store.notes];
+      store.currentNoteId = note.id;
+      await store.saveNotes();
+      store.view = 'notes';
+      store.enzoOpen = false;
+      return;
+    }
+
+    if (cmd.cmd === 'log') {
+      if (!args) { inputText = '/log '; showPicker = false; inputEl?.focus(); return; }
+      store.journal = [{ id: nanoid(), body: args, mood: '', contextTag: 'Research', createdAt: Date.now(), updatedAt: Date.now(), audioIds: [] }, ...store.journal];
+      await store.saveJournal();
+      addEnzoMessage(`Journal entry added.`);
+      return;
+    }
+
+    if (cmd.cmd === 'hyp') {
+      if (!args) { inputText = '/hyp '; showPicker = false; inputEl?.focus(); return; }
+      inputText = `I want to record this hypothesis: "${args}"\n\nCritically evaluate the mechanistic plausibility and suggest how to test it.`;
+      await send();
+      return;
+    }
+
+    if (cmd.cmd === 'read') {
+      inputText = `I want to do a deep critical read. Here's the abstract — give me 5 pointed Socratic questions that force me to engage with the paper's design, controls, statistics, and implications:\n\n[paste abstract here]`;
+      showPicker = false;
+      inputEl?.focus();
+      return;
+    }
+
+    if (cmd.cmd === 'critique') {
+      inputText = `Critique this paper as a peer reviewer — evaluate research question, methodology, novelty, limitations, and give a verdict:\n\n[paste title and abstract here]`;
+      showPicker = false;
+      inputEl?.focus();
+      return;
+    }
+
+    if (cmd.cmd === 'paper') {
+      if (!args) { inputText = '/paper '; showPicker = false; inputEl?.focus(); return; }
+      store.enzoSearchQuery = args;
+      store.view = 'research';
+      store.enzoOpen = false;
+      return;
+    }
+
+    if (cmd.cmd === 'cite') {
+      if (!args) { inputText = '/cite '; showPicker = false; inputEl?.focus(); return; }
+      inputText = `Format a complete APA / Vancouver citation for: ${args}`;
+      await send();
+      return;
+    }
+
+    if (cmd.cmd === 'r') {
+      if (!args) { inputText = '/r '; showPicker = false; inputEl?.focus(); return; }
+      inputText = `Help me with this R code or question:\n\`\`\`r\n${args}\n\`\`\``;
+      await send();
+      return;
+    }
+
+    if (cmd.cmd === 'py') {
+      if (!args) { inputText = '/py '; showPicker = false; inputEl?.focus(); return; }
+      inputText = `Help me with this Python code or question:\n\`\`\`python\n${args}\n\`\`\``;
+      await send();
+      return;
+    }
+
+    if (cmd.cmd === 'code') {
+      if (!args) { inputText = '/code '; showPicker = false; inputEl?.focus(); return; }
+      inputText = `Generate complete, runnable analysis code for: ${args}`;
+      await send();
+      return;
+    }
+
+    if (cmd.cmd === 'draft') {
+      if (!args) { inputText = '/draft '; showPicker = false; inputEl?.focus(); return; }
+      inputText = `Draft scientific text for: ${args}`;
+      await send();
+      return;
+    }
+
+    if (cmd.cmd === 'abstract') {
+      if (!args) { inputText = '/abstract '; showPicker = false; inputEl?.focus(); return; }
+      inputText = `Draft a concise, high-impact abstract for a paper titled: "${args}"`;
+      await send();
+      return;
+    }
+
+    if (cmd.cmd === 'digest') {
+      const sevenDaysAgo = Date.now() - 7 * 86400000;
+      const recentJournal = store.journal.filter(e => e.createdAt > sevenDaysAgo).slice(0, 5);
+      const doneTasks = store.tasks.filter(t => t.done).slice(0, 8);
+      const openTasks = store.tasks.filter(t => !t.done).slice(0, 6);
+      inputText = `Generate my weekly research digest:\n\nJournal (${recentJournal.length} entries): ${recentJournal.map(e => e.body.replace(/<[^>]*>/g, ' ').slice(0, 80)).join(' | ') || 'none'}\nTasks done: ${doneTasks.map(t => t.text).join('; ') || 'none'}\nOpen tasks: ${openTasks.map(t => t.text).join('; ') || 'none'}\n\nInclude: This Week summary, Key themes, and Next Week suggestions.`;
+      await send();
+      return;
+    }
+
+    if (cmd.cmd === 'pi') {
+      const sevenDaysAgo = Date.now() - 7 * 86400000;
+      const recentJournal = store.journal.filter(e => e.createdAt > sevenDaysAgo).slice(0, 5);
+      const doneTasks = store.tasks.filter(t => t.done).slice(0, 8);
+      const openTasks = store.tasks.filter(t => !t.done).slice(0, 6);
+      const runs = store.pipelineRuns?.slice(0, 4) ?? [];
+      inputText = `Draft a concise weekly progress email from me (Dr. Amritha Sathyanarayanan) to my PI. Write in first person.\n\nJournal notes: ${recentJournal.map(e => e.body.replace(/<[^>]*>/g, ' ').slice(0, 100)).join(' | ') || 'none'}\nCompleted: ${doneTasks.map(t => t.text).join('; ') || 'none'}\nIn progress: ${openTasks.map(t => t.text).join('; ') || 'none'}\nPipeline runs: ${runs.map((r: any) => `${r.title} (${r.status})`).join(', ') || 'none'}\n\nKeep it structured and under 350 words. Use plain text, not markdown.`;
+      await send();
+      return;
+    }
+
+    if (cmd.cmd === 'files') {
+      const folders = [...new Set(store.files.map(f => f.folder || 'Unfiled'))];
+      const parts = folders.map(folder => {
+        const items = store.files.filter(f => (f.folder || 'Unfiled') === folder);
+        return `**${folder}** (${items.length})\n${items.map(f => `  · ${f.name}${f.description ? ' — ' + f.description.slice(0, 60) : ''}`).join('\n')}`;
+      });
+      addEnzoMessage(parts.length > 0 ? `## Your files\n\n${parts.join('\n\n')}` : 'No files stored yet. Upload files in the Files section.');
+      return;
+    }
+
+    if (cmd.cmd === 'find') {
+      if (!args) { inputText = '/find '; showPicker = false; inputEl?.focus(); return; }
+      const q = args.toLowerCase();
+      const matches = store.files.filter(f =>
+        f.name.toLowerCase().includes(q) ||
+        f.description.toLowerCase().includes(q) ||
+        f.tags.some((t: string) => t.toLowerCase().includes(q)) ||
+        (f.folder || '').toLowerCase().includes(q)
+      );
+      if (matches.length === 0) {
+        addEnzoMessage(`No files found matching **"${args}"**.`);
+      } else {
+        addEnzoMessage(`Found ${matches.length} file${matches.length > 1 ? 's' : ''} matching **"${args}"**:\n\n${matches.map(f => `· **${f.name}**${f.folder ? ` [${f.folder}]` : ''}${f.description ? ' — ' + f.description.slice(0, 80) : ''}`).join('\n')}`);
+      }
+      return;
+    }
+
+    if (cmd.cmd === 'send') {
+      store.mailComposeOpen = true;
+      store.enzoOpen = false;
+      if (args) addEnzoMessage(`Opening compose for: **${args}**. I've opened the mail composer — fill in the details and I can draft the body if you need.`);
+      return;
+    }
+
+    if (cmd.cmd === 'help') {
+      const grouped: Record<string, EnzoCommand[]> = {};
+      for (const c of COMMANDS) {
+        if (!grouped[c.group]) grouped[c.group] = [];
+        grouped[c.group].push(c);
+      }
+      const sections = Object.entries(grouped).map(([g, cmds]) =>
+        `**${g.charAt(0).toUpperCase() + g.slice(1)}**\n${cmds.map(c => `\`${c.usage}\` — ${c.desc}`).join('\n')}`
+      );
+      addEnzoMessage(`## Enzo Commands\n\n${sections.join('\n\n')}`);
+      return;
+    }
+
+    if (cmd.cmd === 'clear') {
+      const session = store.chatSessions.find(s => s.id === todayKey);
+      if (session) session.messages = [];
+      await store.saveChat();
+      return;
+    }
+  }
+
   let tab = $state<'chat' | 'history'>('chat');
   let inputText = $state('');
   let streaming = $state(false);
@@ -60,6 +323,21 @@
   async function send() {
     const text = inputText.trim();
     if (!text || streaming) return;
+
+    // Intercept slash commands
+    if (text.startsWith('/')) {
+      const parts = text.slice(1).split(/\s+/);
+      const cmdName = parts[0].toLowerCase();
+      const cmd = COMMANDS.find(c => c.cmd === cmdName);
+      if (cmd) {
+        inputText = '';
+        showPicker = false;
+        const args = parts.slice(1).join(' ');
+        await executeCommand(cmd, args);
+        return;
+      }
+    }
+
     inputText = '';
 
     const session = getOrCreateSession();
@@ -196,6 +474,28 @@
   }
 
   function handleKey(e: KeyboardEvent) {
+    if (showPicker && pickerCmds.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        pickerSelected = Math.min(pickerSelected + 1, pickerCmds.length - 1);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        pickerSelected = Math.max(pickerSelected - 1, 0);
+        return;
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault();
+        selectCommand(pickerCmds[pickerSelected]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        showPicker = false;
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       send();
@@ -352,12 +652,38 @@
       </div>
     {/if}
 
+    <!-- Command picker -->
+    {#if showPicker && pickerCmds.length > 0}
+      <div class="cmd-picker" bind:this={pickerEl} role="listbox" aria-label="Commands">
+        {#each pickerCmds as cmd, i}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_interactive_supports_focus -->
+          <div
+            class="cmd-item"
+            class:cmd-item-active={i === pickerSelected}
+            role="option"
+            aria-selected={i === pickerSelected}
+            tabindex={i === pickerSelected ? 0 : -1}
+            onclick={() => selectCommand(cmd)}
+            onmouseenter={() => pickerSelected = i}
+          >
+            <span class="cmd-name">/{cmd.cmd}</span>
+            <span class="cmd-desc">{cmd.desc}</span>
+            <span class="cmd-group">{cmd.group}</span>
+          </div>
+        {/each}
+        <div class="cmd-footer">↑↓ navigate · Tab/↵ select · Esc close</div>
+      </div>
+    {/if}
+
     <!-- Input -->
     <div class="enzo-input-row">
       <textarea
         bind:value={inputText}
+        bind:this={inputEl}
         onkeydown={handleKey}
-        placeholder="Ask Enzo... (Shift+Enter for new line)"
+        oninput={onInputChange}
+        placeholder="Ask Enzo… or type / for commands"
         rows={2}
         disabled={streaming}
         class="enzo-input"
@@ -639,4 +965,66 @@
   }
   .journal-ctx-btn.active { border-color: var(--gn); color: var(--gn); background: var(--gn-bg); }
   .journal-ctx-btn:hover { border-color: var(--gn); color: var(--gn); }
+
+  /* ── Command picker ── */
+  .cmd-picker {
+    border-top: 1px solid var(--bd);
+    border-bottom: 1px solid var(--bd);
+    background: var(--sf);
+    max-height: 240px;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+
+  .cmd-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px;
+    cursor: pointer;
+    transition: background var(--transition);
+    user-select: none;
+  }
+  .cmd-item:hover, .cmd-item-active {
+    background: var(--enzo-bg);
+  }
+
+  .cmd-name {
+    font-size: 0.82rem;
+    font-weight: 700;
+    font-family: var(--mono);
+    color: var(--enzo);
+    min-width: 72px;
+    flex-shrink: 0;
+  }
+
+  .cmd-desc {
+    flex: 1;
+    font-size: 0.78rem;
+    color: var(--tx2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .cmd-group {
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--mu);
+    background: var(--sf2);
+    border: 1px solid var(--bd);
+    border-radius: 8px;
+    padding: 1px 6px;
+    flex-shrink: 0;
+  }
+
+  .cmd-footer {
+    padding: 5px 14px;
+    font-size: 0.62rem;
+    color: var(--mu);
+    border-top: 1px solid var(--bd);
+    background: var(--sf2);
+  }
 </style>
