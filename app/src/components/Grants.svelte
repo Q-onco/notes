@@ -292,7 +292,7 @@
             </div>
             {#if c.body}
               <div class="tc-abstract-preview">
-                <span class="wc-badge" class:wc-over={abstractWordCount > c.wordLimit}>{c.body.trim().split(/\s+/).filter(Boolean).length}/{c.wordLimit} words</span>
+                <span class="wc-badge" class:wc-over={c.body.trim().split(/\s+/).filter(Boolean).length > c.wordLimit}>{c.body.trim().split(/\s+/).filter(Boolean).length}/{c.wordLimit} words</span>
                 <p class="tc-notes">{c.body.slice(0, 160)}{c.body.length > 160 ? '…' : ''}</p>
               </div>
             {/if}

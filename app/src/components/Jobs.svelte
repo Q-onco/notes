@@ -1946,6 +1946,9 @@
   .modal-textarea { font-family: var(--mono); font-size: 0.875rem; }
   .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
+  .btn-link { background: transparent; border: none; color: var(--ac); cursor: pointer; font-size: 0.78rem; padding: 2px 6px; border-radius: var(--radius-sm); font-family: var(--font); }
+  .btn-link:hover { background: var(--ac-bg); }
+
   /* ── Mobile responsive ── */
   @media (max-width: 640px) {
     .tab-content { padding: 14px; }

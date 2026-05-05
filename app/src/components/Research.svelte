@@ -1592,6 +1592,9 @@ Format your response as:
   }
   .cite-btn:hover { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); }
 
+  .btn-link { background: transparent; border: none; color: var(--ac); cursor: pointer; font-size: 0.78rem; padding: 2px 6px; border-radius: var(--radius-sm); font-family: var(--font); }
+  .btn-link:hover { background: var(--ac-bg); }
+
   @media (max-width: 640px) {
     .research { padding: 16px; }
     .save-label-input { width: 120px; }
