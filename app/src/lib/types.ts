@@ -415,6 +415,101 @@ export interface FileRecord {
   updatedAt: number;
 }
 
+// ── Grants ────────────────────────────────────────────────────────────────────
+
+export type GrantStatus = 'idea' | 'drafting' | 'submitted' | 'under-review' | 'awarded' | 'rejected' | 'withdrawn';
+
+export interface Grant {
+  id: string;
+  title: string;
+  agency: string;
+  programme: string;
+  amount: number;
+  currency: string;
+  deadline: number | null;
+  submittedAt: number | null;
+  status: GrantStatus;
+  piName: string;
+  collaborators: string[];
+  description: string;
+  notes: string;
+  tags: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+// ── Conference abstract tracker ───────────────────────────────────────────────
+
+export type AbstractStatus = 'drafting' | 'submitted' | 'accepted-oral' | 'accepted-poster' | 'rejected' | 'withdrawn';
+
+export interface ConferenceAbstract {
+  id: string;
+  conference: string;
+  location: string;
+  dates: string;
+  abstractTitle: string;
+  body: string;
+  wordLimit: number;
+  submissionDeadline: number | null;
+  notificationDate: number | null;
+  status: AbstractStatus;
+  presentationId: string | null;
+  notes: string;
+  tags: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+// ── Peer review log ───────────────────────────────────────────────────────────
+
+export type PeerReviewStatus = 'invited' | 'accepted' | 'declined' | 'in-progress' | 'submitted' | 'done';
+
+export interface PeerReview {
+  id: string;
+  journal: string;
+  manuscriptTitle: string;
+  editorName: string;
+  invitedAt: number;
+  dueAt: number | null;
+  submittedAt: number | null;
+  status: PeerReviewStatus;
+  recommendation: string;
+  notes: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// ── Manuscript ────────────────────────────────────────────────────────────────
+
+export type ManuscriptStatus = 'drafting' | 'internal-review' | 'submitted' | 'revisions' | 'accepted' | 'published';
+
+export interface ManuscriptSection {
+  id: string;
+  type: 'abstract' | 'introduction' | 'methods' | 'results' | 'discussion' | 'conclusion' | 'supplementary' | 'custom';
+  label: string;
+  content: string;   // HTML from RichEditor
+  wordTarget: number;
+  notes: string;
+}
+
+export interface Manuscript {
+  id: string;
+  title: string;
+  targetJournal: string;
+  status: ManuscriptStatus;
+  sections: ManuscriptSection[];
+  authors: string[];
+  keywords: string[];
+  linkedNoteIds: string[];
+  submittedAt: number | null;
+  acceptedAt: number | null;
+  publishedAt: number | null;
+  doi: string;
+  notes: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 // ── AI feature toggles ────────────────────────────────────────────────────────
 
 export interface AiFeatureSettings {

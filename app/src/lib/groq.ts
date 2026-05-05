@@ -513,3 +513,111 @@ Make slides concise, visually impactful, suitable for an academic conference tal
   if (!match) throw new Error('Could not parse slide JSON from Enzo response');
   return JSON.parse(match[0]) as Array<{title: string; content: string; notes: string}>;
 }
+
+// ── Paper critique ────────────────────────────────────────────────────────────
+export async function critiquePaper(
+  title: string,
+  abstract: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    { role: 'system' as const, content: `You are Enzo in Paper Critique mode. You are a rigorous scientific peer reviewer specialising in HGSOC, TME, scRNA-seq, spatial transcriptomics, and PARP inhibitor research. Provide a structured critique. Be direct and specific — no softening language.` },
+    { role: 'user' as const, content: `Critique this paper:\n\n**Title:** ${title}\n\n**Abstract:**\n${abstract}\n\nStructure your response with these sections:\n## Research Question\n## Methodology\n## Novelty\n## HGSOC Relevance\n## Limitations\n## Verdict` }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
+// ── Devil's advocate ──────────────────────────────────────────────────────────
+export async function devilsAdvocate(
+  hypothesis: string,
+  rationale: string,
+  pinnedPaperTitles: string[],
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const papers = pinnedPaperTitles.slice(0, 8).map((t, i) => `${i + 1}. ${t}`).join('\n');
+  const messages = [
+    { role: 'system' as const, content: `You are Enzo in Devil's Advocate mode. Your job is to argue AGAINST the hypothesis with logic, counter-evidence, and methodological critique. You are not trying to be destructive — you are trying to make the research stronger by exposing weaknesses. Be intellectually rigorous and specific.` },
+    { role: 'user' as const, content: `Challenge this hypothesis:\n\n**Hypothesis:** ${hypothesis}\n\n**My rationale:** ${rationale}\n\n**My pinned papers for context:**\n${papers || 'None listed'}\n\nArgue against this hypothesis. Cover: counter-evidence from literature, alternative explanations, methodological challenges, confounds, and what experiments would most decisively falsify it.` }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
+// ── Weekly PI report ──────────────────────────────────────────────────────────
+export async function generatePiReport(
+  data: {
+    journalEntries: { date: string; body: string; mood: string }[];
+    tasksDone: string[];
+    tasksOpen: string[];
+    pipelineRuns: { title: string; status: string; pipelineType: string }[];
+    papersRead: { title: string; journal: string }[];
+    hypotheses: { text: string; status: string }[];
+  },
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    { role: 'system' as const, content: `You are Enzo. Draft a concise, professional weekly progress email from a postdoc to their PI. Write in first person as Dr. Amritha Sathyanarayanan. Keep it structured, scientific, and under 400 words. Use the data provided — do not invent experiments or results.` },
+    { role: 'user' as const, content: `Draft this week's PI progress email based on my Q·onco data:\n\n**Journal entries:**\n${data.journalEntries.map(e => `${e.date}: ${e.body.replace(/<[^>]*>/g, ' ').slice(0, 150)}`).join('\n') || 'None'}\n\n**Tasks completed:**\n${data.tasksDone.join('\n') || 'None'}\n\n**Tasks in progress:**\n${data.tasksOpen.slice(0, 8).join('\n') || 'None'}\n\n**Pipeline runs:**\n${data.pipelineRuns.map(r => `${r.title} (${r.pipelineType}, ${r.status})`).join('\n') || 'None'}\n\n**Papers read:**\n${data.papersRead.map(p => p.title).join('\n') || 'None'}\n\n**Active hypotheses:**\n${data.hypotheses.map(h => `${h.text} [${h.status}]`).join('\n') || 'None'}\n\nWrite the email draft now.` }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
+// ── Interview prep ────────────────────────────────────────────────────────────
+export async function generateInterviewQuestions(
+  jobTitle: string,
+  company: string,
+  jobDesc: string,
+  cvSummary: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    { role: 'system' as const, content: `You are Enzo, an expert career coach and scientific recruiter. Generate realistic, challenging interview questions for this specific role. Mix behavioural, technical, and strategic questions. After the questions, add a section "## Enzo's Tips" with 3 specific prep suggestions based on the job requirements and the candidate's background.` },
+    { role: 'user' as const, content: `Generate interview prep for:\n\n**Role:** ${jobTitle} at ${company}\n\n**Job description:**\n${jobDesc.slice(0, 1000)}\n\n**Candidate background:**\n${cvSummary}\n\nGenerate 12 questions in 3 categories:\n### Technical & Scientific (5 questions)\n### Behavioural & Soft Skills (4 questions)\n### Strategic & Fit (3 questions)\n\nThen add ## Enzo's Tips` }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
+// ── Parse transcript for research events ─────────────────────────────────────
+export async function parseTranscriptForEvents(
+  transcript: string,
+  signal?: AbortSignal
+): Promise<{
+  hypotheses: string[];
+  tasks: string[];
+  paperTopics: string[];
+  observations: string[];
+}> {
+  let buffer = '';
+  const messages = [
+    { role: 'system' as const, content: `You are Enzo. Parse a voice transcript from a researcher and extract structured research events. Return ONLY valid JSON — no markdown, no preamble.` },
+    { role: 'user' as const, content: `Extract research events from this transcript:\n\n"${transcript}"\n\nReturn JSON:\n{"hypotheses":["..."],"tasks":["..."],"paperTopics":["..."],"observations":["..."]}\n\nhypotheses: scientific hypotheses stated or implied\ntasks: experimental or admin actions mentioned\npaperTopics: papers or concepts worth searching\nobservations: experimental findings or data observations\n\nReturn empty arrays if none found.` }
+  ];
+  await streamGroq(MODELS.quick, messages, (c) => { buffer += c; }, signal);
+  try {
+    const m = buffer.match(/\{[\s\S]*\}/);
+    if (!m) return { hypotheses: [], tasks: [], paperTopics: [], observations: [] };
+    return JSON.parse(m[0]);
+  } catch {
+    return { hypotheses: [], tasks: [], paperTopics: [], observations: [] };
+  }
+}
+
+// ── Manuscript section assistant ──────────────────────────────────────────────
+export async function assistManuscriptSection(
+  sectionType: string,
+  currentContent: string,
+  manuscriptTitle: string,
+  targetJournal: string,
+  paperContext: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    { role: 'system' as const, content: `You are Enzo, a scientific writing assistant specialising in oncology manuscripts. Write in a clear, precise academic style appropriate for high-impact journals. Do not use flowery language. Every claim should be defensible. Write as if Dr. Amritha Sathyanarayanan is the corresponding author.` },
+    { role: 'user' as const, content: `Help me write/improve the **${sectionType}** section of my manuscript.\n\n**Manuscript title:** ${manuscriptTitle}\n**Target journal:** ${targetJournal || 'TBD'}\n\n**Research context / key papers:**\n${paperContext || 'See pinned papers in Q·onco'}\n\n**Current draft (may be empty):**\n${currentContent.replace(/<[^>]*>/g, ' ').slice(0, 600) || 'Nothing written yet'}\n\nWrite an improved draft for the ${sectionType} section. Use HTML formatting (<p>, <h3>, <ul>, <li>) for structure. Be scientifically precise.` }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
