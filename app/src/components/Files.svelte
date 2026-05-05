@@ -6,26 +6,36 @@
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
   // ── State ─────────────────────────────────────────────────────
-  let search       = $state('');
-  let activeTag    = $state('');
-  let viewMode     = $state<'list' | 'grid'>('list');
-  let selectedId   = $state<string | null>(null);
-  let uploading    = $state(false);
-  let dragOver     = $state(false);
-  let fileInput    = $state<HTMLInputElement | undefined>(undefined);
-  let viewerUrl    = $state<string | null>(null);
-  let viewerText   = $state<string | null>(null);
-  let viewerTable  = $state<string[][] | null>(null);
-  let linkNoteOpen = $state(false);
-  let linkRunOpen  = $state(false);
-  let addTagDraft  = $state('');
-  let addExtUrl    = $state(false);
-  let extUrlDraft  = $state('');
-  let extNameDraft = $state('');
+  let search        = $state('');
+  let activeTag     = $state('');
+  let activeFolder  = $state('');
+  let viewMode      = $state<'list' | 'grid'>('list');
+  let selectedId    = $state<string | null>(null);
+  let uploading     = $state(false);
+  let dragOver      = $state(false);
+  let fileInput     = $state<HTMLInputElement | undefined>(undefined);
+  let viewerUrl     = $state<string | null>(null);
+  let viewerText    = $state<string | null>(null);
+  let viewerTable   = $state<string[][] | null>(null);
+  let viewerExpand  = $state(false);
+  let linkNoteOpen  = $state(false);
+  let linkRunOpen   = $state(false);
+  let addTagDraft   = $state('');
+  let addExtUrl     = $state(false);
+  let extUrlDraft   = $state('');
+  let extNameDraft  = $state('');
+  let newFolderDraft = $state('');
+  let addFolderMode = $state(false);
+  let descTimer: ReturnType<typeof setTimeout>;
+  let shareOpen = $state(false);
+  let shareExpiry = $state<'1h' | '24h' | '7d' | '30d'>('24h');
+  let shareUrl = $state<string | null>(null);
+  let shareExpAt = $state<number | null>(null);
+  let sharing = $state(false);
 
   const selectedFile = $derived(store.files.find(f => f.id === selectedId) ?? null);
-
-  const allTags = $derived([...new Set(store.files.flatMap(f => f.tags))].sort());
+  const allTags      = $derived([...new Set(store.files.flatMap(f => f.tags))].sort());
+  const allFolders   = $derived([...new Set(store.files.map(f => f.folder).filter(Boolean) as string[])].sort());
 
   const filtered = $derived(
     store.files
@@ -33,7 +43,8 @@
         const q = search.toLowerCase();
         const matchQ = !q || f.name.toLowerCase().includes(q) || f.description.toLowerCase().includes(q) || f.tags.some(t => t.includes(q));
         const matchT = !activeTag || f.tags.includes(activeTag);
-        return matchQ && matchT;
+        const matchF = !activeFolder || f.folder === activeFolder;
+        return matchQ && matchT && matchF;
       })
       .sort((a, b) => b.createdAt - a.createdAt)
   );
@@ -82,9 +93,9 @@
           mimeType: mime,
           size: file.size,
           r2Key,
-          // legacy base64 only when worker not available
           data: useR2 ? undefined : await readAsBase64(file),
           tags: [],
+          folder: activeFolder || undefined,
           linkedNoteIds: [],
           linkedRunIds: [],
           description: '',
@@ -95,6 +106,7 @@
       store.files = [...records, ...store.files];
       await store.saveFiles();
       showToast(`${records.length} file${records.length > 1 ? 's' : ''} uploaded`);
+      // Select after save completes — won't trigger viewer reload mid-save
       selectedId = records[0].id;
     } catch (err) {
       showToast('Upload failed: ' + (err as Error).message, 'error');
@@ -128,7 +140,8 @@
     if (!extUrlDraft.trim() || !extNameDraft.trim()) return;
     const rec: FileRecord = {
       id: nanoid(), name: extNameDraft.trim(), mimeType: guessMime(extNameDraft),
-      size: 0, url: extUrlDraft.trim(), tags: [], linkedNoteIds: [], linkedRunIds: [],
+      size: 0, url: extUrlDraft.trim(), tags: [], folder: activeFolder || undefined,
+      linkedNoteIds: [], linkedRunIds: [],
       description: '', createdAt: Date.now(), updatedAt: Date.now(),
     };
     store.files = [rec, ...store.files];
@@ -139,24 +152,27 @@
   }
 
   // ── Viewer ────────────────────────────────────────────────────
+  let lastSelectedId = '';
   $effect(() => {
+    const sf = selectedFile;
+    // Only rebuild viewer when selected file actually changes
+    if (sf?.id === lastSelectedId) return;
+    lastSelectedId = sf?.id ?? '';
+
     if (viewerUrl && !viewerUrl.startsWith('http')) URL.revokeObjectURL(viewerUrl);
     viewerUrl = null; viewerText = null; viewerTable = null;
-    if (!selectedFile) return;
+    if (!sf) return;
 
-    if (selectedFile.url) { viewerUrl = selectedFile.url; return; }
+    if (sf.url) { viewerUrl = sf.url; return; }
 
-    // R2-backed file: build stream URL via worker
-    if (selectedFile.r2Key) {
-      const base = store.workerBase;
-      viewerUrl = `${base}/file/${encodeURIComponent(selectedFile.r2Key)}`;
+    if (sf.r2Key) {
+      viewerUrl = `${store.workerBase}/file/${encodeURIComponent(sf.r2Key)}`;
       return;
     }
 
-    // Legacy base64
-    if (!selectedFile.data) return;
-    const mime  = selectedFile.mimeType;
-    const bytes = atob(selectedFile.data);
+    if (!sf.data) return;
+    const mime  = sf.mimeType;
+    const bytes = atob(sf.data);
     const arr   = new Uint8Array(bytes.length);
     for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
     const blob  = new Blob([arr], { type: mime });
@@ -176,6 +192,57 @@
     return ['text/x-r','text/x-python','text/x-shellscript','text/javascript','text/typescript','application/json','text/markdown','text/html','application/xml'].includes(m);
   }
 
+  // ── Share ─────────────────────────────────────────────────────
+  async function createShareLink() {
+    if (!selectedFile?.r2Key || !store.workerBase) return;
+    sharing = true;
+    try {
+      const res = await fetch(`${store.workerBase}/share`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ r2Key: selectedFile.r2Key, name: selectedFile.name, mime: selectedFile.mimeType, expiresIn: shareExpiry }),
+      });
+      if (!res.ok) throw new Error(`Share failed: ${res.status}`);
+      const data = await res.json() as { url: string; expiresAt: number };
+      shareUrl = data.url;
+      shareExpAt = data.expiresAt;
+    } catch (err) {
+      showToast('Share failed: ' + (err as Error).message, 'error');
+    } finally { sharing = false; }
+  }
+
+  function copyShareUrl() {
+    if (!shareUrl) return;
+    navigator.clipboard.writeText(shareUrl).then(() => showToast('Link copied'));
+  }
+
+  // ── Enzo ──────────────────────────────────────────────────────
+  async function sendToEnzo() {
+    if (!selectedFile) return;
+    let context = `File: ${selectedFile.name}\n`;
+    if (selectedFile.description) context += `Description: ${selectedFile.description}\n`;
+    if (viewerText) {
+      context += `\nContent:\n${viewerText.slice(0, 6000)}${viewerText.length > 6000 ? '\n…(truncated)' : ''}`;
+    } else if (viewerTable) {
+      const preview = viewerTable.slice(0, 20).map(r => r.join('\t')).join('\n');
+      context += `\nData (first 20 rows):\n${preview}`;
+    } else if (viewerUrl && selectedFile.r2Key) {
+      // Text-like files stored in R2 — try to fetch content
+      try {
+        const res = await fetch(viewerUrl);
+        if (res.ok) {
+          const mime = selectedFile.mimeType;
+          if (mime.startsWith('text/') || isCodeMime(mime)) {
+            const text = await res.text();
+            context += `\nContent:\n${text.slice(0, 6000)}${text.length > 6000 ? '\n…(truncated)' : ''}`;
+          }
+        }
+      } catch { /* ignore */ }
+    }
+    store.enzoSearchQuery = context;
+    store.enzoOpen = true;
+  }
+
   // ── File ops ──────────────────────────────────────────────────
   async function deleteFile(id: string) {
     if (!confirm('Delete this file? This cannot be undone.')) return;
@@ -189,9 +256,16 @@
     showToast('File deleted');
   }
 
+  // Svelte 5 tracks property mutations — no array spread needed
   async function saveFile() {
-    store.files = [...store.files];
     await store.saveFiles();
+  }
+
+  function onDescInput(e: Event) {
+    if (!selectedFile) return;
+    selectedFile.description = (e.target as HTMLInputElement).value;
+    clearTimeout(descTimer);
+    descTimer = setTimeout(() => saveFile(), 1500);
   }
 
   function addTag() {
@@ -208,6 +282,28 @@
     if (!selectedFile) return;
     selectedFile.tags = selectedFile.tags.filter(t => t !== tag);
     saveFile();
+  }
+
+  function assignFolder(folder: string) {
+    if (!selectedFile) return;
+    selectedFile.folder = folder || undefined;
+    saveFile();
+  }
+
+  function createFolder() {
+    const name = newFolderDraft.trim();
+    if (!name) return;
+    if (!allFolders.includes(name)) {
+      // Assign to selected file if one is open, otherwise just record the name via a placeholder
+      if (selectedFile) {
+        selectedFile.folder = name;
+        saveFile();
+      }
+      // Either way, switching active folder shows it
+    }
+    activeFolder = name;
+    newFolderDraft = '';
+    addFolderMode = false;
   }
 
   function linkNote(noteId: string) {
@@ -281,16 +377,50 @@
 <input type="file" multiple bind:this={fileInput} onchange={handleFiles} style="display:none" />
 
 <div class="files-shell">
-  <!-- ── Left panel ── -->
+  <!-- ── Left sidebar ── -->
   <aside class="files-sidebar">
     <div class="files-sidebar-head">
       <span class="section-label">Files</span>
       <span class="file-count text-xs text-mu">{store.files.length}</span>
     </div>
 
-    <!-- Tag filter -->
+    <!-- Folders -->
+    <div class="sidebar-section">
+      <div class="sidebar-section-head">
+        <span class="sidebar-section-label">Folders</span>
+        <button class="btn-link text-xs" onclick={() => addFolderMode = !addFolderMode}>+</button>
+      </div>
+      {#if addFolderMode}
+        <div class="new-folder-form">
+          <input
+            type="text"
+            class="folder-input"
+            bind:value={newFolderDraft}
+            placeholder="Folder name…"
+            onkeydown={(e) => { if (e.key === 'Enter') createFolder(); if (e.key === 'Escape') { addFolderMode = false; newFolderDraft = ''; } }}
+            autofocus
+          />
+          <button class="btn btn-primary btn-xs" onclick={createFolder} disabled={!newFolderDraft.trim()}>Add</button>
+        </div>
+      {/if}
+      <button class="folder-pill" class:active={!activeFolder} onclick={() => activeFolder = ''}>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+        All files
+      </button>
+      {#each allFolders as folder}
+        <button class="folder-pill" class:active={activeFolder === folder} onclick={() => activeFolder = folder}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+          {folder}
+        </button>
+      {/each}
+    </div>
+
+    <!-- Tags -->
     {#if allTags.length > 0}
-      <div class="tag-filter">
+      <div class="sidebar-section">
+        <div class="sidebar-section-head">
+          <span class="sidebar-section-label">Tags</span>
+        </div>
         <button class="tag-pill" class:active={!activeTag} onclick={() => activeTag = ''}>All</button>
         {#each allTags as tag}
           <button class="tag-pill" class:active={activeTag === tag} onclick={() => activeTag = tag}>{tag}</button>
@@ -298,7 +428,7 @@
       </div>
     {/if}
 
-    <!-- File type filter shorthand -->
+    <!-- Legend -->
     <div class="type-filter">
       {#each ['pdf','image','code','data'] as cat}
         <span class="type-dot" style="background:{CAT_COLORS[cat]}" title={CAT_LABELS[cat]}></span>
@@ -382,6 +512,7 @@
               <span class="file-name">{f.name}</span>
               <span class="file-meta text-xs text-mu">
                 {CAT_LABELS[cat]} · {fmtSize(f.size)} · {fmtDate(f.createdAt)}
+                {#if f.folder}<span class="folder-badge">{f.folder}</span>{/if}
               </span>
               {#if f.tags.length > 0}
                 <div class="file-tags">
@@ -414,17 +545,64 @@
 
       <!-- ── Detail / Viewer panel ── -->
       {#if selectedFile}
-        <div class="file-detail">
+        <div class="file-detail" class:viewer-expanded={viewerExpand}>
           <div class="file-detail-head">
-            <div>
+            <div class="file-detail-title">
               <p class="file-detail-name">{selectedFile.name}</p>
               <p class="text-xs text-mu">{fmtSize(selectedFile.size)} · {fmtDate(selectedFile.createdAt)}</p>
             </div>
-            <div style="display:flex;gap:4px">
-              <button class="btn btn-ghost btn-sm" onclick={() => downloadFile(selectedFile!)}>
-                {selectedFile.url ? 'Open link' : 'Download'}
+            <div class="file-detail-actions">
+              <!-- Enzo button -->
+              <button class="btn-enzo" onclick={sendToEnzo} title="Discuss with Enzo">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+                Enzo
               </button>
-              <button class="btn-icon" onclick={() => selectedId = null}>
+              <!-- Share button (R2 files only) -->
+              {#if selectedFile.r2Key && store.workerBase}
+                <div class="share-wrap">
+                  <button class="btn btn-ghost btn-sm" onclick={() => { shareOpen = !shareOpen; shareUrl = null; shareExpAt = null; }} title="Share read-only link">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                    Share
+                  </button>
+                  {#if shareOpen}
+                    <!-- svelte-ignore a11y_no_static_element_interactions -->
+                    <!-- svelte-ignore a11y_click_events_have_key_events -->
+                    <div class="share-backdrop" onclick={() => shareOpen = false}></div>
+                    <div class="share-popover">
+                      <p class="share-label">Read-only link · expires after</p>
+                      <div class="share-expiry-row">
+                        {#each (['1h','24h','7d','30d'] as const) as opt}
+                          <button class="expiry-btn" class:active={shareExpiry === opt} onclick={() => shareExpiry = opt}>{opt}</button>
+                        {/each}
+                      </div>
+                      {#if shareUrl}
+                        <div class="share-url-row">
+                          <input type="text" readonly value={shareUrl} class="share-url-input" onclick={(e) => (e.target as HTMLInputElement).select()} />
+                          <button class="btn btn-primary btn-sm" onclick={copyShareUrl}>Copy</button>
+                        </div>
+                        {#if shareExpAt}
+                          <p class="share-exp-note text-xs text-mu">Expires {new Date(shareExpAt).toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}</p>
+                        {/if}
+                      {:else}
+                        <button class="btn btn-primary btn-sm share-gen-btn" onclick={createShareLink} disabled={sharing}>
+                          {sharing ? 'Generating…' : 'Generate link'}
+                        </button>
+                      {/if}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+              <button class="btn btn-ghost btn-sm" onclick={() => downloadFile(selectedFile!)}>
+                {selectedFile.url ? 'Open' : 'Download'}
+              </button>
+              <button class="btn-icon" title={viewerExpand ? 'Collapse viewer' : 'Expand viewer'} onclick={() => viewerExpand = !viewerExpand}>
+                {#if viewerExpand}
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="10" y1="14" x2="3" y2="21"/><line x1="21" y1="3" x2="14" y2="10"/></svg>
+                {:else}
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                {/if}
+              </button>
+              <button class="btn-icon" onclick={() => { selectedId = null; viewerExpand = false; }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
@@ -456,97 +634,120 @@
                 </table>
               </div>
             {:else if viewerText !== null}
-              <pre class="viewer-code">{viewerText.slice(0, 8000)}{viewerText.length > 8000 ? '\n…(truncated)' : ''}</pre>
+              <div class="viewer-code-wrap">
+                <div class="viewer-code-lines">
+                  {#each viewerText.slice(0, 10000).split('\n') as line, i}
+                    <span class="line-num">{i + 1}</span><span class="line-content">{line}</span>
+                  {/each}
+                  {#if viewerText.length > 10000}
+                    <span class="line-num">…</span><span class="line-content text-mu">truncated — download to view full file</span>
+                  {/if}
+                </div>
+              </div>
             {:else}
               <div class="viewer-no-preview">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                 <p class="text-mu text-sm">No preview available.</p>
                 <button class="btn btn-ghost btn-sm" onclick={() => downloadFile(selectedFile!)}>Download to open</button>
               </div>
             {/if}
           </div>
 
-          <!-- Metadata -->
-          <div class="file-meta-panel">
-            <!-- Description -->
-            <div class="meta-section">
-              <label class="meta-label">Description</label>
-              <input
-                type="text"
-                class="meta-input"
-                value={selectedFile.description}
-                oninput={(e) => { selectedFile!.description = (e.target as HTMLInputElement).value; saveFile(); }}
-                placeholder="Brief description…"
-              />
-            </div>
-
-            <!-- Tags -->
-            <div class="meta-section">
-              <label class="meta-label">Tags</label>
-              <div class="meta-tags">
-                {#each selectedFile.tags as tag}
-                  <span class="file-tag removable">{tag}<button onclick={() => removeTag(tag)}>×</button></span>
-                {/each}
+          <!-- Metadata (hidden when viewer is expanded) -->
+          {#if !viewerExpand}
+            <div class="file-meta-panel">
+              <!-- Description -->
+              <div class="meta-section">
+                <label class="meta-label">Description</label>
                 <input
                   type="text"
-                  class="tag-add-input"
-                  bind:value={addTagDraft}
-                  placeholder="Add tag…"
-                  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(); } }}
+                  class="meta-input"
+                  value={selectedFile.description}
+                  oninput={onDescInput}
+                  placeholder="Brief description…"
                 />
               </div>
-            </div>
 
-            <!-- Linked notes -->
-            <div class="meta-section">
-              <div class="meta-label-row">
-                <label class="meta-label">Linked notes</label>
-                <button class="btn-link text-xs" onclick={() => { linkNoteOpen = !linkNoteOpen; linkRunOpen = false; }}>+ Link</button>
-              </div>
-              {#if linkNoteOpen}
-                <select class="meta-select" onchange={(e) => { linkNote((e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; }}>
-                  <option value="">Select note…</option>
-                  {#each store.notes.filter(n => !n.archived && !selectedFile!.linkedNoteIds.includes(n.id)) as n}
-                    <option value={n.id}>{n.title}</option>
+              <!-- Folder -->
+              <div class="meta-section">
+                <label class="meta-label">Folder</label>
+                <select class="meta-select" value={selectedFile.folder ?? ''} onchange={(e) => assignFolder((e.target as HTMLSelectElement).value)}>
+                  <option value="">— No folder —</option>
+                  {#each allFolders as folder}
+                    <option value={folder}>{folder}</option>
                   {/each}
                 </select>
-              {/if}
-              {#each selectedFile.linkedNoteIds as nid}
-                {@const n = store.notes.find(x => x.id === nid)}
-                {#if n}
-                  <div class="linked-item">
-                    <span class="linked-title">{n.title}</span>
-                    <button class="btn-link text-xs" onclick={() => { store.currentNoteId = nid; store.view = 'notes'; }}>Open</button>
-                    <button class="btn-icon link-remove" onclick={() => unlinkNote(nid)}>×</button>
-                  </div>
-                {/if}
-              {/each}
-            </div>
-
-            <!-- Linked runs -->
-            <div class="meta-section">
-              <div class="meta-label-row">
-                <label class="meta-label">Linked pipeline runs</label>
-                <button class="btn-link text-xs" onclick={() => { linkRunOpen = !linkRunOpen; linkNoteOpen = false; }}>+ Link</button>
               </div>
-              {#if linkRunOpen}
-                <select class="meta-select" onchange={(e) => { linkRun((e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; }}>
-                  <option value="">Select run…</option>
-                  {#each store.pipelineRuns.filter(r => !selectedFile!.linkedRunIds.includes(r.id)) as r}
-                    <option value={r.id}>{r.title}</option>
+
+              <!-- Tags -->
+              <div class="meta-section">
+                <label class="meta-label">Tags</label>
+                <div class="meta-tags">
+                  {#each selectedFile.tags as tag}
+                    <span class="file-tag removable">{tag}<button onclick={() => removeTag(tag)}>×</button></span>
                   {/each}
-                </select>
-              {/if}
-              {#each selectedFile.linkedRunIds as rid}
-                {@const r = store.pipelineRuns.find(x => x.id === rid)}
-                {#if r}
-                  <div class="linked-item">
-                    <span class="linked-title">{r.title}</span>
-                    <button class="btn-icon link-remove" onclick={() => unlinkRun(rid)}>×</button>
-                  </div>
+                  <input
+                    type="text"
+                    class="tag-add-input"
+                    bind:value={addTagDraft}
+                    placeholder="Add tag…"
+                    onkeydown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(); } }}
+                  />
+                </div>
+              </div>
+
+              <!-- Linked notes -->
+              <div class="meta-section">
+                <div class="meta-label-row">
+                  <label class="meta-label">Linked notes</label>
+                  <button class="btn-link text-xs" onclick={() => { linkNoteOpen = !linkNoteOpen; linkRunOpen = false; }}>+ Link</button>
+                </div>
+                {#if linkNoteOpen}
+                  <select class="meta-select" onchange={(e) => { linkNote((e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; }}>
+                    <option value="">Select note…</option>
+                    {#each store.notes.filter(n => !n.archived && !selectedFile!.linkedNoteIds.includes(n.id)) as n}
+                      <option value={n.id}>{n.title}</option>
+                    {/each}
+                  </select>
                 {/if}
-              {/each}
+                {#each selectedFile.linkedNoteIds as nid}
+                  {@const n = store.notes.find(x => x.id === nid)}
+                  {#if n}
+                    <div class="linked-item">
+                      <span class="linked-title">{n.title}</span>
+                      <button class="btn-link text-xs" onclick={() => { store.currentNoteId = nid; store.view = 'notes'; }}>Open</button>
+                      <button class="btn-icon link-remove" onclick={() => unlinkNote(nid)}>×</button>
+                    </div>
+                  {/if}
+                {/each}
+              </div>
+
+              <!-- Linked runs -->
+              <div class="meta-section">
+                <div class="meta-label-row">
+                  <label class="meta-label">Linked pipeline runs</label>
+                  <button class="btn-link text-xs" onclick={() => { linkRunOpen = !linkRunOpen; linkNoteOpen = false; }}>+ Link</button>
+                </div>
+                {#if linkRunOpen}
+                  <select class="meta-select" onchange={(e) => { linkRun((e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; }}>
+                    <option value="">Select run…</option>
+                    {#each store.pipelineRuns.filter(r => !selectedFile!.linkedRunIds.includes(r.id)) as r}
+                      <option value={r.id}>{r.title}</option>
+                    {/each}
+                  </select>
+                {/if}
+                {#each selectedFile.linkedRunIds as rid}
+                  {@const r = store.pipelineRuns.find(x => x.id === rid)}
+                  {#if r}
+                    <div class="linked-item">
+                      <span class="linked-title">{r.title}</span>
+                      <button class="btn-icon link-remove" onclick={() => unlinkRun(rid)}>×</button>
+                    </div>
+                  {/if}
+                {/each}
+              </div>
             </div>
-          </div>
+          {/if}
         </div>
       {/if}
     </div>
@@ -558,7 +759,7 @@
 
   /* ── Sidebar ── */
   .files-sidebar {
-    width: 160px;
+    width: 168px;
     flex-shrink: 0;
     border-right: 1px solid var(--bd);
     background: var(--sf);
@@ -571,11 +772,33 @@
   .files-sidebar-head { display: flex; align-items: center; justify-content: space-between; padding: 0 4px; }
   .section-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--mu); }
   .file-count { background: var(--ac-bg); color: var(--ac); padding: 1px 7px; border-radius: 10px; font-weight: 600; }
+
+  .sidebar-section { display: flex; flex-direction: column; gap: 2px; }
+  .sidebar-section-head { display: flex; align-items: center; justify-content: space-between; padding: 0 4px 4px; }
+  .sidebar-section-label { font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--mu); }
+
+  .folder-pill {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 8px; border-radius: var(--radius-sm);
+    font-size: 0.75rem; background: transparent; border: none;
+    color: var(--tx2); text-align: left; cursor: pointer;
+    transition: background var(--transition);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .folder-pill:hover { background: var(--sf2); }
+  .folder-pill.active { background: var(--ac-bg); color: var(--ac); font-weight: 600; }
+  .folder-pill svg { flex-shrink: 0; }
+
+  .new-folder-form { display: flex; gap: 4px; padding: 2px 4px 4px; }
+  .folder-input { flex: 1; font-size: 0.78rem; padding: 4px 6px; min-width: 0; }
+  .btn-xs { padding: 3px 8px; font-size: 0.72rem; }
+
   .tag-filter { display: flex; flex-direction: column; gap: 2px; }
   .tag-pill { padding: 4px 8px; border-radius: var(--radius-sm); font-size: 0.75rem; background: transparent; border: none; color: var(--tx2); text-align: left; cursor: pointer; transition: background var(--transition); }
   .tag-pill:hover { background: var(--sf2); }
   .tag-pill.active { background: var(--ac-bg); color: var(--ac); font-weight: 600; }
-  .type-filter { display: flex; flex-direction: column; gap: 4px; padding: 0 4px; border-top: 1px solid var(--bd); padding-top: 10px; }
+
+  .type-filter { display: flex; flex-direction: column; gap: 4px; padding: 0 4px; border-top: 1px solid var(--bd); padding-top: 10px; margin-top: auto; }
   .type-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
   .type-label { font-size: 0.72rem; color: var(--mu); }
 
@@ -602,13 +825,9 @@
   /* List view */
   .files-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
   .file-list-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 9px 16px;
-    border-bottom: 1px solid var(--bd);
-    cursor: pointer;
-    transition: background var(--transition);
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 16px; border-bottom: 1px solid var(--bd);
+    cursor: pointer; transition: background var(--transition);
   }
   .file-list-item:hover { background: var(--sf); }
   .file-list-item.selected { background: var(--ac-bg); }
@@ -616,17 +835,10 @@
   /* Grid view */
   .files-grid { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; padding: 12px; align-content: start; }
   .file-grid-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    padding: 16px 10px 10px;
-    border: 1px solid var(--bd);
-    border-radius: var(--radius);
-    background: var(--sf);
-    cursor: pointer;
-    transition: background var(--transition), border-color var(--transition);
-    text-align: center;
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 16px 10px 10px; border: 1px solid var(--bd); border-radius: var(--radius);
+    background: var(--sf); cursor: pointer;
+    transition: background var(--transition), border-color var(--transition); text-align: center;
   }
   .file-grid-item:hover { background: var(--sf2); }
   .file-grid-item.selected { border-color: var(--ac); background: var(--ac-bg); }
@@ -640,38 +852,75 @@
   .file-tag.removable { display: inline-flex; align-items: center; gap: 3px; }
   .file-tag.removable button { background: none; border: none; cursor: pointer; color: var(--mu); font-size: 12px; line-height: 1; padding: 0; }
   .file-link-badge { font-size: 0.68rem; color: var(--ac); display: inline-flex; align-items: center; gap: 3px; }
+  .folder-badge { display: inline-block; margin-left: 4px; font-size: 0.65rem; padding: 0 4px; background: var(--sf2); border-radius: 4px; color: var(--tx2); }
   .file-actions { display: flex; gap: 2px; opacity: 0; transition: opacity var(--transition); flex-shrink: 0; }
   .file-list-item:hover .file-actions, .file-grid-item:hover .file-actions { opacity: 1; }
   .file-action { width: 26px; height: 26px; border-radius: 4px; }
   .file-action.danger:hover { color: var(--rd); background: var(--rd-bg); }
-
   .files-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 40px; }
 
   /* ── Detail panel ── */
   .file-detail {
-    width: 320px;
-    flex-shrink: 0;
+    width: 360px; flex-shrink: 0;
     border-left: 1px solid var(--bd);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    background: var(--bg);
+    display: flex; flex-direction: column; overflow: hidden; background: var(--bg);
+    transition: width var(--transition);
   }
-  .file-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--bd); flex-shrink: 0; }
-  .file-detail-name { font-size: 0.85rem; font-weight: 600; color: var(--tx); word-break: break-word; }
+  .file-detail.viewer-expanded { width: 600px; }
 
-  .file-viewer { flex-shrink: 0; border-bottom: 1px solid var(--bd); overflow: hidden; height: 220px; display: flex; align-items: center; justify-content: center; background: var(--sf2); }
-  .viewer-image { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .file-detail-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--bd); flex-shrink: 0;
+  }
+  .file-detail-title { min-width: 0; flex: 1; }
+  .file-detail-name { font-size: 0.85rem; font-weight: 600; color: var(--tx); word-break: break-word; }
+  .file-detail-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+
+  /* Enzo button */
+  .btn-enzo {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 9px; border-radius: var(--radius-sm);
+    font-size: 0.75rem; font-weight: 600;
+    background: linear-gradient(135deg, var(--ac-bg), color-mix(in srgb, var(--pu) 15%, transparent));
+    color: var(--ac); border: 1px solid color-mix(in srgb, var(--ac) 30%, transparent);
+    cursor: pointer; transition: all var(--transition);
+  }
+  .btn-enzo:hover { background: var(--ac); color: var(--bg); }
+
+  /* Viewer */
+  .file-viewer {
+    flex-shrink: 0; border-bottom: 1px solid var(--bd);
+    overflow: hidden; height: 420px;
+    display: flex; align-items: stretch; justify-content: center;
+    background: var(--sf2);
+  }
+  .viewer-expanded .file-viewer { flex: 1; height: auto; }
+
+  .viewer-image { max-width: 100%; max-height: 100%; object-fit: contain; align-self: center; }
   .viewer-pdf { width: 100%; height: 100%; border: none; }
-  .viewer-code { font-family: var(--mono); font-size: 0.72rem; padding: 10px; overflow: auto; width: 100%; height: 100%; margin: 0; white-space: pre; color: var(--tx2); }
+
+  .viewer-code-wrap { width: 100%; height: 100%; overflow: auto; }
+  .viewer-code-lines {
+    display: grid; grid-template-columns: 2.5rem 1fr;
+    font-family: var(--mono); font-size: 0.71rem; line-height: 1.55;
+    padding: 8px 0; width: 100%;
+  }
+  .line-num {
+    color: var(--mu); text-align: right; padding: 0 10px 0 8px;
+    user-select: none; border-right: 1px solid var(--bd);
+    position: sticky; left: 0; background: var(--sf2);
+  }
+  .line-content { padding: 0 12px; color: var(--tx2); white-space: pre; }
+
   .viewer-table-wrap { overflow: auto; width: 100%; height: 100%; }
   .viewer-table { font-size: 0.72rem; border-collapse: collapse; width: 100%; }
   .viewer-table th, .viewer-table td { border: 1px solid var(--bd); padding: 3px 8px; white-space: nowrap; }
-  .viewer-table th { background: var(--sf); font-weight: 600; }
-  .viewer-link-box { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px; text-align: center; }
+  .viewer-table th { background: var(--sf); font-weight: 600; position: sticky; top: 0; }
+  .viewer-link-box { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px; text-align: center; align-self: center; width: 100%; }
   .viewer-link { font-size: 0.78rem; color: var(--ac); word-break: break-all; }
-  .viewer-no-preview { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .viewer-no-preview { display: flex; flex-direction: column; align-items: center; gap: 8px; align-self: center; }
 
+  /* Meta panel */
   .file-meta-panel { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 14px; }
   .meta-section { display: flex; flex-direction: column; gap: 5px; }
   .meta-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--mu); }
@@ -687,4 +936,37 @@
   .link-remove:hover { background: var(--rd-bg); color: var(--rd); }
   .btn-link { background: none; border: none; cursor: pointer; color: var(--ac); font-size: 0.75rem; padding: 0; }
   .btn-link:hover { text-decoration: underline; }
+
+  /* Share */
+  .share-wrap { position: relative; }
+  .share-backdrop {
+    position: fixed; inset: 0; z-index: 60;
+    background: transparent;
+  }
+  .share-popover {
+    position: absolute; top: calc(100% + 6px); right: 0; z-index: 61;
+    background: var(--sf); border: 1px solid var(--bd);
+    border-radius: var(--radius); box-shadow: var(--shadow-lg);
+    padding: 12px; width: 280px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .share-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--mu); }
+  .share-expiry-row { display: flex; gap: 4px; }
+  .expiry-btn {
+    flex: 1; padding: 4px 0; font-size: 0.75rem; font-weight: 600;
+    border: 1px solid var(--bd); border-radius: var(--radius-sm);
+    background: var(--sf2); color: var(--tx2); cursor: pointer;
+    transition: all var(--transition);
+  }
+  .expiry-btn:hover { border-color: var(--ac); color: var(--ac); }
+  .expiry-btn.active { background: var(--ac-bg); border-color: var(--ac); color: var(--ac); }
+  .share-gen-btn { align-self: flex-start; }
+  .share-url-row { display: flex; gap: 6px; }
+  .share-url-input {
+    flex: 1; font-size: 0.72rem; padding: 5px 8px; min-width: 0;
+    font-family: var(--mono); color: var(--ac);
+    background: var(--sf2); border: 1px solid var(--bd); border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .share-exp-note { text-align: center; }
 </style>

@@ -411,6 +411,7 @@ export interface FileRecord {
   r2Key?: string;          // R2 object key (new uploads)
   url?: string;            // external link alternative
   tags: string[];
+  folder?: string;
   linkedNoteIds: string[];
   linkedRunIds: string[];
   description: string;

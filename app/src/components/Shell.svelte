@@ -452,34 +452,58 @@
         </svg>
       </button>
       <span class="app-name">Q·onco</span>
-      <div class="dna-wrap" class:dna-active={dnaActive} aria-hidden="true">
-        <svg class="dna-svg" width="80" height="16" aria-hidden="true">
-          <g class="dna-scroll">
-            <!-- Strand A (blue, front) -->
-            <path class="dna-a" d="M0,8 C8,1 12,1 20,8 C28,15 32,15 40,8 C48,1 52,1 60,8 C68,15 72,15 80,8 C88,1 92,1 100,8 C108,15 112,15 120,8"/>
-            <!-- Strand B (purple, back) -->
-            <path class="dna-b" d="M0,8 C8,15 12,15 20,8 C28,1 32,1 40,8 C48,15 52,15 60,8 C68,1 72,1 80,8 C88,15 92,15 100,8 C108,1 112,1 120,8"/>
-            <!-- Rungs: full at peaks (x=10,30,50,70,90,110), short at shoulders -->
-            <line class="rung rung-s" x1="5"   y1="3.5" x2="5"   y2="12.5"/>
-            <line class="rung rung-f" x1="10"  y1="1.5" x2="10"  y2="14.5"/>
-            <line class="rung rung-s" x1="15"  y1="3.5" x2="15"  y2="12.5"/>
-            <line class="rung rung-s" x1="25"  y1="3.5" x2="25"  y2="12.5"/>
-            <line class="rung rung-f" x1="30"  y1="1.5" x2="30"  y2="14.5"/>
-            <line class="rung rung-s" x1="35"  y1="3.5" x2="35"  y2="12.5"/>
-            <line class="rung rung-s" x1="45"  y1="3.5" x2="45"  y2="12.5"/>
-            <line class="rung rung-f" x1="50"  y1="1.5" x2="50"  y2="14.5"/>
-            <line class="rung rung-s" x1="55"  y1="3.5" x2="55"  y2="12.5"/>
-            <line class="rung rung-s" x1="65"  y1="3.5" x2="65"  y2="12.5"/>
-            <line class="rung rung-f" x1="70"  y1="1.5" x2="70"  y2="14.5"/>
-            <line class="rung rung-s" x1="75"  y1="3.5" x2="75"  y2="12.5"/>
-            <line class="rung rung-s" x1="85"  y1="3.5" x2="85"  y2="12.5"/>
-            <line class="rung rung-f" x1="90"  y1="1.5" x2="90"  y2="14.5"/>
-            <line class="rung rung-s" x1="95"  y1="3.5" x2="95"  y2="12.5"/>
-            <line class="rung rung-s" x1="105" y1="3.5" x2="105" y2="12.5"/>
-            <line class="rung rung-f" x1="110" y1="1.5" x2="110" y2="14.5"/>
-            <line class="rung rung-s" x1="115" y1="3.5" x2="115" y2="12.5"/>
-          </g>
+
+      <!-- Enzo activity widget: sleeping dog when idle, DNA when working -->
+      <div class="enzo-activity" class:enzo-active={dnaActive} aria-hidden="true" title={dnaActive ? 'Enzo is on it' : 'Enzo is resting'}>
+        <!-- Enzo dog face -->
+        <svg class="enzo-face" width="22" height="22" viewBox="0 0 22 22">
+          <!-- Ears -->
+          <ellipse cx="5.5" cy="6" rx="3.2" ry="4" fill="var(--ac)" opacity="0.55" transform="rotate(-18 5.5 6)"/>
+          <ellipse cx="16.5" cy="6" rx="3.2" ry="4" fill="var(--ac)" opacity="0.55" transform="rotate(18 16.5 6)"/>
+          <!-- Head -->
+          <circle cx="11" cy="13" r="7.5" fill="var(--sf)" stroke="var(--ac)" stroke-width="1.4"/>
+          <!-- Nose -->
+          <ellipse cx="11" cy="15.5" rx="2" ry="1.2" fill="var(--ac)" opacity="0.6"/>
+          <!-- Sleeping eyes: closed curves -->
+          <path class="enzo-eye-z" d="M7.5,12 Q9,10.8 10.5,12" stroke="var(--tx2)" stroke-width="1.3" stroke-linecap="round" fill="none"/>
+          <path class="enzo-eye-z" d="M11.5,12 Q13,10.8 14.5,12" stroke="var(--tx2)" stroke-width="1.3" stroke-linecap="round" fill="none"/>
+          <!-- Awake eyes: dots -->
+          <circle class="enzo-eye-a" cx="8.8" cy="11.5" r="1.6" fill="var(--tx)"/>
+          <circle class="enzo-eye-a" cx="13.2" cy="11.5" r="1.6" fill="var(--tx)"/>
+          <!-- Awake: pupils -->
+          <circle class="enzo-eye-a" cx="9.2" cy="11.2" r="0.6" fill="var(--sf)"/>
+          <circle class="enzo-eye-a" cx="13.6" cy="11.2" r="0.6" fill="var(--sf)"/>
         </svg>
+        <!-- Zzz (idle only) -->
+        <span class="enzo-zzz" aria-hidden="true">zzz</span>
+
+        <!-- DNA helix (active indicator) -->
+        <div class="dna-wrap">
+          <svg class="dna-svg" width="80" height="16" aria-hidden="true">
+            <g class="dna-scroll">
+              <path class="dna-a" d="M0,8 C8,1 12,1 20,8 C28,15 32,15 40,8 C48,1 52,1 60,8 C68,15 72,15 80,8 C88,1 92,1 100,8 C108,15 112,15 120,8"/>
+              <path class="dna-b" d="M0,8 C8,15 12,15 20,8 C28,1 32,1 40,8 C48,15 52,15 60,8 C68,1 72,1 80,8 C88,15 92,15 100,8 C108,1 112,1 120,8"/>
+              <line class="rung rung-s" x1="5"   y1="3.5" x2="5"   y2="12.5"/>
+              <line class="rung rung-f" x1="10"  y1="1.5" x2="10"  y2="14.5"/>
+              <line class="rung rung-s" x1="15"  y1="3.5" x2="15"  y2="12.5"/>
+              <line class="rung rung-s" x1="25"  y1="3.5" x2="25"  y2="12.5"/>
+              <line class="rung rung-f" x1="30"  y1="1.5" x2="30"  y2="14.5"/>
+              <line class="rung rung-s" x1="35"  y1="3.5" x2="35"  y2="12.5"/>
+              <line class="rung rung-s" x1="45"  y1="3.5" x2="45"  y2="12.5"/>
+              <line class="rung rung-f" x1="50"  y1="1.5" x2="50"  y2="14.5"/>
+              <line class="rung rung-s" x1="55"  y1="3.5" x2="55"  y2="12.5"/>
+              <line class="rung rung-s" x1="65"  y1="3.5" x2="65"  y2="12.5"/>
+              <line class="rung rung-f" x1="70"  y1="1.5" x2="70"  y2="14.5"/>
+              <line class="rung rung-s" x1="75"  y1="3.5" x2="75"  y2="12.5"/>
+              <line class="rung rung-s" x1="85"  y1="3.5" x2="85"  y2="12.5"/>
+              <line class="rung rung-f" x1="90"  y1="1.5" x2="90"  y2="14.5"/>
+              <line class="rung rung-s" x1="95"  y1="3.5" x2="95"  y2="12.5"/>
+              <line class="rung rung-s" x1="105" y1="3.5" x2="105" y2="12.5"/>
+              <line class="rung rung-f" x1="110" y1="1.5" x2="110" y2="14.5"/>
+              <line class="rung rung-s" x1="115" y1="3.5" x2="115" y2="12.5"/>
+            </g>
+          </svg>
+        </div>
       </div>
     </div>
 
@@ -743,28 +767,71 @@
     color: var(--tx);
   }
 
-  /* ── DNA helix ─────────────────────────────────────────────── */
+  /* ── Enzo activity widget ──────────────────────────────────── */
+  .enzo-activity {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex-shrink: 0;
+    --dna-dur: 5s;
+  }
+  .enzo-activity.enzo-active { --dna-dur: 0.65s; }
+
+  /* Enzo face */
+  .enzo-face {
+    display: block;
+    flex-shrink: 0;
+    filter: drop-shadow(0 0 3px color-mix(in srgb, var(--ac) 25%, transparent));
+    transition: filter 0.35s ease;
+  }
+  .enzo-active .enzo-face {
+    filter: drop-shadow(0 0 6px color-mix(in srgb, var(--ac) 55%, transparent));
+  }
+
+  /* Sleeping vs awake eyes */
+  .enzo-eye-z { transition: opacity 0.3s ease; opacity: 1; }
+  .enzo-eye-a { transition: opacity 0.3s ease; opacity: 0; }
+  .enzo-active .enzo-eye-z { opacity: 0; }
+  .enzo-active .enzo-eye-a { opacity: 1; }
+
+  /* Zzz bubbles */
+  .enzo-zzz {
+    font-size: 0.55rem;
+    font-weight: 700;
+    color: var(--mu);
+    letter-spacing: -0.02em;
+    animation: enzo-zzz-float 2.4s ease-in-out infinite;
+    transition: opacity 0.3s ease;
+    opacity: 0.55;
+    user-select: none;
+  }
+  .enzo-active .enzo-zzz { opacity: 0; animation: none; }
+
+  @keyframes enzo-zzz-float {
+    0%, 100% { transform: translateY(0) scale(1);   opacity: 0.55; }
+    50%       { transform: translateY(-3px) scale(1.15); opacity: 0.85; }
+  }
+
+  /* DNA helix clip */
   .dna-wrap {
     width: 40px;
     height: 16px;
     overflow: hidden;
     flex-shrink: 0;
-    opacity: 0.45;
+    opacity: 0;
     transition: opacity 0.4s ease;
   }
-  .dna-wrap.dna-active { opacity: 1; }
+  .enzo-active .dna-wrap { opacity: 1; }
 
   .dna-svg {
     display: block;
-    /* SVG is 120px wide (3 periods × 40px), shown in 40px clip */
     width: 120px;
     height: 16px;
   }
 
   .dna-scroll {
-    animation: dna-spin var(--dna-dur, 4s) linear infinite;
+    animation: dna-spin var(--dna-dur, 5s) linear infinite;
   }
-  .dna-wrap.dna-active { --dna-dur: 0.7s; }
 
   @keyframes dna-spin {
     from { transform: translateX(0px); }
@@ -784,10 +851,7 @@
     stroke-linecap: round;
     opacity: 0.7;
   }
-  .rung {
-    stroke: var(--bd2);
-    stroke-linecap: round;
-  }
+  .rung { stroke: var(--bd2); stroke-linecap: round; }
   .rung-f { stroke-width: 1.3; opacity: 0.8; }
   .rung-s { stroke-width: 1;   opacity: 0.5; }
 
