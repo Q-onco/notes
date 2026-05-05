@@ -22,11 +22,66 @@
   import Weather from './Weather.svelte';
   import Help from './Help.svelte';
 
-  // ── DNA helix activity state ──────────────────────────────────
+  // ── DNA character state ───────────────────────────────────────
   let dnaActive = $state(false);
-  let dnaTimer: ReturnType<typeof setTimeout>;
+  let dnaExpr   = $state('idle');
+  let dnaFactVisible = $state(false);
+  let dnaFactText    = $state('');
+  let dnaTimer:     ReturnType<typeof setTimeout>;
+  let dnaExprTimer: ReturnType<typeof setTimeout>;
+  let dnaFactTimer: ReturnType<typeof setTimeout>;
+
+  const IDLE_EXPRS   = ['idle','idle','idle','sleepy','bored','bored','yawn'];
+  const ACTIVE_EXPRS = ['focused','focused','thinking','thinking','excited','happy','happy','surprised','wink'];
+
+  const DNA_FACTS = [
+    'TP53 is mutated in >96% of high-grade serous ovarian cancers.',
+    'PARP inhibitors trap PARP-DNA complexes, stalling replication forks.',
+    'CA-125 elevation precedes clinical relapse by a median of 3 months.',
+    'HGSOC accounts for ~70% of all ovarian cancer deaths worldwide.',
+    'Homologous recombination deficiency predicts PARPi response.',
+    'Single-cell RNA-seq can profile individual cells from just 1 ng RNA.',
+    'Folate receptor-α is overexpressed in ~90% of ovarian cancers.',
+    'CD8+ T-cell infiltration correlates with improved survival in HGSOC.',
+    'Tumor ascites in ovarian cancer is rich in IL-6, driving pro-tumor signaling.',
+    'The TCGA identified four molecular subtypes of HGSOC in 2011.',
+    'Spatial transcriptomics maps gene expression directly onto tissue sections.',
+    'Bevacizumab (anti-VEGF) improves PFS but not OS in first-line ovarian cancer.',
+    'Macrophage M2 polarization in the TME suppresses anti-tumor immunity.',
+    'The average cancer genome harbors 30 000–50 000 somatic mutations.',
+    'PD-L1 expression is a biomarker for checkpoint inhibitor response.',
+    'BRCA1/2 mutations confer a 40–60% lifetime risk of ovarian cancer.',
+    'Cancer-associated fibroblasts remodel the ECM to promote invasion.',
+    'Niraparib was the first PARPi approved regardless of BRCA mutation status.',
+    'CpG islands cover ~70% of human gene promoters and regulate transcription.',
+    'Seurat clusters cells by shared nearest-neighbor graph partitioning.',
+    'Scanpy uses AnnData objects for memory-efficient single-cell analysis.',
+    'FOXM1 is amplified in HGSOC and drives mitotic progression.',
+    'The peritoneum is the most frequent site of ovarian cancer dissemination.',
+    'Tumor mutational burden (TMB) predicts immunotherapy benefit across cancers.',
+    'Rucaparib was approved for BRCA-mutated ovarian cancer in 2016.',
+    'Cell-free DNA in plasma can detect minimal residual disease.',
+    'IL-10 from regulatory T cells dampens anti-tumor immune responses.',
+    'Olaparib was the first PARPi approved in ovarian cancer (2014).',
+    'RNA velocity estimates future cell states from splicing dynamics.',
+    'Angiogenesis in ovarian cancer is driven by hypoxia-induced VEGF.',
+  ];
+
+  function cycleExpr() {
+    const pool = dnaActive ? ACTIVE_EXPRS : IDLE_EXPRS;
+    dnaExpr = pool[Math.floor(Math.random() * pool.length)];
+    const delay = dnaActive ? (1200 + Math.random() * 2000) : (3000 + Math.random() * 5000);
+    if (!dnaFactVisible && Math.random() < 0.22) {
+      dnaFactText    = DNA_FACTS[Math.floor(Math.random() * DNA_FACTS.length)];
+      dnaFactVisible = true;
+      clearTimeout(dnaFactTimer);
+      dnaFactTimer   = setTimeout(() => { dnaFactVisible = false; }, 7000);
+    }
+    dnaExprTimer = setTimeout(cycleExpr, delay);
+  }
 
   $effect(() => {
+    cycleExpr();
     function onActivity() {
       dnaActive = true;
       clearTimeout(dnaTimer);
@@ -39,6 +94,9 @@
       document.removeEventListener('mousemove', onActivity);
       document.removeEventListener('keydown', onActivity);
       document.removeEventListener('click', onActivity);
+      clearTimeout(dnaTimer);
+      clearTimeout(dnaExprTimer);
+      clearTimeout(dnaFactTimer);
     };
   });
 
@@ -453,42 +511,135 @@
       </button>
       <span class="app-name">Q·onco</span>
 
-      <!-- DNA character: sleepy eyes + hanging arms when idle; wide eyes + raised arms when working -->
-      <div class="enzo-activity" class:enzo-active={dnaActive} aria-hidden="true" title={dnaActive ? 'Enzo is working' : 'Enzo is resting'}>
-        <svg class="dna-char" width="64" height="22" viewBox="0 0 64 22" aria-hidden="true">
+      <!-- DNA character: 10 expressions + biotech facts -->
+      <div class="enzo-activity" class:enzo-active={dnaActive} data-expr={dnaExpr} aria-hidden="true">
+        {#if dnaFactVisible}
+          <div class="dna-fact-bubble">{dnaFactText}</div>
+        {/if}
+        <svg class="dna-char" width="80" height="24" viewBox="0 0 80 24" aria-hidden="true">
+          <!-- Scrolling helix (period=40, x=0..120, translateX(-40) loops seamlessly) -->
           <g class="dc-scroll">
-            <path class="dc-strand-a" d="M0,11 C8,3 12,3 20,11 C28,19 32,19 40,11 C48,3 52,3 60,11 C68,19 72,19 80,11 C88,3 92,3 100,11 C108,19 112,19 120,11"/>
-            <path class="dc-strand-b" d="M0,11 C8,19 12,19 20,11 C28,3 32,3 40,11 C48,19 52,19 60,11 C68,3 72,3 80,11 C88,19 92,19 100,11 C108,3 112,3 120,11"/>
-            <line class="dc-rung" x1="6"   y1="5" x2="6"   y2="17"/>
-            <line class="dc-rung dc-rung-f" x1="10"  y1="3" x2="10"  y2="19"/>
-            <line class="dc-rung" x1="16"  y1="5" x2="16"  y2="17"/>
-            <line class="dc-rung" x1="26"  y1="5" x2="26"  y2="17"/>
-            <line class="dc-rung dc-rung-f" x1="30"  y1="3" x2="30"  y2="19"/>
-            <line class="dc-rung" x1="36"  y1="5" x2="36"  y2="17"/>
-            <line class="dc-rung" x1="46"  y1="5" x2="46"  y2="17"/>
-            <line class="dc-rung dc-rung-f" x1="50"  y1="3" x2="50"  y2="19"/>
-            <line class="dc-rung" x1="56"  y1="5" x2="56"  y2="17"/>
-            <line class="dc-rung" x1="66"  y1="5" x2="66"  y2="17"/>
-            <line class="dc-rung dc-rung-f" x1="70"  y1="3" x2="70"  y2="19"/>
-            <line class="dc-rung" x1="76"  y1="5" x2="76"  y2="17"/>
-            <line class="dc-rung" x1="86"  y1="5" x2="86"  y2="17"/>
-            <line class="dc-rung dc-rung-f" x1="90"  y1="3" x2="90"  y2="19"/>
-            <line class="dc-rung" x1="96"  y1="5" x2="96"  y2="17"/>
-            <line class="dc-rung" x1="106" y1="5" x2="106" y2="17"/>
-            <line class="dc-rung dc-rung-f" x1="110" y1="3" x2="110" y2="19"/>
-            <line class="dc-rung" x1="116" y1="5" x2="116" y2="17"/>
+            <path class="dc-strand-a" d="M0,12 C8,4 12,4 20,12 C28,20 32,20 40,12 C48,4 52,4 60,12 C68,20 72,20 80,12 C88,4 92,4 100,12 C108,20 112,20 120,12"/>
+            <path class="dc-strand-b" d="M0,12 C8,20 12,20 20,12 C28,4 32,4 40,12 C48,20 52,20 60,12 C68,4 72,4 80,12 C88,20 92,20 100,12 C108,4 112,4 120,12"/>
+            <!-- peak rungs (full height, alternating accent/purple) -->
+            <line class="dc-rung dc-rung-a" x1="10"  y1="4" x2="10"  y2="20"/>
+            <line class="dc-rung dc-rung-b" x1="30"  y1="4" x2="30"  y2="20"/>
+            <line class="dc-rung dc-rung-a" x1="50"  y1="4" x2="50"  y2="20"/>
+            <line class="dc-rung dc-rung-b" x1="70"  y1="4" x2="70"  y2="20"/>
+            <line class="dc-rung dc-rung-a" x1="90"  y1="4" x2="90"  y2="20"/>
+            <line class="dc-rung dc-rung-b" x1="110" y1="4" x2="110" y2="20"/>
+            <!-- quarter rungs (short, muted) -->
+            <line class="dc-rung dc-rung-q" x1="5"   y1="8" x2="5"   y2="16"/>
+            <line class="dc-rung dc-rung-q" x1="15"  y1="8" x2="15"  y2="16"/>
+            <line class="dc-rung dc-rung-q" x1="25"  y1="8" x2="25"  y2="16"/>
+            <line class="dc-rung dc-rung-q" x1="35"  y1="8" x2="35"  y2="16"/>
+            <line class="dc-rung dc-rung-q" x1="45"  y1="8" x2="45"  y2="16"/>
+            <line class="dc-rung dc-rung-q" x1="55"  y1="8" x2="55"  y2="16"/>
+            <line class="dc-rung dc-rung-q" x1="65"  y1="8" x2="65"  y2="16"/>
+            <line class="dc-rung dc-rung-q" x1="75"  y1="8" x2="75"  y2="16"/>
+            <line class="dc-rung dc-rung-q" x1="85"  y1="8" x2="85"  y2="16"/>
+            <line class="dc-rung dc-rung-q" x1="95"  y1="8" x2="95"  y2="16"/>
+            <line class="dc-rung dc-rung-q" x1="105" y1="8" x2="105" y2="16"/>
+            <line class="dc-rung dc-rung-q" x1="115" y1="8" x2="115" y2="16"/>
           </g>
-          <ellipse cx="32" cy="11" rx="17" ry="9" fill="var(--sf)" opacity="0.9"/>
-          <path class="dc-arm dc-arm-idle" d="M13,13 Q9,17 12,21" stroke="var(--ac)" stroke-width="1.6" fill="none" stroke-linecap="round"/>
-          <path class="dc-arm dc-arm-idle" d="M51,13 Q55,17 52,21" stroke="var(--ac)" stroke-width="1.6" fill="none" stroke-linecap="round"/>
-          <path class="dc-arm dc-arm-active" d="M13,13 Q8,8 11,2" stroke="var(--ac)" stroke-width="1.6" fill="none" stroke-linecap="round"/>
-          <path class="dc-arm dc-arm-active" d="M51,13 Q56,8 53,2" stroke="var(--ac)" stroke-width="1.6" fill="none" stroke-linecap="round"/>
-          <path class="dc-eye dc-eye-idle" d="M22,10 Q25.5,14 29,10" stroke="var(--tx2)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-          <path class="dc-eye dc-eye-idle" d="M35,10 Q38.5,14 42,10" stroke="var(--tx2)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-          <circle class="dc-eye dc-eye-active" cx="25.5" cy="10.5" r="2.8" fill="var(--tx)"/>
-          <circle class="dc-eye dc-eye-active" cx="38.5" cy="10.5" r="2.8" fill="var(--tx)"/>
-          <circle class="dc-eye dc-eye-active" cx="26.5" cy="9.4" r="1.1" fill="var(--sf)"/>
-          <circle class="dc-eye dc-eye-active" cx="39.5" cy="9.4" r="1.1" fill="var(--sf)"/>
+          <!-- Face bubble (stationary, covers helix in centre) -->
+          <ellipse class="dc-face-bg"   cx="40" cy="12" rx="20" ry="11"/>
+          <ellipse class="dc-face-ring" cx="40" cy="12" rx="20" ry="11"/>
+
+          <!-- ── Expressions ─────────────────────────────────────── -->
+
+          <!-- idle: heavy droopy arcs + tiny pupils -->
+          <g class="dc-expr dc-expr-idle">
+            <path d="M27,9 Q31,14 35,9"   stroke="var(--tx)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+            <path d="M45,9 Q49,14 53,9"   stroke="var(--tx)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+            <circle cx="31" cy="12" r="1.3" fill="var(--tx)" opacity="0.6"/>
+            <circle cx="49" cy="12" r="1.3" fill="var(--tx)" opacity="0.6"/>
+          </g>
+
+          <!-- sleepy: flat closed lines -->
+          <g class="dc-expr dc-expr-sleepy">
+            <line x1="28" y1="12" x2="34" y2="12" stroke="var(--tx)" stroke-width="2"   stroke-linecap="round"/>
+            <line x1="46" y1="12" x2="52" y2="12" stroke="var(--tx)" stroke-width="2"   stroke-linecap="round"/>
+          </g>
+
+          <!-- bored: open circles, pupils looking sideways, flat mouth -->
+          <g class="dc-expr dc-expr-bored">
+            <circle cx="31" cy="11" r="4"   fill="white" stroke="var(--tx)" stroke-width="1.3"/>
+            <circle cx="49" cy="11" r="4"   fill="white" stroke="var(--tx)" stroke-width="1.3"/>
+            <circle cx="34" cy="11" r="1.8" fill="var(--tx)"/>
+            <circle cx="52" cy="11" r="1.8" fill="var(--tx)"/>
+            <line x1="36" y1="17" x2="44" y2="17" stroke="var(--tx)" stroke-width="1.3" stroke-linecap="round"/>
+          </g>
+
+          <!-- yawn: flat eyes + open oval mouth -->
+          <g class="dc-expr dc-expr-yawn">
+            <path d="M28,12 Q31,12.5 35,12" stroke="var(--tx)" stroke-width="2"   fill="none" stroke-linecap="round"/>
+            <path d="M46,12 Q49,12.5 53,12" stroke="var(--tx)" stroke-width="2"   fill="none" stroke-linecap="round"/>
+            <ellipse cx="40" cy="17.5" rx="3.5" ry="3" fill="var(--tx)"/>
+          </g>
+
+          <!-- focused: sharp eyes, furrowed brows angled inward -->
+          <g class="dc-expr dc-expr-focused">
+            <ellipse cx="31" cy="11" rx="4.5" ry="4" fill="white" stroke="var(--tx)" stroke-width="1.5"/>
+            <ellipse cx="49" cy="11" rx="4.5" ry="4" fill="white" stroke="var(--tx)" stroke-width="1.5"/>
+            <circle cx="31" cy="11" r="2.3" fill="var(--tx)"/>
+            <circle cx="49" cy="11" r="2.3" fill="var(--tx)"/>
+            <circle cx="30" cy="9.8" r="1"   fill="white"/>
+            <circle cx="48" cy="9.8" r="1"   fill="white"/>
+            <path d="M27,7 L35,8.5"   stroke="var(--tx)" stroke-width="2"   stroke-linecap="round"/>
+            <path d="M45,8.5 L53,7"   stroke="var(--tx)" stroke-width="2"   stroke-linecap="round"/>
+          </g>
+
+          <!-- thinking: pupils up-left, arched brows -->
+          <g class="dc-expr dc-expr-thinking">
+            <ellipse cx="31" cy="11" rx="4" ry="3.5" fill="white" stroke="var(--tx)" stroke-width="1.3"/>
+            <ellipse cx="49" cy="11" rx="4" ry="3.5" fill="white" stroke="var(--tx)" stroke-width="1.3"/>
+            <circle cx="29" cy="9.5" r="1.8" fill="var(--tx)"/>
+            <circle cx="47" cy="9.5" r="1.8" fill="var(--tx)"/>
+            <path d="M27,7 Q31,5 35,7"   stroke="var(--tx)" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+            <path d="M45,7 Q49,5 53,7"   stroke="var(--tx)" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+          </g>
+
+          <!-- excited: 8-point sparkle eyes in accent colour -->
+          <g class="dc-expr dc-expr-excited">
+            <line x1="31" y1="7.5"  x2="31" y2="14.5"  stroke="var(--ac)" stroke-width="1.8" stroke-linecap="round"/>
+            <line x1="27.5" y1="11" x2="34.5" y2="11"  stroke="var(--ac)" stroke-width="1.8" stroke-linecap="round"/>
+            <line x1="28.5" y1="8.5" x2="33.5" y2="13.5" stroke="var(--ac)" stroke-width="1.2" stroke-linecap="round"/>
+            <line x1="28.5" y1="13.5" x2="33.5" y2="8.5" stroke="var(--ac)" stroke-width="1.2" stroke-linecap="round"/>
+            <line x1="49" y1="7.5"  x2="49" y2="14.5"  stroke="var(--ac)" stroke-width="1.8" stroke-linecap="round"/>
+            <line x1="45.5" y1="11" x2="52.5" y2="11"  stroke="var(--ac)" stroke-width="1.8" stroke-linecap="round"/>
+            <line x1="46.5" y1="8.5" x2="51.5" y2="13.5" stroke="var(--ac)" stroke-width="1.2" stroke-linecap="round"/>
+            <line x1="46.5" y1="13.5" x2="51.5" y2="8.5" stroke="var(--ac)" stroke-width="1.2" stroke-linecap="round"/>
+          </g>
+
+          <!-- happy: upward curved squint eyes + smile -->
+          <g class="dc-expr dc-expr-happy">
+            <path d="M27,13 Q31,9 35,13"      stroke="var(--tx)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+            <path d="M45,13 Q49,9 53,13"      stroke="var(--tx)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+            <path d="M34,17.5 Q40,21 46,17.5" stroke="var(--tx)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+          </g>
+
+          <!-- surprised: big eyes, raised brows, O mouth -->
+          <g class="dc-expr dc-expr-surprised">
+            <circle cx="31" cy="11" r="4.5" fill="white" stroke="var(--tx)" stroke-width="1.5"/>
+            <circle cx="49" cy="11" r="4.5" fill="white" stroke="var(--tx)" stroke-width="1.5"/>
+            <circle cx="31" cy="11" r="2.3" fill="var(--tx)"/>
+            <circle cx="49" cy="11" r="2.3" fill="var(--tx)"/>
+            <circle cx="29.7" cy="9.7" r="1" fill="white"/>
+            <circle cx="47.7" cy="9.7" r="1" fill="white"/>
+            <path d="M27,5.5 Q31,3 35,5.5"   stroke="var(--tx)" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+            <path d="M45,5.5 Q49,3 53,5.5"   stroke="var(--tx)" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+            <ellipse cx="40" cy="18.5" rx="2.5" ry="2" fill="none" stroke="var(--tx)" stroke-width="1.3"/>
+          </g>
+
+          <!-- wink: left eye open, right eye closed + smile -->
+          <g class="dc-expr dc-expr-wink">
+            <ellipse cx="31" cy="11" rx="4.5" ry="4"  fill="white" stroke="var(--tx)" stroke-width="1.5"/>
+            <circle cx="31" cy="11" r="2.2"            fill="var(--tx)"/>
+            <circle cx="30" cy="9.8" r="1"             fill="white"/>
+            <path d="M45,11 Q49,14 53,11"              stroke="var(--tx)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+            <path d="M36,17 Q40,20 44,17"              stroke="var(--tx)" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+          </g>
         </svg>
       </div>
     </div>
@@ -755,6 +906,7 @@
 
   /* ── DNA character widget ──────────────────────────────────── */
   .enzo-activity {
+    position: relative;
     display: flex;
     align-items: center;
     flex-shrink: 0;
@@ -765,31 +917,69 @@
   .dna-char { display: block; flex-shrink: 0; overflow: hidden; }
 
   /* Helix strands */
-  .dc-strand-a { fill: none; stroke: var(--ac); stroke-width: 1.7; stroke-linecap: round; }
-  .dc-strand-b { fill: none; stroke: var(--pu); stroke-width: 1.4; stroke-linecap: round; opacity: 0.7; }
-  .dc-rung { stroke: var(--bd2); stroke-width: 1; stroke-linecap: round; opacity: 0.5; }
-  .dc-rung-f { stroke-width: 1.3; opacity: 0.8; }
+  .dc-strand-a { fill: none; stroke: var(--ac); stroke-width: 2.5; stroke-linecap: round; }
+  .dc-strand-b { fill: none; stroke: var(--pu); stroke-width: 2;   stroke-linecap: round; opacity: 0.75; }
 
-  /* Scrolling helix animation */
+  /* Rungs */
+  .dc-rung   { stroke-linecap: round; }
+  .dc-rung-a { stroke: var(--ac);  stroke-width: 1.8; opacity: 0.8; }
+  .dc-rung-b { stroke: var(--pu);  stroke-width: 1.8; opacity: 0.8; }
+  .dc-rung-q { stroke: var(--bd2); stroke-width: 1.2; opacity: 0.45; }
+
+  /* Helix scroll */
   .dc-scroll { animation: dc-spin var(--dna-dur, 5s) linear infinite; }
   @keyframes dc-spin {
     from { transform: translateX(0); }
     to   { transform: translateX(-40px); }
   }
 
-  /* Eyes */
-  .dc-eye { transition: opacity 0.3s ease; }
-  .dc-eye-idle   { opacity: 0.85; }
-  .dc-eye-active { opacity: 0; }
-  .enzo-active .dc-eye-idle   { opacity: 0; }
-  .enzo-active .dc-eye-active { opacity: 1; }
+  /* Face bubble */
+  .dc-face-bg   { fill: var(--sf); }
+  .dc-face-ring { fill: none; stroke: var(--bd2); stroke-width: 1.5; }
 
-  /* Arms */
-  .dc-arm { transition: opacity 0.3s ease; }
-  .dc-arm-idle   { opacity: 0.7; }
-  .dc-arm-active { opacity: 0; }
-  .enzo-active .dc-arm-idle   { opacity: 0; }
-  .enzo-active .dc-arm-active { opacity: 1; }
+  /* Expressions: hidden by default, shown via data-expr attribute */
+  .dc-expr { opacity: 0; transition: opacity 0.3s ease; pointer-events: none; }
+  .enzo-activity[data-expr="idle"]      .dc-expr-idle      { opacity: 1; }
+  .enzo-activity[data-expr="sleepy"]    .dc-expr-sleepy    { opacity: 1; }
+  .enzo-activity[data-expr="bored"]     .dc-expr-bored     { opacity: 1; }
+  .enzo-activity[data-expr="yawn"]      .dc-expr-yawn      { opacity: 1; }
+  .enzo-activity[data-expr="focused"]   .dc-expr-focused   { opacity: 1; }
+  .enzo-activity[data-expr="thinking"]  .dc-expr-thinking  { opacity: 1; }
+  .enzo-activity[data-expr="excited"]   .dc-expr-excited   { opacity: 1; }
+  .enzo-activity[data-expr="happy"]     .dc-expr-happy     { opacity: 1; }
+  .enzo-activity[data-expr="surprised"] .dc-expr-surprised { opacity: 1; }
+  .enzo-activity[data-expr="wink"]      .dc-expr-wink      { opacity: 1; }
+
+  /* Fact bubble */
+  .dna-fact-bubble {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
+    background: var(--sf);
+    border: 1.5px solid var(--bd2);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 0.67rem;
+    line-height: 1.4;
+    color: var(--tx);
+    max-width: 220px;
+    pointer-events: none;
+    z-index: 200;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.18);
+    animation: fact-pop 0.2s ease;
+  }
+  .dna-fact-bubble::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 16px;
+    border: 5px solid transparent;
+    border-top-color: var(--bd2);
+  }
+  @keyframes fact-pop {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
 
   .top-right {
     display: flex;
