@@ -123,7 +123,7 @@ export default {
           if (body.byteLength > 200 * 1024 * 1024) return err('File too large (max 200 MB)', 413, allowed);
           const prefix = url.searchParams.get('prefix') ?? 'files';
           const ext    = url.searchParams.get('ext') ?? 'bin';
-          mime = url.searchParams.get('mime') ?? ct || 'application/octet-stream';
+          mime = url.searchParams.get('mime') ?? (ct || 'application/octet-stream');
           key  = `${prefix}/${crypto.randomUUID()}.${ext}`;
           blob = new Blob([body], { type: mime });
         }
