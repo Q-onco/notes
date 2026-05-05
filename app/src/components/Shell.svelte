@@ -939,20 +939,21 @@
   .enzo-activity[data-expr="surprised"] .dc-expr-surprised { opacity: 1; }
   .enzo-activity[data-expr="wink"]      .dc-expr-wink      { opacity: 1; }
 
-  /* Fact pill — inline next to DNA char inside .top-left */
+  /* Fact pill — inline, fills remaining space in .top-left, wraps to 2 lines */
   .dna-fact-pill {
-    font-size: 0.67rem;
+    flex: 1;
+    min-width: 0;
+    font-size: 0.65rem;
+    line-height: 1.35;
     color: var(--tx2);
     background: var(--sf2);
     border: 1px solid var(--bd);
-    border-radius: 20px;
+    border-radius: 8px;
     padding: 3px 10px;
-    white-space: nowrap;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 280px;
-    min-width: 0;
-    flex-shrink: 1;
     pointer-events: none;
     animation: fact-pop 0.2s ease;
   }
@@ -960,8 +961,8 @@
     from { opacity: 0; transform: scale(0.95); }
     to   { opacity: 1; transform: scale(1); }
   }
-  @media (max-width: 640px) {
-    .dna-fact-pill { max-width: 120px; font-size: 0.62rem; }
+  @media (max-width: 540px) {
+    .dna-fact-pill { display: none; }
   }
 
   .top-right {
