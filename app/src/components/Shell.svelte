@@ -15,6 +15,7 @@
   import Presentations from './Presentations.svelte';
   import Files from './Files.svelte';
   import Grants from './Grants.svelte';
+  import Manuscript from './Manuscript.svelte';
   import Settings from './Settings.svelte';
   import Enzo from './Enzo.svelte';
   import Weather from './Weather.svelte';
@@ -203,7 +204,21 @@
       }
     }
 
-    return results.slice(0, 24);
+    // Grants
+    for (const g of store.grants) {
+      if (g.title.toLowerCase().includes(q) || g.agency.toLowerCase().includes(q) || g.description.toLowerCase().includes(q)) {
+        results.push({ type: 'grant', id: g.id, title: g.title, preview: `${g.agency} · ${g.status} · ${g.currency}${g.amount.toLocaleString()}`, section: 'grants', icon: 'M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z' });
+      }
+    }
+
+    // Manuscripts
+    for (const m of store.manuscripts) {
+      if (m.title.toLowerCase().includes(q) || m.targetJournal.toLowerCase().includes(q) || m.sections.some(s => s.content.replace(/<[^>]*>/g,'').toLowerCase().includes(q))) {
+        results.push({ type: 'manuscript', id: m.id, title: m.title, preview: `${m.targetJournal || 'No journal'} · ${m.status} · ${m.sections.length} sections`, section: 'manuscript', icon: 'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z' });
+      }
+    }
+
+    return results.slice(0, 28);
   })());
 
   function openSearch() {
@@ -569,6 +584,8 @@
         <Files {showToast} />
       {:else if store.view === 'grants'}
         <Grants {showToast} />
+      {:else if store.view === 'manuscript'}
+        <Manuscript {showToast} />
       {:else if store.view === 'settings'}
         <Settings {showToast} />
       {/if}
