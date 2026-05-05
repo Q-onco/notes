@@ -499,10 +499,6 @@
 
 <div class="shell">
   <header class="top-bar">
-    {#if dnaFactVisible}
-      <div class="dna-fact-bubble" role="status">{dnaFactText}</div>
-    {/if}
-
     <div class="top-left">
       <button
         class="btn-icon sidebar-toggle"
@@ -635,6 +631,10 @@
           </g>
         </svg>
       </div>
+
+      {#if dnaFactVisible}
+        <span class="dna-fact-pill" role="status">{dnaFactText}</span>
+      {/if}
     </div>
 
     <Weather />
@@ -870,7 +870,6 @@
 
   /* ── Top bar ── */
   .top-bar {
-    position: relative;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -881,14 +880,15 @@
     flex-shrink: 0;
     gap: 12px;
     z-index: 100;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .top-left {
     display: flex;
     align-items: center;
     gap: 10px;
-    flex-shrink: 0;
+    min-width: 0;
+    flex: 1;
   }
 
   .app-name {
@@ -939,30 +939,29 @@
   .enzo-activity[data-expr="surprised"] .dc-expr-surprised { opacity: 1; }
   .enzo-activity[data-expr="wink"]      .dc-expr-wink      { opacity: 1; }
 
-  /* Fact bubble — centered inside .top-bar */
-  .dna-fact-bubble {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    background: var(--sf2);
-    border: 1px solid var(--bd2);
-    border-radius: 20px;
-    padding: 4px 14px;
+  /* Fact pill — inline next to DNA char inside .top-left */
+  .dna-fact-pill {
     font-size: 0.67rem;
-    line-height: 1.3;
     color: var(--tx2);
-    max-width: min(360px, 38vw);
+    background: var(--sf2);
+    border: 1px solid var(--bd);
+    border-radius: 20px;
+    padding: 3px 10px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    max-width: 280px;
+    min-width: 0;
+    flex-shrink: 1;
     pointer-events: none;
-    z-index: 5;
-    animation: fact-pop 0.25s ease;
+    animation: fact-pop 0.2s ease;
   }
   @keyframes fact-pop {
-    from { opacity: 0; transform: translate(-50%, -50%) scale(0.94); }
-    to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    from { opacity: 0; transform: scale(0.95); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+  @media (max-width: 640px) {
+    .dna-fact-pill { max-width: 120px; font-size: 0.62rem; }
   }
 
   .top-right {
