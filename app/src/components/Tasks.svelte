@@ -287,9 +287,9 @@
   .task-row.done { opacity: 0.55; }
   .task-row:hover { border-color: var(--bd2); }
 
-  .task-check { accent-color: var(--ac); margin-top: 3px; flex-shrink: 0; }
-  .task-content { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-  .task-text { font-size: 0.9rem; color: var(--tx); word-break: break-word; }
+  .task-check { accent-color: var(--ac); margin-top: 2px; flex-shrink: 0; }
+  .task-content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .task-text { font-size: 0.9rem; color: var(--tx); word-break: break-word; overflow-wrap: anywhere; line-height: 1.45; display: block; }
   .task-row.done .task-text { text-decoration: line-through; color: var(--mu); }
   .task-sub { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 

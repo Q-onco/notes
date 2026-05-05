@@ -6,6 +6,17 @@ interface Env {
   QONCO_MAIL?: D1Database;
 }
 
+async function initShares(db: D1Database) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS file_shares (
+    token TEXT PRIMARY KEY,
+    r2_key TEXT NOT NULL,
+    name TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  )`).run();
+}
+
 const GROQ_API = 'https://api.groq.com/openai/v1';
 const NCBI     = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
 const BIORXIV  = 'https://api.biorxiv.org/details';
@@ -334,6 +345,51 @@ export default {
         }));
         return json(results, 200, allowed);
       } catch (e) { return err((e as Error).message, 500, allowed); }
+    }
+
+    // ── POST /share (create shareable read-only link for an R2 file) ────────
+    if (path === '/share' && request.method === 'POST') {
+      if (!env.QONCO_FILES) return err('R2 not configured', 503, allowed);
+      if (!env.QONCO_MAIL)  return err('D1 not configured', 503, allowed);
+      await initShares(env.QONCO_MAIL);
+      try {
+        const body = await request.json() as { r2Key: string; name: string; mime: string; expiresIn: '1h' | '24h' | '7d' | '30d' };
+        const { r2Key, name, mime, expiresIn } = body;
+        if (!r2Key || !name) return err('Missing r2Key or name', 400, allowed);
+        const durations: Record<string, number> = { '1h': 3600000, '24h': 86400000, '7d': 604800000, '30d': 2592000000 };
+        const ms = durations[expiresIn] ?? 86400000;
+        const expiresAt = Date.now() + ms;
+        const tokenBytes = new Uint8Array(18);
+        crypto.getRandomValues(tokenBytes);
+        const token = [...tokenBytes].map(b => b.toString(36).padStart(2, '0')).join('').slice(0, 24);
+        await env.QONCO_MAIL.prepare(
+          'INSERT INTO file_shares (token, r2_key, name, mime, expires_at, created_at) VALUES (?,?,?,?,?,?)'
+        ).bind(token, r2Key, name, mime || 'application/octet-stream', expiresAt, Date.now()).run();
+        const shareUrl = `${new URL(request.url).origin}/s/${token}`;
+        return json({ token, url: shareUrl, expiresAt }, 200, allowed);
+      } catch (e) { return err((e as Error).message, 500, allowed); }
+    }
+
+    // ── GET /s/:token (serve shared file, public — no CORS restriction) ─────
+    if (path.startsWith('/s/') && request.method === 'GET') {
+      if (!env.QONCO_FILES || !env.QONCO_MAIL) return new Response('Not configured', { status: 503 });
+      await initShares(env.QONCO_MAIL);
+      const token = path.slice('/s/'.length);
+      if (!token) return new Response('Missing token', { status: 400 });
+      try {
+        const row = await env.QONCO_MAIL.prepare('SELECT * FROM file_shares WHERE token=?').bind(token).first() as Record<string, unknown> | null;
+        if (!row) return new Response('Link not found', { status: 404 });
+        if ((row.expires_at as number) < Date.now()) return new Response('Link expired', { status: 410 });
+        const obj = await env.QONCO_FILES.get(row.r2_key as string);
+        if (!obj) return new Response('File not found', { status: 404 });
+        const headers = new Headers({
+          'Content-Type': (row.mime as string) || obj.httpMetadata?.contentType || 'application/octet-stream',
+          'Content-Disposition': `inline; filename="${encodeURIComponent(row.name as string)}"`,
+          'Cache-Control': 'private, max-age=60',
+          'Access-Control-Allow-Origin': '*',
+        });
+        return new Response(obj.body, { headers });
+      } catch (e) { return new Response((e as Error).message, { status: 500 }); }
     }
 
     return new Response('Not found', { status: 404 });
