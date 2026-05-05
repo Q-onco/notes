@@ -128,7 +128,19 @@
       };
       const viewCtx = `## Active section\nUser is currently in: ${VIEW_NAMES[store.view] ?? store.view}`;
 
+      // Files index — give Enzo names, folders, tags, descriptions so she can answer "do I have..."
+      const filesPart = store.files.length > 0
+        ? store.files.slice(0, 60).map(f => {
+            const parts = [f.name];
+            if (f.folder) parts.push(`[${f.folder}]`);
+            if (f.description) parts.push(`— ${f.description}`);
+            if (f.tags.length > 0) parts.push(`#${f.tags.join(' #')}`);
+            return parts.join(' ');
+          }).join('\n')
+        : '';
+
       const contextParts: string[] = [viewCtx];
+      if (filesPart) contextParts.push(`## Stored files (index)\n${filesPart}`);
       if (journalPart) contextParts.push(`## Recent journal\n${journalPart}`);
       if (memoryPart) contextParts.push(`## Working memory — past 7 days\n${memoryPart}`);
       const journalContext = contextParts.join('\n\n');

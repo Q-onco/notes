@@ -455,24 +455,25 @@
 
       <!-- Enzo activity widget: sleeping dog when idle, DNA when working -->
       <div class="enzo-activity" class:enzo-active={dnaActive} aria-hidden="true" title={dnaActive ? 'Enzo is on it' : 'Enzo is resting'}>
-        <!-- Enzo dog face -->
-        <svg class="enzo-face" width="22" height="22" viewBox="0 0 22 22">
-          <!-- Ears -->
-          <ellipse cx="5.5" cy="6" rx="3.2" ry="4" fill="var(--ac)" opacity="0.55" transform="rotate(-18 5.5 6)"/>
-          <ellipse cx="16.5" cy="6" rx="3.2" ry="4" fill="var(--ac)" opacity="0.55" transform="rotate(18 16.5 6)"/>
+        <!-- Enzo dog face (golden shepherd, front view, floppy ears) -->
+        <svg class="enzo-face" width="24" height="24" viewBox="0 0 24 24">
+          <!-- Floppy ears — rendered behind head -->
+          <path d="M3,8 Q0,11 1,17 Q2,22 7,22 Q11,21 10,15 Q9,9 6,7 Z" fill="var(--ac)" opacity="0.52"/>
+          <path d="M21,8 Q24,11 23,17 Q22,22 17,22 Q13,21 14,15 Q15,9 18,7 Z" fill="var(--ac)" opacity="0.52"/>
           <!-- Head -->
-          <circle cx="11" cy="13" r="7.5" fill="var(--sf)" stroke="var(--ac)" stroke-width="1.4"/>
+          <circle cx="12" cy="12" r="8.5" fill="var(--sf)" stroke="var(--ac)" stroke-width="1.3"/>
+          <!-- Muzzle/snout area -->
+          <ellipse cx="12" cy="15.2" rx="4.5" ry="3" fill="color-mix(in srgb, var(--ac) 9%, var(--sf))"/>
           <!-- Nose -->
-          <ellipse cx="11" cy="15.5" rx="2" ry="1.2" fill="var(--ac)" opacity="0.6"/>
-          <!-- Sleeping eyes: closed curves -->
-          <path class="enzo-eye-z" d="M7.5,12 Q9,10.8 10.5,12" stroke="var(--tx2)" stroke-width="1.3" stroke-linecap="round" fill="none"/>
-          <path class="enzo-eye-z" d="M11.5,12 Q13,10.8 14.5,12" stroke="var(--tx2)" stroke-width="1.3" stroke-linecap="round" fill="none"/>
-          <!-- Awake eyes: dots -->
-          <circle class="enzo-eye-a" cx="8.8" cy="11.5" r="1.6" fill="var(--tx)"/>
-          <circle class="enzo-eye-a" cx="13.2" cy="11.5" r="1.6" fill="var(--tx)"/>
-          <!-- Awake: pupils -->
-          <circle class="enzo-eye-a" cx="9.2" cy="11.2" r="0.6" fill="var(--sf)"/>
-          <circle class="enzo-eye-a" cx="13.6" cy="11.2" r="0.6" fill="var(--sf)"/>
+          <ellipse cx="12" cy="13.4" rx="2" ry="1.3" fill="var(--tx2)" opacity="0.65"/>
+          <!-- Sleeping eyes: closed arches (^) -->
+          <path class="enzo-eye-z" d="M7.5,11.5 Q9,9.8 10.5,11.5" stroke="var(--tx2)" stroke-width="1.4" stroke-linecap="round" fill="none"/>
+          <path class="enzo-eye-z" d="M13.5,11.5 Q15,9.8 16.5,11.5" stroke="var(--tx2)" stroke-width="1.4" stroke-linecap="round" fill="none"/>
+          <!-- Awake eyes: filled circles + highlight -->
+          <circle class="enzo-eye-a" cx="9" cy="10.8" r="2.1" fill="var(--tx)"/>
+          <circle class="enzo-eye-a" cx="15" cy="10.8" r="2.1" fill="var(--tx)"/>
+          <circle class="enzo-eye-a" cx="9.8" cy="10.1" r="0.85" fill="var(--sf)"/>
+          <circle class="enzo-eye-a" cx="15.8" cy="10.1" r="0.85" fill="var(--sf)"/>
         </svg>
         <!-- Zzz (idle only) -->
         <span class="enzo-zzz" aria-hidden="true">zzz</span>
@@ -781,11 +782,11 @@
   .enzo-face {
     display: block;
     flex-shrink: 0;
-    filter: drop-shadow(0 0 3px color-mix(in srgb, var(--ac) 25%, transparent));
+    filter: drop-shadow(0 0 4px color-mix(in srgb, var(--ac) 30%, transparent));
     transition: filter 0.35s ease;
   }
   .enzo-active .enzo-face {
-    filter: drop-shadow(0 0 6px color-mix(in srgb, var(--ac) 55%, transparent));
+    filter: drop-shadow(0 0 8px color-mix(in srgb, var(--ac) 60%, transparent));
   }
 
   /* Sleeping vs awake eyes */
