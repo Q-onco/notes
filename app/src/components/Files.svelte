@@ -219,26 +219,38 @@
   // ── Enzo ──────────────────────────────────────────────────────
   async function sendToEnzo() {
     if (!selectedFile) return;
-    let context = `File: ${selectedFile.name}\n`;
-    if (selectedFile.description) context += `Description: ${selectedFile.description}\n`;
+    let context = `File: ${selectedFile.name}`;
+    if (selectedFile.description) context += `\nDescription: ${selectedFile.description}`;
+
+    let contentLoaded = false;
+
     if (viewerText) {
-      context += `\nContent:\n${viewerText.slice(0, 6000)}${viewerText.length > 6000 ? '\n…(truncated)' : ''}`;
+      context += `\n\nContent:\n${viewerText.slice(0, 6000)}${viewerText.length > 6000 ? '\n…(truncated)' : ''}`;
+      contentLoaded = true;
     } else if (viewerTable) {
       const preview = viewerTable.slice(0, 20).map(r => r.join('\t')).join('\n');
-      context += `\nData (first 20 rows):\n${preview}`;
+      context += `\n\nData (first 20 rows):\n${preview}`;
+      contentLoaded = true;
     } else if (viewerUrl && selectedFile.r2Key) {
-      // Text-like files stored in R2 — try to fetch content
-      try {
-        const res = await fetch(viewerUrl);
-        if (res.ok) {
-          const mime = selectedFile.mimeType;
-          if (mime.startsWith('text/') || isCodeMime(mime)) {
+      // Try to fetch text content from R2 for text/code files
+      const mime = selectedFile.mimeType;
+      if (mime.startsWith('text/') || isCodeMime(mime)) {
+        try {
+          const res = await fetch(viewerUrl);
+          if (res.ok) {
             const text = await res.text();
-            context += `\nContent:\n${text.slice(0, 6000)}${text.length > 6000 ? '\n…(truncated)' : ''}`;
+            context += `\n\nContent:\n${text.slice(0, 6000)}${text.length > 6000 ? '\n…(truncated)' : ''}`;
+            contentLoaded = true;
           }
-        }
-      } catch { /* ignore */ }
+        } catch { /* ignore — will fall through to honesty notice */ }
+      }
     }
+
+    if (!contentLoaded) {
+      // Be honest: Enzo cannot read binary files, PDFs, or images
+      context += `\n\n[Note to Enzo: I cannot extract the content of this file (${selectedFile.mimeType}). Only the filename and description above are available. Do not guess or fabricate what the file contains — ask me to share the content or describe what I need help with.]`;
+    }
+
     store.enzoSearchQuery = context;
     store.enzoOpen = true;
   }
