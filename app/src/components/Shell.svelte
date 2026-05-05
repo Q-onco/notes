@@ -18,6 +18,7 @@
   import Manuscript from './Manuscript.svelte';
   import Settings from './Settings.svelte';
   import Enzo from './Enzo.svelte';
+  import Mail from './Mail.svelte';
   import Weather from './Weather.svelte';
   import Help from './Help.svelte';
 
@@ -218,6 +219,15 @@
       }
     }
 
+    // Audio transcripts
+    for (const rec of store.audioRecords) {
+      const plain = rec.transcript.replace(/<[^>]*>/g, ' ');
+      if (plain.toLowerCase().includes(q)) {
+        const date = new Date(rec.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+        results.push({ type: 'audio', id: rec.id, title: `Transcript · ${date}`, preview: plain.slice(0, 90), section: 'audio', icon: 'M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 016 0v6a3 3 0 01-3 3z' });
+      }
+    }
+
     return results.slice(0, 28);
   })());
 
@@ -269,6 +279,7 @@
     }
     if (result.type === 'note') store.currentNoteId = result.id;
     if (result.type === 'journal') store.selectedJournalId = result.id;
+    if (result.type === 'audio') store.selectedAudioId = result.id;
   }
 
   function onWindowKey(e: KeyboardEvent) {
@@ -586,6 +597,8 @@
         <Grants {showToast} />
       {:else if store.view === 'manuscript'}
         <Manuscript {showToast} />
+      {:else if store.view === 'mail'}
+        <Mail {showToast} />
       {:else if store.view === 'settings'}
         <Settings {showToast} />
       {/if}
@@ -598,6 +611,15 @@
       <aside class="enzo-panel">
         <Enzo {showToast} />
       </aside>
+    {/if}
+
+    {#if store.mailComposeOpen}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="overlay-backdrop" onclick={() => store.mailComposeOpen = false}></div>
+      <div class="compose-sheet">
+        <Mail {showToast} />
+      </div>
     {/if}
   </div>
 
@@ -1105,6 +1127,32 @@
     display: flex;
     flex-direction: column;
     background: var(--sf);
+  }
+
+  /* ── Always-visible overlay backdrop ── */
+  .overlay-backdrop {
+    display: block;
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.42);
+    backdrop-filter: blur(1px);
+    z-index: 49;
+  }
+
+  /* ── Global compose sheet (always overlay) ── */
+  .compose-sheet {
+    position: absolute;
+    top: 0; right: 0;
+    height: 100%;
+    width: 520px;
+    max-width: 92vw;
+    z-index: 50;
+    background: var(--sf);
+    border-left: 1px solid var(--bd);
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
 
   /* ── Overlay backdrop (tablet + mobile) ── */

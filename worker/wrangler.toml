@@ -1,9 +1,22 @@
 name = "enzo"
-main = "qonco-worker.js"
+main = "src/index.ts"
 compatibility_date = "2024-11-01"
 
 [vars]
 ALLOWED_ORIGIN = "https://q-onco.github.io"
 
-# Secret (set in Cloudflare dashboard or via: wrangler secret put GROQ_API_KEY)
-# GROQ_API_KEY
+# ── R2 bucket (run: wrangler r2 bucket create qonco-files) ────────────────────
+[[r2_buckets]]
+binding     = "QONCO_FILES"
+bucket_name = "qonco-files"
+
+# ── D1 database ───────────────────────────────────────────────────────────────
+# After running `wrangler d1 create qonco-mail`, paste the database_id below:
+[[d1_databases]]
+binding       = "QONCO_MAIL"
+database_name = "qonco-mail"
+database_id   = "PASTE_YOUR_D1_DATABASE_ID_HERE"
+
+# Secrets (set in Cloudflare dashboard → Workers → enzo → Settings → Variables):
+#   GROQ_API_KEY
+#   BREVO_API_KEY

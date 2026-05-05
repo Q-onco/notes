@@ -11,6 +11,7 @@
   let viewMode     = $state<'list' | 'grid'>('list');
   let selectedId   = $state<string | null>(null);
   let uploading    = $state(false);
+  let dragOver     = $state(false);
   let fileInput    = $state<HTMLInputElement | undefined>(undefined);
   let viewerUrl    = $state<string | null>(null);
   let viewerText   = $state<string | null>(null);
@@ -40,20 +41,49 @@
   // ── Upload ────────────────────────────────────────────────────
   function triggerUpload() { fileInput?.click(); }
 
+  function onDragOver(e: DragEvent) { e.preventDefault(); dragOver = true; }
+  function onDragLeave() { dragOver = false; }
+  function onDrop(e: DragEvent) {
+    e.preventDefault(); dragOver = false;
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) uploadFiles(Array.from(files));
+  }
+
   async function handleFiles(e: Event) {
     const files = (e.target as HTMLInputElement).files;
     if (!files || files.length === 0) return;
+    await uploadFiles(Array.from(files));
+    if (fileInput) fileInput.value = '';
+  }
+
+  async function uploadFiles(files: File[]) {
     uploading = true;
+    const workerBase = store.workerBase;
+    const useR2 = !!workerBase;
     try {
       const records: FileRecord[] = [];
-      for (const file of Array.from(files)) {
-        const base64 = await readAsBase64(file);
+      for (const file of files) {
+        const mime = file.type || guessMime(file.name);
+        let r2Key: string | undefined;
+
+        if (useR2) {
+          const fd = new FormData();
+          fd.append('file', file, file.name);
+          fd.append('prefix', 'files');
+          const res = await fetch(`${workerBase}/upload`, { method: 'POST', body: fd });
+          if (!res.ok) throw new Error(`R2 upload failed: ${res.status}`);
+          const data = await res.json() as { key: string };
+          r2Key = data.key;
+        }
+
         records.push({
           id: nanoid(),
           name: file.name,
-          mimeType: file.type || guessMime(file.name),
+          mimeType: mime,
           size: file.size,
-          data: base64,
+          r2Key,
+          // legacy base64 only when worker not available
+          data: useR2 ? undefined : await readAsBase64(file),
           tags: [],
           linkedNoteIds: [],
           linkedRunIds: [],
@@ -68,19 +98,13 @@
       selectedId = records[0].id;
     } catch (err) {
       showToast('Upload failed: ' + (err as Error).message, 'error');
-    } finally {
-      uploading = false;
-      if (fileInput) fileInput.value = '';
-    }
+    } finally { uploading = false; }
   }
 
   function readAsBase64(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        resolve(result.split(',')[1]); // strip data-url prefix
-      };
+      reader.onload = () => resolve((reader.result as string).split(',')[1]);
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
@@ -116,18 +140,22 @@
 
   // ── Viewer ────────────────────────────────────────────────────
   $effect(() => {
-    // Revoke previous URL
-    if (viewerUrl) { URL.revokeObjectURL(viewerUrl); viewerUrl = null; }
-    viewerText = null; viewerTable = null;
+    if (viewerUrl && !viewerUrl.startsWith('http')) URL.revokeObjectURL(viewerUrl);
+    viewerUrl = null; viewerText = null; viewerTable = null;
     if (!selectedFile) return;
 
-    if (selectedFile.url) {
-      viewerUrl = selectedFile.url; // external link — open directly
+    if (selectedFile.url) { viewerUrl = selectedFile.url; return; }
+
+    // R2-backed file: build stream URL via worker
+    if (selectedFile.r2Key) {
+      const base = store.workerBase;
+      viewerUrl = `${base}/file/${encodeURIComponent(selectedFile.r2Key)}`;
       return;
     }
-    if (!selectedFile.data) return;
 
-    const mime = selectedFile.mimeType;
+    // Legacy base64
+    if (!selectedFile.data) return;
+    const mime  = selectedFile.mimeType;
     const bytes = atob(selectedFile.data);
     const arr   = new Uint8Array(bytes.length);
     for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
@@ -140,9 +168,7 @@
       if (mime === 'text/csv' || mime === 'text/tab-separated-values') {
         const sep = mime === 'text/tab-separated-values' ? '\t' : ',';
         viewerTable = text.split('\n').filter(Boolean).map(row => row.split(sep));
-      } else {
-        viewerText = text;
-      }
+      } else { viewerText = text; }
     }
   });
 
@@ -153,7 +179,11 @@
   // ── File ops ──────────────────────────────────────────────────
   async function deleteFile(id: string) {
     if (!confirm('Delete this file? This cannot be undone.')) return;
-    store.files = store.files.filter(f => f.id !== id);
+    const f = store.files.find(x => x.id === id);
+    if (f?.r2Key) {
+      await fetch(`${store.workerBase}/file/${encodeURIComponent(f.r2Key)}`, { method: 'DELETE' }).catch(() => {});
+    }
+    store.files = store.files.filter(x => x.id !== id);
     if (selectedId === id) selectedId = null;
     await store.saveFiles();
     showToast('File deleted');
@@ -206,14 +236,18 @@
 
   function downloadFile(f: FileRecord) {
     if (f.url) { window.open(f.url, '_blank'); return; }
+    if (f.r2Key) {
+      Object.assign(document.createElement('a'), { href: `${store.workerBase}/file/${encodeURIComponent(f.r2Key)}`, download: f.name, target: '_blank' }).click();
+      return;
+    }
     if (!f.data) return;
     const bytes = atob(f.data);
     const arr   = new Uint8Array(bytes.length);
     for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
     const blob  = new Blob([arr], { type: f.mimeType });
     const url   = URL.createObjectURL(blob);
-    const a     = Object.assign(document.createElement('a'), { href: url, download: f.name });
-    a.click(); URL.revokeObjectURL(url);
+    Object.assign(document.createElement('a'), { href: url, download: f.name }).click();
+    URL.revokeObjectURL(url);
   }
 
   // ── Helpers ───────────────────────────────────────────────────
@@ -274,7 +308,20 @@
   </aside>
 
   <!-- ── Main area ── -->
-  <div class="files-main">
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="files-main"
+    ondragover={onDragOver}
+    ondragleave={onDragLeave}
+    ondrop={onDrop}
+    class:drag-active={dragOver}
+  >
+    {#if dragOver}
+      <div class="drop-overlay">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color:var(--ac)"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <span>Drop files to upload</span>
+      </div>
+    {/if}
+
     <!-- Top bar -->
     <div class="files-topbar">
       <input type="search" bind:value={search} placeholder="Search files…" class="files-search" />
@@ -533,7 +580,15 @@
   .type-label { font-size: 0.72rem; color: var(--mu); }
 
   /* ── Main ── */
-  .files-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .files-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+  .files-main.drag-active { outline: 2px dashed var(--ac); outline-offset: -3px; }
+  .drop-overlay {
+    position: absolute; inset: 0; z-index: 10;
+    background: var(--ac-bg);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 12px; font-size: 0.95rem; font-weight: 600; color: var(--ac);
+    pointer-events: none;
+  }
   .files-topbar { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--bd); background: var(--sf); flex-shrink: 0; }
   .files-search { flex: 1; font-size: 0.85rem; }
   .files-topbar-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
