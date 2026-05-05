@@ -14,6 +14,7 @@
   import Jobs from './Jobs.svelte';
   import Presentations from './Presentations.svelte';
   import Files from './Files.svelte';
+  import Grants from './Grants.svelte';
   import Settings from './Settings.svelte';
   import Enzo from './Enzo.svelte';
   import Weather from './Weather.svelte';
@@ -566,6 +567,8 @@
         <Presentations {showToast} />
       {:else if store.view === 'files'}
         <Files {showToast} />
+      {:else if store.view === 'grants'}
+        <Grants {showToast} />
       {:else if store.view === 'settings'}
         <Settings {showToast} />
       {/if}

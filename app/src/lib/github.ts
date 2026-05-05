@@ -23,6 +23,10 @@ export const PATHS = {
   profile:       'settings/profile.enc',
   presentations: 'data/presentations.enc',
   files:         'data/files.enc',
+  grants:        'data/grants.enc',
+  conferences:   'data/conferences.enc',
+  peerReviews:   'data/peer-reviews.enc',
+  manuscripts:   'data/manuscripts.enc',
 } as const;
 
 function headers(token: string) {

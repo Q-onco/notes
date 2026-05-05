@@ -4,11 +4,12 @@ import type {
   ReadingListItem, SavedSearch, PipelineRun, Protocol,
   SavedJob, ResearcherProfile, Hypothesis,
   CvProfile, CoverLetter, JobContact, JobEmailTemplate, SalaryEntry, JobDeadline,
-  Presentation, FileRecord
+  Presentation, FileRecord,
+  Grant, ConferenceAbstract, PeerReview, Manuscript
 } from './types';
 import { loadEncFile, saveEncFile, PATHS, validateToken } from './github';
 
-type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs' | 'presentations' | 'files';
+type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs' | 'presentations' | 'files' | 'grants' | 'manuscript';
 
 const DEFAULT_PROFILE: ResearcherProfile = {
   currentRole: 'Postdoctoral Researcher',
@@ -95,6 +96,18 @@ class Store {
 
   files = $state<FileRecord[]>([]);
   filesSha = $state<string | null>(null);
+
+  grants = $state<Grant[]>([]);
+  grantsSha = $state<string | null>(null);
+
+  conferences = $state<ConferenceAbstract[]>([]);
+  conferencesSha = $state<string | null>(null);
+
+  peerReviews = $state<PeerReview[]>([]);
+  peerReviewsSha = $state<string | null>(null);
+
+  manuscripts = $state<Manuscript[]>([]);
+  manuscriptsSha = $state<string | null>(null);
 
   profile = $state<ResearcherProfile>({ ...DEFAULT_PROFILE });
   profileSha = $state<string | null>(null);
@@ -190,7 +203,7 @@ class Store {
     if (!this.tok) return;
     this.loadingMsg = 'Decrypting your research...';
 
-    const [n, j, t, c, a, pp, s, res, pip, jb, jbx, cv, cl, prf, pres, fi] = await Promise.all([
+    const [n, j, t, c, a, pp, s, res, pip, jb, jbx, cv, cl, prf, pres, fi, gr, conf, pr, ms] = await Promise.all([
       loadEncFile<Note[]>(this.tok, PATHS.notes, []),
       loadEncFile<JournalEntry[]>(this.tok, PATHS.journal, []),
       loadEncFile<Task[]>(this.tok, PATHS.tasks, []),
@@ -207,6 +220,10 @@ class Store {
       loadEncFile<ResearcherProfile>(this.tok, PATHS.profile, DEFAULT_PROFILE),
       loadEncFile<Presentation[]>(this.tok, PATHS.presentations, []),
       loadEncFile<FileRecord[]>(this.tok, PATHS.files, []),
+      loadEncFile<Grant[]>(this.tok, PATHS.grants, []),
+      loadEncFile<ConferenceAbstract[]>(this.tok, PATHS.conferences, []),
+      loadEncFile<PeerReview[]>(this.tok, PATHS.peerReviews, []),
+      loadEncFile<Manuscript[]>(this.tok, PATHS.manuscripts, []),
     ]);
 
     this.notes = n.data; this.notesSha = n.sha;
@@ -240,6 +257,10 @@ class Store {
     this.profile = { ...DEFAULT_PROFILE, ...prf.data }; this.profileSha = prf.sha;
     this.presentations = pres.data; this.presentationsSha = pres.sha;
     this.files = fi.data; this.filesSha = fi.sha;
+    this.grants = gr.data; this.grantsSha = gr.sha;
+    this.conferences = conf.data; this.conferencesSha = conf.sha;
+    this.peerReviews = pr.data; this.peerReviewsSha = pr.sha;
+    this.manuscripts = ms.data; this.manuscriptsSha = ms.sha;
   }
 
   async saveResearch(): Promise<void> {
@@ -346,6 +367,30 @@ class Store {
     if (!this.tok) return;
     const sha = await saveEncFile(this.tok, PATHS.files, this.files, this.filesSha, 'files: update');
     this.filesSha = sha;
+  }
+
+  async saveGrants(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(this.tok, PATHS.grants, this.grants, this.grantsSha, 'grants: update');
+    this.grantsSha = sha;
+  }
+
+  async saveConferences(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(this.tok, PATHS.conferences, this.conferences, this.conferencesSha, 'conferences: update');
+    this.conferencesSha = sha;
+  }
+
+  async savePeerReviews(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(this.tok, PATHS.peerReviews, this.peerReviews, this.peerReviewsSha, 'peer-reviews: update');
+    this.peerReviewsSha = sha;
+  }
+
+  async saveManuscripts(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(this.tok, PATHS.manuscripts, this.manuscripts, this.manuscriptsSha, 'manuscripts: update');
+    this.manuscriptsSha = sha;
   }
 
   isPinned(id: string): boolean {
