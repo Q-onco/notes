@@ -1537,6 +1537,9 @@
   .da-label { font-size: 0.7rem; font-weight: 700; color: var(--enzo, #a855f7); text-transform: uppercase; letter-spacing: 0.05em; }
   .da-body { line-height: 1.55; color: var(--tx); font-size: 0.78rem; }
   .hyp-text { font-size: 0.87rem; font-weight: 500; color: var(--tx); line-height: 1.5; }
+
+  .btn-link { background: transparent; border: none; color: var(--ac); cursor: pointer; font-size: 0.78rem; padding: 2px 6px; border-radius: var(--radius-sm); font-family: var(--font); }
+  .btn-link:hover { background: var(--ac-bg); }
   .hyp-rationale { line-height: 1.5; }
   .hyp-result { color: var(--gn); font-style: italic; }
   .hyp-date { margin-top: 2px; }

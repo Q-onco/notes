@@ -310,19 +310,19 @@
     {/if}
 
     <!-- PI Report -->
-    <div class="digest-row">
+    <div class="digest-row" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--bd);">
       <button class="btn btn-ghost btn-sm pi-report-btn" onclick={runPiReport}>
         {#if piStreaming}
           <span class="spinner-xs-inline"></span> Stop
         {:else}
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-          PI progress email
+          Enzo's progress report
         {/if}
       </button>
       {#if piOpen}
         <button class="btn-link" onclick={() => { piOpen = false; piText = ''; }}>Close ✕</button>
         {#if piText && !piStreaming}
-          <button class="btn-link" onclick={() => { navigator.clipboard.writeText(piText); showToast('Email copied'); }}>Copy</button>
+          <button class="btn-link" onclick={() => { navigator.clipboard.writeText(piText); showToast('Report copied'); }}>Copy</button>
         {/if}
       {/if}
     </div>
@@ -935,11 +935,6 @@
     min-width: 140px;
   }
   .df-dl { display: flex; align-items: center; gap: 6px; }
-  .btn-link {
-    background: transparent; border: none; color: var(--ac); cursor: pointer;
-    font-size: inherit; font-family: var(--font); padding: 0;
-  }
-  .btn-link:hover { text-decoration: underline; }
 
   @media (max-width: 900px) {
     .stats-row { grid-template-columns: repeat(3, 1fr); }
