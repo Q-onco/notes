@@ -32,6 +32,7 @@
   let shareUrl = $state<string | null>(null);
   let shareExpAt = $state<number | null>(null);
   let sharing = $state(false);
+  let extractingPdf = $state(false);
 
   const selectedFile = $derived(store.files.find(f => f.id === selectedId) ?? null);
   const allTags      = $derived([...new Set(store.files.flatMap(f => f.tags))].sort());
@@ -216,6 +217,39 @@
     navigator.clipboard.writeText(shareUrl).then(() => showToast('Link copied'));
   }
 
+  // ── PDF text extraction via PDF.js ────────────────────────────
+  async function extractPdfText(url: string): Promise<string> {
+    const pdfjsLib = await import('pdfjs-dist');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+      'pdfjs-dist/build/pdf.worker.min.mjs',
+      import.meta.url
+    ).href;
+
+    const response = await fetch(url);
+    const arrayBuffer = await response.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+    const maxPages = Math.min(pdf.numPages, 25);
+    const parts: string[] = [];
+
+    for (let i = 1; i <= maxPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items
+        .map((item: any) => ('str' in item ? item.str : ''))
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (pageText) parts.push(`[Page ${i}]\n${pageText}`);
+    }
+
+    const full = parts.join('\n\n');
+    if (pdf.numPages > maxPages) {
+      return full + `\n\n[Note: ${pdf.numPages - maxPages} additional pages not shown]`;
+    }
+    return full;
+  }
+
   // ── Enzo ──────────────────────────────────────────────────────
   async function sendToEnzo() {
     if (!selectedFile) return;
@@ -223,32 +257,43 @@
     if (selectedFile.description) context += `\nDescription: ${selectedFile.description}`;
 
     let contentLoaded = false;
+    const mime = selectedFile.mimeType;
 
     if (viewerText) {
-      context += `\n\nContent:\n${viewerText.slice(0, 6000)}${viewerText.length > 6000 ? '\n…(truncated)' : ''}`;
+      context += `\n\nContent:\n${viewerText.slice(0, 8000)}${viewerText.length > 8000 ? '\n…(truncated)' : ''}`;
       contentLoaded = true;
     } else if (viewerTable) {
-      const preview = viewerTable.slice(0, 20).map(r => r.join('\t')).join('\n');
-      context += `\n\nData (first 20 rows):\n${preview}`;
+      const preview = viewerTable.slice(0, 30).map(r => r.join('\t')).join('\n');
+      context += `\n\nData (first 30 rows):\n${preview}`;
       contentLoaded = true;
-    } else if (viewerUrl && selectedFile.r2Key) {
-      // Try to fetch text content from R2 for text/code files
-      const mime = selectedFile.mimeType;
-      if (mime.startsWith('text/') || isCodeMime(mime)) {
-        try {
-          const res = await fetch(viewerUrl);
-          if (res.ok) {
-            const text = await res.text();
-            context += `\n\nContent:\n${text.slice(0, 6000)}${text.length > 6000 ? '\n…(truncated)' : ''}`;
-            contentLoaded = true;
-          }
-        } catch { /* ignore — will fall through to honesty notice */ }
+    } else if (mime === 'application/pdf' && viewerUrl) {
+      // Extract text from PDF using PDF.js
+      extractingPdf = true;
+      try {
+        const text = await extractPdfText(viewerUrl);
+        if (text.trim()) {
+          const truncated = text.slice(0, 12000);
+          context += `\n\nExtracted text:\n${truncated}${text.length > 12000 ? '\n…(truncated at 12 000 chars)' : ''}`;
+          contentLoaded = true;
+        }
+      } catch (err) {
+        console.warn('PDF text extraction failed:', err);
+      } finally {
+        extractingPdf = false;
       }
+    } else if (viewerUrl && (mime.startsWith('text/') || isCodeMime(mime))) {
+      try {
+        const res = await fetch(viewerUrl);
+        if (res.ok) {
+          const text = await res.text();
+          context += `\n\nContent:\n${text.slice(0, 8000)}${text.length > 8000 ? '\n…(truncated)' : ''}`;
+          contentLoaded = true;
+        }
+      } catch { /* fall through */ }
     }
 
     if (!contentLoaded) {
-      // Be honest: Enzo cannot read binary files, PDFs, or images
-      context += `\n\n[Note to Enzo: I cannot extract the content of this file (${selectedFile.mimeType}). Only the filename and description above are available. Do not guess or fabricate what the file contains — ask me to share the content or describe what I need help with.]`;
+      context += `\n\n[Note to Enzo: The content of this file (${mime}) could not be extracted. Only the filename and description above are available. Do not guess or fabricate what the file contains.]`;
     }
 
     store.enzoSearchQuery = context;
@@ -565,9 +610,14 @@
             </div>
             <div class="file-detail-actions">
               <!-- Enzo button -->
-              <button class="btn-enzo" onclick={sendToEnzo} title="Discuss with Enzo">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
-                Enzo
+              <button class="btn-enzo" onclick={sendToEnzo} disabled={extractingPdf} title={extractingPdf ? 'Reading PDF…' : 'Discuss with Enzo'}>
+                {#if extractingPdf}
+                  <span class="pdf-spin"></span>
+                  Reading…
+                {:else}
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+                  Enzo
+                {/if}
               </button>
               <!-- Share button (R2 files only) -->
               {#if selectedFile.r2Key && store.workerBase}
@@ -897,7 +947,18 @@
     color: var(--ac); border: 1px solid color-mix(in srgb, var(--ac) 30%, transparent);
     cursor: pointer; transition: all var(--transition);
   }
-  .btn-enzo:hover { background: var(--ac); color: var(--bg); }
+  .btn-enzo:hover:not(:disabled) { background: var(--ac); color: var(--bg); }
+  .btn-enzo:disabled { opacity: 0.65; cursor: wait; }
+
+  .pdf-spin {
+    width: 10px; height: 10px;
+    border: 1.5px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: pdf-spin 0.7s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes pdf-spin { to { transform: rotate(360deg); } }
 
   /* Viewer */
   .file-viewer {
