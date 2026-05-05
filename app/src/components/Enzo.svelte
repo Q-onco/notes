@@ -1,6 +1,6 @@
 <script lang="ts">
   import { store } from '../lib/store.svelte';
-  import { askEnzo } from '../lib/groq';
+  import { askEnzo, getAllTokenUsage, DAILY_TOKEN_REF } from '../lib/groq';
   import { nanoid } from 'nanoid';
   import type { ChatSession, ChatMessage, Note } from '../lib/types';
 
@@ -38,33 +38,68 @@
   }
 
   const COMMANDS: EnzoCommand[] = [
-    // Capture
-    { cmd: 'task',      usage: '/task <description>',    desc: 'Add a task',                   group: 'capture',  needsArg: true  },
-    { cmd: 'note',      usage: '/note <title>',          desc: 'Create a note',                group: 'capture',  needsArg: true  },
-    { cmd: 'log',       usage: '/log <entry>',           desc: 'Add journal entry',            group: 'capture',  needsArg: true  },
-    { cmd: 'hyp',       usage: '/hyp <hypothesis>',      desc: 'Record a hypothesis',          group: 'capture',  needsArg: true  },
-    // Research
-    { cmd: 'read',      usage: '/read',                  desc: 'Deep read — paste abstract',   group: 'research', needsArg: false },
-    { cmd: 'critique',  usage: '/critique',              desc: 'Critique — paste abstract',    group: 'research', needsArg: false },
-    { cmd: 'paper',     usage: '/paper <query>',         desc: 'Search literature',            group: 'research', needsArg: true  },
-    { cmd: 'cite',      usage: '/cite <DOI or title>',   desc: 'Format a citation',            group: 'research', needsArg: true  },
-    // Analysis
-    { cmd: 'r',         usage: '/r <code or question>',  desc: 'R code help',                  group: 'analysis', needsArg: true  },
-    { cmd: 'py',        usage: '/py <code or question>', desc: 'Python code help',             group: 'analysis', needsArg: true  },
-    { cmd: 'code',      usage: '/code <prompt>',         desc: 'Generate analysis code',       group: 'analysis', needsArg: true  },
-    // Writing
-    { cmd: 'draft',     usage: '/draft <prompt>',        desc: 'Draft scientific text',        group: 'writing',  needsArg: true  },
-    { cmd: 'abstract',  usage: '/abstract <title>',      desc: 'Draft an abstract',            group: 'writing',  needsArg: true  },
-    // Reports
-    { cmd: 'digest',    usage: '/digest',                desc: 'Generate weekly digest',       group: 'reports',  needsArg: false },
-    { cmd: 'pi',        usage: '/pi',                    desc: 'Draft PI weekly report',       group: 'reports',  needsArg: false },
-    // Files & mail
-    { cmd: 'files',     usage: '/files',                 desc: 'List stored files by folder',  group: 'files',    needsArg: false },
-    { cmd: 'find',      usage: '/find <query>',          desc: 'Search files',                 group: 'files',    needsArg: true  },
-    { cmd: 'send',      usage: '/send <recipient>',      desc: 'Open email compose',           group: 'mail',     needsArg: true  },
-    // Utility
-    { cmd: 'help',      usage: '/help',                  desc: 'Show all commands',            group: 'utility',  needsArg: false },
-    { cmd: 'clear',     usage: '/clear',                 desc: 'Clear this chat session',      group: 'utility',  needsArg: false },
+    // ── Capture ──────────────────────────────────────────────────
+    { cmd: 'task',       usage: '/task <description>',          desc: 'Add a task',                        group: 'capture',    needsArg: true  },
+    { cmd: 'note',       usage: '/note <title>',                desc: 'Create a note and open it',        group: 'capture',    needsArg: true  },
+    { cmd: 'log',        usage: '/log <entry>',                 desc: 'Add a lab journal entry',           group: 'capture',    needsArg: true  },
+    { cmd: 'idea',       usage: '/idea <text>',                 desc: 'Capture a quick idea',              group: 'capture',    needsArg: true  },
+    { cmd: 'hyp',        usage: '/hyp <hypothesis>',            desc: 'Record & evaluate a hypothesis',    group: 'capture',    needsArg: true  },
+    { cmd: 'todo',       usage: '/todo',                        desc: 'List all open tasks by priority',   group: 'capture',    needsArg: false },
+    { cmd: 'today',      usage: '/today',                       desc: "Today's tasks + journal snapshot",  group: 'capture',    needsArg: false },
+    // ── Research ─────────────────────────────────────────────────
+    { cmd: 'read',       usage: '/read',                        desc: 'Deep read — paste abstract',        group: 'research',   needsArg: false },
+    { cmd: 'critique',   usage: '/critique',                    desc: 'Peer-review critique — paste abstract', group: 'research', needsArg: false },
+    { cmd: 'reading',    usage: '/reading',                     desc: 'Generate structured reading note',  group: 'research',   needsArg: false },
+    { cmd: 'devil',      usage: '/devil <hypothesis>',          desc: "Devil's advocate on a hypothesis",  group: 'research',   needsArg: true  },
+    { cmd: 'paper',      usage: '/paper <query>',               desc: 'Search literature',                 group: 'research',   needsArg: true  },
+    { cmd: 'pubmed',     usage: '/pubmed <query>',              desc: 'Search PubMed',                     group: 'research',   needsArg: true  },
+    { cmd: 'cite',       usage: '/cite <DOI or title>',         desc: 'Format a citation (APA/Vancouver)', group: 'research',   needsArg: true  },
+    { cmd: 'explain',    usage: '/explain <term or concept>',   desc: 'Explain a scientific concept',      group: 'research',   needsArg: true  },
+    { cmd: 'compare',    usage: '/compare <A> vs <B>',          desc: 'Compare two methods or concepts',   group: 'research',   needsArg: true  },
+    { cmd: 'mechanism',  usage: '/mechanism <pathway or drug>', desc: 'Deep-dive mechanism of action',     group: 'research',   needsArg: true  },
+    // ── Analysis ─────────────────────────────────────────────────
+    { cmd: 'r',          usage: '/r <code or question>',        desc: 'R / Seurat / Bioconductor help',    group: 'analysis',   needsArg: true  },
+    { cmd: 'py',         usage: '/py <code or question>',       desc: 'Python / Scanpy / AnnData help',    group: 'analysis',   needsArg: true  },
+    { cmd: 'code',       usage: '/code <prompt>',               desc: 'Generate complete analysis code',   group: 'analysis',   needsArg: true  },
+    { cmd: 'seurat',     usage: '/seurat <question>',           desc: 'Seurat v4/v5 + scRNA-seq help',     group: 'analysis',   needsArg: true  },
+    { cmd: 'scanpy',     usage: '/scanpy <question>',           desc: 'Scanpy + AnnData help',             group: 'analysis',   needsArg: true  },
+    { cmd: 'spatial',    usage: '/spatial <question>',          desc: 'Spatial transcriptomics help',      group: 'analysis',   needsArg: true  },
+    { cmd: 'stats',      usage: '/stats <question>',            desc: 'Statistics / DESeq2 / methods',     group: 'analysis',   needsArg: true  },
+    { cmd: 'bash',       usage: '/bash <question>',             desc: 'Shell / SLURM / HPC scripting',     group: 'analysis',   needsArg: true  },
+    { cmd: 'debug',      usage: '/debug <code or error>',       desc: 'Debug code or error message',       group: 'analysis',   needsArg: true  },
+    { cmd: 'nextflow',   usage: '/nextflow <question>',         desc: 'Nextflow / Snakemake workflow help', group: 'analysis',   needsArg: true  },
+    // ── Writing ──────────────────────────────────────────────────
+    { cmd: 'draft',      usage: '/draft <prompt>',              desc: 'Draft scientific text',             group: 'writing',    needsArg: true  },
+    { cmd: 'abstract',   usage: '/abstract <title>',            desc: 'Draft a paper abstract',            group: 'writing',    needsArg: true  },
+    { cmd: 'slides',     usage: '/slides <topic>',              desc: 'Outline a presentation',            group: 'writing',    needsArg: true  },
+    { cmd: 'cover',      usage: '/cover <role at company>',     desc: 'Draft a cover letter',              group: 'writing',    needsArg: true  },
+    { cmd: 'bullets',    usage: '/bullets <role>',              desc: 'Improve CV bullet points',          group: 'writing',    needsArg: true  },
+    { cmd: 'interview',  usage: '/interview <role at company>', desc: 'Interview questions & prep',        group: 'writing',    needsArg: true  },
+    { cmd: 'email',      usage: '/email <prompt>',              desc: 'Draft a professional email',        group: 'writing',    needsArg: true  },
+    { cmd: 'reply',      usage: '/reply <context>',             desc: 'Draft a reply',                     group: 'writing',    needsArg: true  },
+    { cmd: 'translate',  usage: '/translate <text>',            desc: 'Translate to English',              group: 'writing',    needsArg: true  },
+    { cmd: 'simplify',   usage: '/simplify <text>',             desc: 'Simplify for a lay audience',       group: 'writing',    needsArg: true  },
+    // ── Manuscript ───────────────────────────────────────────────
+    { cmd: 'methods',    usage: '/methods',                     desc: 'Help with Methods section',         group: 'manuscript', needsArg: false },
+    { cmd: 'intro',      usage: '/intro',                       desc: 'Help with Introduction section',    group: 'manuscript', needsArg: false },
+    { cmd: 'results',    usage: '/results',                     desc: 'Help with Results section',         group: 'manuscript', needsArg: false },
+    { cmd: 'discussion', usage: '/discussion',                  desc: 'Help with Discussion section',      group: 'manuscript', needsArg: false },
+    { cmd: 'revise',     usage: '/revise <text>',               desc: 'Revise / tighten a paragraph',      group: 'manuscript', needsArg: true  },
+    { cmd: 'title',      usage: '/title <one-line summary>',    desc: 'Generate paper title options',      group: 'manuscript', needsArg: true  },
+    // ── Reports ──────────────────────────────────────────────────
+    { cmd: 'digest',     usage: '/digest',                      desc: 'Generate weekly digest',            group: 'reports',    needsArg: false },
+    { cmd: 'pi',         usage: '/pi',                          desc: 'Draft PI weekly report email',      group: 'reports',    needsArg: false },
+    { cmd: 'status',     usage: '/status',                      desc: 'App stats + token usage',           group: 'reports',    needsArg: false },
+    // ── Files & mail ─────────────────────────────────────────────
+    { cmd: 'files',      usage: '/files',                       desc: 'List stored files by folder',       group: 'files',      needsArg: false },
+    { cmd: 'find',       usage: '/find <query>',                desc: 'Search files',                      group: 'files',      needsArg: true  },
+    { cmd: 'send',       usage: '/send <recipient>',            desc: 'Open email compose',                group: 'mail',       needsArg: true  },
+    // ── Navigation ───────────────────────────────────────────────
+    { cmd: 'go',         usage: '/go <section>',                desc: 'Navigate to any section',           group: 'nav',        needsArg: true  },
+    { cmd: 'summarize',  usage: '/summarize',                   desc: 'Summarize the current note',        group: 'nav',        needsArg: false },
+    // ── Utility ──────────────────────────────────────────────────
+    { cmd: 'help',       usage: '/help',                        desc: 'Show all commands',                 group: 'utility',    needsArg: false },
+    { cmd: 'clear',      usage: '/clear',                       desc: 'Clear this chat session',           group: 'utility',    needsArg: false },
   ];
 
   let showPicker = $state(false);
@@ -116,18 +151,34 @@
     store.saveChat();
   }
 
+  // ── helper: prompt-then-send shortcut ─────────────────────────
+  async function promptSend(text: string) {
+    inputText = text;
+    await send();
+  }
+
+  // ── helper: fill input and focus ──────────────────────────────
+  function fillInput(text: string) {
+    showPicker = false;
+    inputText = text;
+    setTimeout(() => inputEl?.focus(), 10);
+  }
+
   async function executeCommand(cmd: EnzoCommand, args: string) {
+    showPicker = false;
+
+    // ── CAPTURE ────────────────────────────────────────────────
     if (cmd.cmd === 'task') {
-      if (!args) { inputText = '/task '; showPicker = false; inputEl?.focus(); return; }
+      if (!args) { fillInput('/task '); return; }
       store.tasks = [{ id: nanoid(), text: args, done: false, noteId: null, createdAt: Date.now(), dueAt: null, priority: 'medium' }, ...store.tasks];
       await store.saveTasks();
-      addEnzoMessage(`Added task: **${args}**`);
+      addEnzoMessage(`Task added: **${args}**`);
       return;
     }
 
     if (cmd.cmd === 'note') {
-      if (!args) { inputText = '/note '; showPicker = false; inputEl?.focus(); return; }
-      const note = { id: nanoid(), title: args.slice(0, 80), body: `# ${args}\n\n`, tags: [] as string[], createdAt: Date.now(), updatedAt: Date.now(), pinned: false, archived: false, audioIds: [] as string[] };
+      if (!args) { fillInput('/note '); return; }
+      const note: Note = { id: nanoid(), title: args.slice(0, 80), body: `# ${args}\n\n`, tags: [], createdAt: Date.now(), updatedAt: Date.now(), pinned: false, archived: false, audioIds: [] };
       store.notes = [note, ...store.notes];
       store.currentNoteId = note.id;
       await store.saveNotes();
@@ -137,36 +188,89 @@
     }
 
     if (cmd.cmd === 'log') {
-      if (!args) { inputText = '/log '; showPicker = false; inputEl?.focus(); return; }
+      if (!args) { fillInput('/log '); return; }
       store.journal = [{ id: nanoid(), body: args, mood: '', contextTag: 'Research', createdAt: Date.now(), updatedAt: Date.now(), audioIds: [] }, ...store.journal];
       await store.saveJournal();
       addEnzoMessage(`Journal entry added.`);
       return;
     }
 
-    if (cmd.cmd === 'hyp') {
-      if (!args) { inputText = '/hyp '; showPicker = false; inputEl?.focus(); return; }
-      inputText = `I want to record this hypothesis: "${args}"\n\nCritically evaluate the mechanistic plausibility and suggest how to test it.`;
-      await send();
+    if (cmd.cmd === 'idea') {
+      if (!args) { fillInput('/idea '); return; }
+      store.journal = [{ id: nanoid(), body: args, mood: '💡', contextTag: 'Idea', createdAt: Date.now(), updatedAt: Date.now(), audioIds: [] }, ...store.journal];
+      await store.saveJournal();
+      addEnzoMessage(`Idea captured: **${args.slice(0, 100)}**`);
       return;
     }
 
+    if (cmd.cmd === 'hyp') {
+      if (!args) { fillInput('/hyp '); return; }
+      await promptSend(`I want to record this hypothesis: "${args}"\n\nCritically evaluate mechanistic plausibility and suggest how to test it experimentally.`);
+      return;
+    }
+
+    if (cmd.cmd === 'todo') {
+      const open = store.tasks.filter(t => !t.done);
+      if (!open.length) { addEnzoMessage('No open tasks. Add one with `/task <description>`.'); return; }
+      const byPriority = (p: string) => open.filter(t => t.priority === p);
+      const fmt = (ts: typeof open) => ts.map(t => `· ${t.text}`).join('\n');
+      const high = byPriority('high'), med = byPriority('medium'), low = byPriority('low');
+      const parts = [`**${open.length} open task${open.length > 1 ? 's' : ''}**`];
+      if (high.length) parts.push(`**High priority**\n${fmt(high)}`);
+      if (med.length)  parts.push(`**Medium**\n${fmt(med)}`);
+      if (low.length)  parts.push(`**Low**\n${fmt(low)}`);
+      addEnzoMessage(parts.join('\n\n'));
+      return;
+    }
+
+    if (cmd.cmd === 'today') {
+      const today = new Date();
+      const isToday = (ts: number) => new Date(ts).toDateString() === today.toDateString();
+      const todayTasks = store.tasks.filter(t => !t.done).slice(0, 10);
+      const todayJournal = store.journal.filter(e => isToday(e.createdAt));
+      const label = today.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+      const taskLines = todayTasks.length
+        ? todayTasks.map(t => `· ${t.text}${t.priority === 'high' ? ' ★' : ''}`).join('\n')
+        : 'Nothing open.';
+      const journalLines = todayJournal.length
+        ? todayJournal.map(e => `· ${e.body.replace(/<[^>]*>/g, ' ').slice(0, 120)}`).join('\n')
+        : 'No entries today.';
+      addEnzoMessage(`## ${label}\n\n**Open tasks**\n${taskLines}\n\n**Journal today**\n${journalLines}`);
+      return;
+    }
+
+    // ── RESEARCH ───────────────────────────────────────────────
     if (cmd.cmd === 'read') {
-      inputText = `I want to do a deep critical read. Here's the abstract — give me 5 pointed Socratic questions that force me to engage with the paper's design, controls, statistics, and implications:\n\n[paste abstract here]`;
-      showPicker = false;
-      inputEl?.focus();
+      fillInput(`Deep read — give me 5 pointed Socratic questions that force critical engagement with the paper's design, controls, statistics, and implications. Here's the abstract:\n\n[paste abstract here]`);
       return;
     }
 
     if (cmd.cmd === 'critique') {
-      inputText = `Critique this paper as a peer reviewer — evaluate research question, methodology, novelty, limitations, and give a verdict:\n\n[paste title and abstract here]`;
-      showPicker = false;
-      inputEl?.focus();
+      fillInput(`Critique this paper as a rigorous peer reviewer — evaluate research question, methodology, novelty, limitations, and give a verdict:\n\n[paste title and abstract here]`);
+      return;
+    }
+
+    if (cmd.cmd === 'reading') {
+      fillInput(`Generate a structured reading note for this paper:\n\nTitle:\nAuthors:\nJournal/Year:\nAbstract:\n\n[fill in above, then send]`);
+      return;
+    }
+
+    if (cmd.cmd === 'devil') {
+      if (!args) { fillInput('/devil '); return; }
+      await promptSend(`Play devil's advocate against this hypothesis:\n\n"${args}"\n\nArgue against it with: counter-evidence from literature, alternative explanations, methodological challenges, confounds, and the experiments that would most decisively falsify it.`);
       return;
     }
 
     if (cmd.cmd === 'paper') {
-      if (!args) { inputText = '/paper '; showPicker = false; inputEl?.focus(); return; }
+      if (!args) { fillInput('/paper '); return; }
+      store.enzoSearchQuery = args;
+      store.view = 'research';
+      store.enzoOpen = false;
+      return;
+    }
+
+    if (cmd.cmd === 'pubmed') {
+      if (!args) { fillInput('/pubmed '); return; }
       store.enzoSearchQuery = args;
       store.view = 'research';
       store.enzoOpen = false;
@@ -174,54 +278,199 @@
     }
 
     if (cmd.cmd === 'cite') {
-      if (!args) { inputText = '/cite '; showPicker = false; inputEl?.focus(); return; }
-      inputText = `Format a complete APA / Vancouver citation for: ${args}`;
-      await send();
+      if (!args) { fillInput('/cite '); return; }
+      await promptSend(`Format a complete, correctly structured citation in both APA and Vancouver formats for:\n\n${args}`);
       return;
     }
 
+    if (cmd.cmd === 'explain') {
+      if (!args) { fillInput('/explain '); return; }
+      await promptSend(`Explain this concept thoroughly, from mechanism to clinical/research relevance: **${args}**`);
+      return;
+    }
+
+    if (cmd.cmd === 'compare') {
+      if (!args) { fillInput('/compare '); return; }
+      await promptSend(`Give me a rigorous comparison: **${args}**\n\nCover: underlying mechanism or principle, key differences, when to use each, and any important caveats.`);
+      return;
+    }
+
+    if (cmd.cmd === 'mechanism') {
+      if (!args) { fillInput('/mechanism '); return; }
+      await promptSend(`Deep-dive the mechanism of: **${args}**\n\nCover: molecular/cellular pathway, key regulators, known resistance mechanisms or pathway crosstalk, and what is still unresolved.`);
+      return;
+    }
+
+    // ── ANALYSIS ──────────────────────────────────────────────
     if (cmd.cmd === 'r') {
-      if (!args) { inputText = '/r '; showPicker = false; inputEl?.focus(); return; }
-      inputText = `Help me with this R code or question:\n\`\`\`r\n${args}\n\`\`\``;
-      await send();
+      if (!args) { fillInput('/r '); return; }
+      await promptSend(`Help me with this R code or question:\n\`\`\`r\n${args}\n\`\`\``);
       return;
     }
 
     if (cmd.cmd === 'py') {
-      if (!args) { inputText = '/py '; showPicker = false; inputEl?.focus(); return; }
-      inputText = `Help me with this Python code or question:\n\`\`\`python\n${args}\n\`\`\``;
-      await send();
+      if (!args) { fillInput('/py '); return; }
+      await promptSend(`Help me with this Python code or question:\n\`\`\`python\n${args}\n\`\`\``);
       return;
     }
 
     if (cmd.cmd === 'code') {
-      if (!args) { inputText = '/code '; showPicker = false; inputEl?.focus(); return; }
-      inputText = `Generate complete, runnable analysis code for: ${args}`;
-      await send();
+      if (!args) { fillInput('/code '); return; }
+      await promptSend(`Generate complete, runnable, commented analysis code for:\n\n${args}`);
       return;
     }
 
+    if (cmd.cmd === 'seurat') {
+      if (!args) { fillInput('/seurat '); return; }
+      await promptSend(`Seurat / scRNA-seq question:\n\n${args}\n\nGive a complete, version-specific answer with runnable R code where relevant.`);
+      return;
+    }
+
+    if (cmd.cmd === 'scanpy') {
+      if (!args) { fillInput('/scanpy '); return; }
+      await promptSend(`Scanpy / AnnData question:\n\n${args}\n\nGive a complete answer with runnable Python code where relevant.`);
+      return;
+    }
+
+    if (cmd.cmd === 'spatial') {
+      if (!args) { fillInput('/spatial '); return; }
+      await promptSend(`Spatial transcriptomics question:\n\n${args}\n\nCover relevant tools (Visium, Xenium, cell2location, RCTD, spatialDM, etc.) as appropriate.`);
+      return;
+    }
+
+    if (cmd.cmd === 'stats') {
+      if (!args) { fillInput('/stats '); return; }
+      await promptSend(`Statistics / bioinformatics methods question:\n\n${args}\n\nBe specific about assumptions, when the method applies, and implementation in R or Python.`);
+      return;
+    }
+
+    if (cmd.cmd === 'bash') {
+      if (!args) { fillInput('/bash '); return; }
+      await promptSend(`Shell / SLURM / HPC question:\n\n${args}\n\nProvide complete, copy-paste-ready commands.`);
+      return;
+    }
+
+    if (cmd.cmd === 'debug') {
+      if (!args) { fillInput('/debug '); return; }
+      await promptSend(`Debug this code or error:\n\n\`\`\`\n${args}\n\`\`\`\n\nIdentify the root cause, explain why it fails, and provide the corrected code.`);
+      return;
+    }
+
+    if (cmd.cmd === 'nextflow') {
+      if (!args) { fillInput('/nextflow '); return; }
+      await promptSend(`Nextflow / Snakemake / workflow question:\n\n${args}\n\nProvide complete, runnable workflow code where relevant.`);
+      return;
+    }
+
+    // ── WRITING ────────────────────────────────────────────────
     if (cmd.cmd === 'draft') {
-      if (!args) { inputText = '/draft '; showPicker = false; inputEl?.focus(); return; }
-      inputText = `Draft scientific text for: ${args}`;
-      await send();
+      if (!args) { fillInput('/draft '); return; }
+      await promptSend(`Draft scientific text for: ${args}`);
       return;
     }
 
     if (cmd.cmd === 'abstract') {
-      if (!args) { inputText = '/abstract '; showPicker = false; inputEl?.focus(); return; }
-      inputText = `Draft a concise, high-impact abstract for a paper titled: "${args}"`;
-      await send();
+      if (!args) { fillInput('/abstract '); return; }
+      await promptSend(`Draft a concise, high-impact structured abstract (Background / Methods / Results / Conclusion) for a paper about: "${args}"`);
       return;
     }
 
+    if (cmd.cmd === 'slides') {
+      if (!args) { fillInput('/slides '); return; }
+      await promptSend(`Create a detailed presentation outline for: **${args}**\n\nFor each slide provide: slide number, title, 3–5 bullet points, and speaker notes. Aim for 10–12 slides. First slide is title/overview, last is Summary/Next Steps.`);
+      return;
+    }
+
+    if (cmd.cmd === 'cover') {
+      if (!args) { fillInput('/cover '); return; }
+      await promptSend(`Draft a cover letter for: **${args}**\n\nApply all cover letter rules: no hollow openers, specific organisational hook in first sentence, connect my HGSOC TME / scRNA-seq / spatial transcriptomics expertise to their programme, 380–480 words, 4 paragraphs.`);
+      return;
+    }
+
+    if (cmd.cmd === 'bullets') {
+      if (!args) { fillInput('/bullets <role>\n\nBullets:\n· '); return; }
+      await promptSend(`Rewrite these CV bullet points for the role below. CAR format (Context → Action → Result), front-load achievement, quantify everything possible, cut passive voice. Output only the improved bullets.\n\nRole: ${args}`);
+      return;
+    }
+
+    if (cmd.cmd === 'interview') {
+      if (!args) { fillInput('/interview '); return; }
+      await promptSend(`Generate interview questions and prep for: **${args}**\n\n5 technical/scientific questions, 4 behavioural, 3 strategic/fit. Then add ## Enzo's Tips with 3 specific prep suggestions.`);
+      return;
+    }
+
+    if (cmd.cmd === 'email') {
+      if (!args) { fillInput('/email '); return; }
+      await promptSend(`Draft a clear, professional email for:\n\n${args}\n\nNo hollow openers. Direct, specific, appropriate register for academic context.`);
+      return;
+    }
+
+    if (cmd.cmd === 'reply') {
+      if (!args) { fillInput('/reply <paste the email or message context here>'); return; }
+      await promptSend(`Draft a professional reply to this message:\n\n${args}`);
+      return;
+    }
+
+    if (cmd.cmd === 'translate') {
+      if (!args) { fillInput('/translate '); return; }
+      await promptSend(`Translate to English, preserving scientific terminology precisely:\n\n${args}`);
+      return;
+    }
+
+    if (cmd.cmd === 'simplify') {
+      if (!args) { fillInput('/simplify '); return; }
+      await promptSend(`Rewrite this for a non-specialist lay audience, removing jargon but keeping accuracy:\n\n${args}`);
+      return;
+    }
+
+    // ── MANUSCRIPT ─────────────────────────────────────────────
+    if (cmd.cmd === 'methods') {
+      const ms = store.manuscripts?.[0];
+      const ctx = ms ? `Manuscript: ${ms.title}, target journal: ${ms.targetJournal || 'TBD'}` : 'No manuscript open';
+      await promptSend(`Help me write or improve the **Methods** section of my manuscript.\n\n${ctx}\n\nFocus on: experimental design, scRNA-seq / spatial transcriptomics protocols, statistical approach, HGSOC patient cohort description. Use HTML formatting where appropriate.`);
+      return;
+    }
+
+    if (cmd.cmd === 'intro') {
+      const ms = store.manuscripts?.[0];
+      const ctx = ms ? `Manuscript: ${ms.title}, target journal: ${ms.targetJournal || 'TBD'}` : 'No manuscript open';
+      await promptSend(`Help me write or improve the **Introduction** section.\n\n${ctx}\n\nStructure: broad problem → specific gap → our approach. Cite the relevant landscape of HGSOC biology, TME, and scRNA-seq where it fits. No jargon without justification.`);
+      return;
+    }
+
+    if (cmd.cmd === 'results') {
+      const ms = store.manuscripts?.[0];
+      const ctx = ms ? `Manuscript: ${ms.title}` : 'No manuscript open';
+      await promptSend(`Help me write or improve the **Results** section.\n\n${ctx}\n\nResults should present data logically, not editorially — save interpretation for Discussion. Each paragraph should have a topic sentence stating the finding.`);
+      return;
+    }
+
+    if (cmd.cmd === 'discussion') {
+      const ms = store.manuscripts?.[0];
+      const ctx = ms ? `Manuscript: ${ms.title}` : 'No manuscript open';
+      await promptSend(`Help me write or improve the **Discussion** section.\n\n${ctx}\n\nStructure: key finding → mechanistic interpretation → comparison to literature → limitations → future directions. Be direct — state what the findings mean, not just what was done.`);
+      return;
+    }
+
+    if (cmd.cmd === 'revise') {
+      if (!args) { fillInput('/revise <paste paragraph here>'); return; }
+      await promptSend(`Revise and tighten this paragraph. Cut every unnecessary word. Strengthen the topic sentence. Preserve all factual content:\n\n${args}`);
+      return;
+    }
+
+    if (cmd.cmd === 'title') {
+      if (!args) { fillInput('/title '); return; }
+      await promptSend(`Generate 5 paper title options for: "${args}"\n\nRange from descriptive to punchy. Each title should clearly convey the main finding, not just the topic. Flag which is most likely to pass editorial screening.`);
+      return;
+    }
+
+    // ── REPORTS ────────────────────────────────────────────────
     if (cmd.cmd === 'digest') {
       const sevenDaysAgo = Date.now() - 7 * 86400000;
       const recentJournal = store.journal.filter(e => e.createdAt > sevenDaysAgo).slice(0, 5);
       const doneTasks = store.tasks.filter(t => t.done).slice(0, 8);
       const openTasks = store.tasks.filter(t => !t.done).slice(0, 6);
-      inputText = `Generate my weekly research digest:\n\nJournal (${recentJournal.length} entries): ${recentJournal.map(e => e.body.replace(/<[^>]*>/g, ' ').slice(0, 80)).join(' | ') || 'none'}\nTasks done: ${doneTasks.map(t => t.text).join('; ') || 'none'}\nOpen tasks: ${openTasks.map(t => t.text).join('; ') || 'none'}\n\nInclude: This Week summary, Key themes, and Next Week suggestions.`;
-      await send();
+      await promptSend(`Generate my weekly research digest:\n\nJournal (${recentJournal.length} entries): ${recentJournal.map(e => e.body.replace(/<[^>]*>/g, ' ').slice(0, 80)).join(' | ') || 'none'}\nTasks done: ${doneTasks.map(t => t.text).join('; ') || 'none'}\nOpen tasks: ${openTasks.map(t => t.text).join('; ') || 'none'}\n\nSections: ## This Week (2–3 sentences), ## Key Themes (2–3 bullets), ## Next Week (2–3 specific suggestions).`);
       return;
     }
 
@@ -230,46 +479,100 @@
       const recentJournal = store.journal.filter(e => e.createdAt > sevenDaysAgo).slice(0, 5);
       const doneTasks = store.tasks.filter(t => t.done).slice(0, 8);
       const openTasks = store.tasks.filter(t => !t.done).slice(0, 6);
-      const runs = store.pipelineRuns?.slice(0, 4) ?? [];
-      inputText = `Draft a concise weekly progress email from me (Dr. Amritha Sathyanarayanan) to my PI. Write in first person.\n\nJournal notes: ${recentJournal.map(e => e.body.replace(/<[^>]*>/g, ' ').slice(0, 100)).join(' | ') || 'none'}\nCompleted: ${doneTasks.map(t => t.text).join('; ') || 'none'}\nIn progress: ${openTasks.map(t => t.text).join('; ') || 'none'}\nPipeline runs: ${runs.map((r: any) => `${r.title} (${r.status})`).join(', ') || 'none'}\n\nKeep it structured and under 350 words. Use plain text, not markdown.`;
-      await send();
+      const runs = (store.pipelineRuns ?? []).slice(0, 4);
+      await promptSend(`Draft my weekly progress email to my PI (write in first person as Dr. Amritha Sathyanarayanan).\n\nJournal: ${recentJournal.map(e => e.body.replace(/<[^>]*>/g, ' ').slice(0, 100)).join(' | ') || 'none'}\nCompleted: ${doneTasks.map(t => t.text).join('; ') || 'none'}\nIn progress: ${openTasks.map(t => t.text).join('; ') || 'none'}\nPipeline: ${runs.map((r: any) => `${r.title} (${r.status})`).join(', ') || 'none'}\n\nStructured, professional, under 350 words, plain text.`);
       return;
     }
 
+    if (cmd.cmd === 'status') {
+      const usage = getAllTokenUsage();
+      const openTasks = store.tasks.filter(t => !t.done).length;
+      const doneTasks = store.tasks.filter(t => t.done).length;
+      const folders = [...new Set(store.files.map(f => f.folder || 'Unfiled'))];
+      const pct = (n: number, max: number) => Math.round((n / max) * 100);
+      addEnzoMessage(
+        `## Q·onco Status\n\n` +
+        `**Content**\n· Notes: ${store.notes.length} · Tasks: ${openTasks} open, ${doneTasks} done\n· Files: ${store.files.length} across ${folders.length} folder${folders.length !== 1 ? 's' : ''}\n· Journal: ${store.journal.length} entries · Chat sessions: ${store.chatSessions.length}\n\n` +
+        `**Today's token usage**\n· Enzo: ${usage.enzo.toLocaleString()} / ${DAILY_TOKEN_REF.enzo.toLocaleString()} (${pct(usage.enzo, DAILY_TOKEN_REF.enzo)}%)\n· Research: ${usage.research.toLocaleString()} / ${DAILY_TOKEN_REF.research.toLocaleString()} (${pct(usage.research, DAILY_TOKEN_REF.research)}%)`
+      );
+      return;
+    }
+
+    // ── FILES & MAIL ───────────────────────────────────────────
     if (cmd.cmd === 'files') {
       const folders = [...new Set(store.files.map(f => f.folder || 'Unfiled'))];
+      if (!folders.length) { addEnzoMessage('No files stored yet. Upload files in the Files section.'); return; }
       const parts = folders.map(folder => {
         const items = store.files.filter(f => (f.folder || 'Unfiled') === folder);
         return `**${folder}** (${items.length})\n${items.map(f => `  · ${f.name}${f.description ? ' — ' + f.description.slice(0, 60) : ''}`).join('\n')}`;
       });
-      addEnzoMessage(parts.length > 0 ? `## Your files\n\n${parts.join('\n\n')}` : 'No files stored yet. Upload files in the Files section.');
+      addEnzoMessage(`## Your files\n\n${parts.join('\n\n')}`);
       return;
     }
 
     if (cmd.cmd === 'find') {
-      if (!args) { inputText = '/find '; showPicker = false; inputEl?.focus(); return; }
+      if (!args) { fillInput('/find '); return; }
       const q = args.toLowerCase();
       const matches = store.files.filter(f =>
         f.name.toLowerCase().includes(q) ||
         f.description.toLowerCase().includes(q) ||
-        f.tags.some((t: string) => t.toLowerCase().includes(q)) ||
-        (f.folder || '').toLowerCase().includes(q)
+        (f.tags ?? []).some((t: string) => t.toLowerCase().includes(q)) ||
+        (f.folder ?? '').toLowerCase().includes(q)
       );
-      if (matches.length === 0) {
-        addEnzoMessage(`No files found matching **"${args}"**.`);
-      } else {
-        addEnzoMessage(`Found ${matches.length} file${matches.length > 1 ? 's' : ''} matching **"${args}"**:\n\n${matches.map(f => `· **${f.name}**${f.folder ? ` [${f.folder}]` : ''}${f.description ? ' — ' + f.description.slice(0, 80) : ''}`).join('\n')}`);
-      }
+      addEnzoMessage(
+        matches.length === 0
+          ? `No files found matching **"${args}"**.`
+          : `Found **${matches.length}** file${matches.length > 1 ? 's' : ''} matching **"${args}"**:\n\n${matches.map(f => `· **${f.name}**${f.folder ? ` [${f.folder}]` : ''}${f.description ? ' — ' + f.description.slice(0, 80) : ''}`).join('\n')}`
+      );
       return;
     }
 
     if (cmd.cmd === 'send') {
       store.mailComposeOpen = true;
       store.enzoOpen = false;
-      if (args) addEnzoMessage(`Opening compose for: **${args}**. I've opened the mail composer — fill in the details and I can draft the body if you need.`);
       return;
     }
 
+    // ── NAVIGATION ─────────────────────────────────────────────
+    if (cmd.cmd === 'go') {
+      if (!args) { fillInput('/go '); return; }
+      const SECTION_MAP: Record<string, string> = {
+        notes: 'notes', note: 'notes', editor: 'notes',
+        research: 'research', lit: 'research', papers: 'research', literature: 'research',
+        pipeline: 'pipeline', pipe: 'pipeline', hypotheses: 'pipeline',
+        files: 'files', file: 'files',
+        tasks: 'tasks', task: 'tasks',
+        journal: 'journal',
+        grants: 'grants', grant: 'grants',
+        manuscript: 'manuscript', ms: 'manuscript', writing: 'manuscript',
+        jobs: 'jobs', job: 'jobs',
+        audio: 'audio',
+        calendar: 'calendar', cal: 'calendar',
+        dashboard: 'dashboard', home: 'dashboard',
+        presentations: 'presentations', slides: 'presentations', pres: 'presentations',
+        settings: 'settings', setting: 'settings',
+        mail: 'mail',
+      };
+      const section = SECTION_MAP[args.toLowerCase().trim()];
+      if (!section) {
+        addEnzoMessage(`Unknown section **"${args}"**. Options: notes, research, pipeline, files, tasks, journal, grants, manuscript, jobs, calendar, dashboard, presentations, mail, settings`);
+        return;
+      }
+      store.view = section as typeof store.view;
+      store.enzoOpen = false;
+      return;
+    }
+
+    if (cmd.cmd === 'summarize') {
+      if (!store.currentNote) {
+        addEnzoMessage('No note is currently open. Navigate to Notes and open one first.');
+        return;
+      }
+      await promptSend(`Summarize this note in 3–5 bullet points, preserving every key finding or decision:\n\n**${store.currentNote.title}**\n\n${store.currentNote.body.replace(/<[^>]*>/g, ' ').slice(0, 3000)}`);
+      return;
+    }
+
+    // ── UTILITY ────────────────────────────────────────────────
     if (cmd.cmd === 'help') {
       const grouped: Record<string, EnzoCommand[]> = {};
       for (const c of COMMANDS) {
@@ -279,7 +582,7 @@
       const sections = Object.entries(grouped).map(([g, cmds]) =>
         `**${g.charAt(0).toUpperCase() + g.slice(1)}**\n${cmds.map(c => `\`${c.usage}\` — ${c.desc}`).join('\n')}`
       );
-      addEnzoMessage(`## Enzo Commands\n\n${sections.join('\n\n')}`);
+      addEnzoMessage(`## Enzo Commands (${COMMANDS.length} total)\n\n${sections.join('\n\n')}`);
       return;
     }
 
