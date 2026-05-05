@@ -499,6 +499,10 @@
 
 <div class="shell">
   <header class="top-bar">
+    {#if dnaFactVisible}
+      <div class="dna-fact-bubble" role="status">{dnaFactText}</div>
+    {/if}
+
     <div class="top-left">
       <button
         class="btn-icon sidebar-toggle"
@@ -511,11 +515,8 @@
       </button>
       <span class="app-name">Q·onco</span>
 
-      <!-- DNA character: 10 expressions + biotech facts -->
+      <!-- DNA character: 10 expressions, no face oval — strands show through -->
       <div class="enzo-activity" class:enzo-active={dnaActive} data-expr={dnaExpr} aria-hidden="true">
-        {#if dnaFactVisible}
-          <div class="dna-fact-bubble">{dnaFactText}</div>
-        {/if}
         <svg class="dna-char" width="80" height="24" viewBox="0 0 80 24" aria-hidden="true">
           <!-- Scrolling helix (period=40, x=0..120, translateX(-40) loops seamlessly) -->
           <g class="dc-scroll">
@@ -542,33 +543,30 @@
             <line class="dc-rung dc-rung-q" x1="105" y1="8" x2="105" y2="16"/>
             <line class="dc-rung dc-rung-q" x1="115" y1="8" x2="115" y2="16"/>
           </g>
-          <!-- Face bubble (stationary, covers helix in centre) -->
-          <ellipse class="dc-face-bg"   cx="40" cy="12" rx="20" ry="11"/>
-          <ellipse class="dc-face-ring" cx="40" cy="12" rx="20" ry="11"/>
 
-          <!-- ── Expressions ─────────────────────────────────────── -->
+          <!-- ── Expressions float directly on the helix ─────────── -->
 
           <!-- idle: heavy droopy arcs + tiny pupils -->
           <g class="dc-expr dc-expr-idle">
             <path d="M27,9 Q31,14 35,9"   stroke="var(--tx)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
             <path d="M45,9 Q49,14 53,9"   stroke="var(--tx)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-            <circle cx="31" cy="12" r="1.3" fill="var(--tx)" opacity="0.6"/>
-            <circle cx="49" cy="12" r="1.3" fill="var(--tx)" opacity="0.6"/>
+            <circle cx="31" cy="12" r="1.3" fill="var(--tx)" opacity="0.7"/>
+            <circle cx="49" cy="12" r="1.3" fill="var(--tx)" opacity="0.7"/>
           </g>
 
           <!-- sleepy: flat closed lines -->
           <g class="dc-expr dc-expr-sleepy">
-            <line x1="28" y1="12" x2="34" y2="12" stroke="var(--tx)" stroke-width="2"   stroke-linecap="round"/>
-            <line x1="46" y1="12" x2="52" y2="12" stroke="var(--tx)" stroke-width="2"   stroke-linecap="round"/>
+            <line x1="28" y1="12" x2="34" y2="12" stroke="var(--tx)" stroke-width="2.2" stroke-linecap="round"/>
+            <line x1="46" y1="12" x2="52" y2="12" stroke="var(--tx)" stroke-width="2.2" stroke-linecap="round"/>
           </g>
 
-          <!-- bored: open circles, pupils looking sideways, flat mouth -->
+          <!-- bored: open circles (transparent face), pupils looking sideways, flat mouth -->
           <g class="dc-expr dc-expr-bored">
-            <circle cx="31" cy="11" r="4"   fill="white" stroke="var(--tx)" stroke-width="1.3"/>
-            <circle cx="49" cy="11" r="4"   fill="white" stroke="var(--tx)" stroke-width="1.3"/>
+            <circle cx="31" cy="11" r="4"   fill="transparent" stroke="var(--tx)" stroke-width="1.5"/>
+            <circle cx="49" cy="11" r="4"   fill="transparent" stroke="var(--tx)" stroke-width="1.5"/>
             <circle cx="34" cy="11" r="1.8" fill="var(--tx)"/>
             <circle cx="52" cy="11" r="1.8" fill="var(--tx)"/>
-            <line x1="36" y1="17" x2="44" y2="17" stroke="var(--tx)" stroke-width="1.3" stroke-linecap="round"/>
+            <line x1="36" y1="17" x2="44" y2="17" stroke="var(--tx)" stroke-width="1.4" stroke-linecap="round"/>
           </g>
 
           <!-- yawn: flat eyes + open oval mouth -->
@@ -578,22 +576,20 @@
             <ellipse cx="40" cy="17.5" rx="3.5" ry="3" fill="var(--tx)"/>
           </g>
 
-          <!-- focused: sharp eyes, furrowed brows angled inward -->
+          <!-- focused: transparent eye circles, furrowed brows angled inward -->
           <g class="dc-expr dc-expr-focused">
-            <ellipse cx="31" cy="11" rx="4.5" ry="4" fill="white" stroke="var(--tx)" stroke-width="1.5"/>
-            <ellipse cx="49" cy="11" rx="4.5" ry="4" fill="white" stroke="var(--tx)" stroke-width="1.5"/>
+            <ellipse cx="31" cy="11" rx="4.5" ry="4" fill="transparent" stroke="var(--tx)" stroke-width="1.8"/>
+            <ellipse cx="49" cy="11" rx="4.5" ry="4" fill="transparent" stroke="var(--tx)" stroke-width="1.8"/>
             <circle cx="31" cy="11" r="2.3" fill="var(--tx)"/>
             <circle cx="49" cy="11" r="2.3" fill="var(--tx)"/>
-            <circle cx="30" cy="9.8" r="1"   fill="white"/>
-            <circle cx="48" cy="9.8" r="1"   fill="white"/>
-            <path d="M27,7 L35,8.5"   stroke="var(--tx)" stroke-width="2"   stroke-linecap="round"/>
-            <path d="M45,8.5 L53,7"   stroke="var(--tx)" stroke-width="2"   stroke-linecap="round"/>
+            <path d="M27,7 L35,8.5"   stroke="var(--tx)" stroke-width="2.2" stroke-linecap="round"/>
+            <path d="M45,8.5 L53,7"   stroke="var(--tx)" stroke-width="2.2" stroke-linecap="round"/>
           </g>
 
-          <!-- thinking: pupils up-left, arched brows -->
+          <!-- thinking: transparent eye circles, pupils up-left, arched brows -->
           <g class="dc-expr dc-expr-thinking">
-            <ellipse cx="31" cy="11" rx="4" ry="3.5" fill="white" stroke="var(--tx)" stroke-width="1.3"/>
-            <ellipse cx="49" cy="11" rx="4" ry="3.5" fill="white" stroke="var(--tx)" stroke-width="1.3"/>
+            <ellipse cx="31" cy="11" rx="4" ry="3.5" fill="transparent" stroke="var(--tx)" stroke-width="1.5"/>
+            <ellipse cx="49" cy="11" rx="4" ry="3.5" fill="transparent" stroke="var(--tx)" stroke-width="1.5"/>
             <circle cx="29" cy="9.5" r="1.8" fill="var(--tx)"/>
             <circle cx="47" cy="9.5" r="1.8" fill="var(--tx)"/>
             <path d="M27,7 Q31,5 35,7"   stroke="var(--tx)" stroke-width="1.8" fill="none" stroke-linecap="round"/>
@@ -602,14 +598,14 @@
 
           <!-- excited: 8-point sparkle eyes in accent colour -->
           <g class="dc-expr dc-expr-excited">
-            <line x1="31" y1="7.5"  x2="31" y2="14.5"  stroke="var(--ac)" stroke-width="1.8" stroke-linecap="round"/>
-            <line x1="27.5" y1="11" x2="34.5" y2="11"  stroke="var(--ac)" stroke-width="1.8" stroke-linecap="round"/>
-            <line x1="28.5" y1="8.5" x2="33.5" y2="13.5" stroke="var(--ac)" stroke-width="1.2" stroke-linecap="round"/>
-            <line x1="28.5" y1="13.5" x2="33.5" y2="8.5" stroke="var(--ac)" stroke-width="1.2" stroke-linecap="round"/>
-            <line x1="49" y1="7.5"  x2="49" y2="14.5"  stroke="var(--ac)" stroke-width="1.8" stroke-linecap="round"/>
-            <line x1="45.5" y1="11" x2="52.5" y2="11"  stroke="var(--ac)" stroke-width="1.8" stroke-linecap="round"/>
-            <line x1="46.5" y1="8.5" x2="51.5" y2="13.5" stroke="var(--ac)" stroke-width="1.2" stroke-linecap="round"/>
-            <line x1="46.5" y1="13.5" x2="51.5" y2="8.5" stroke="var(--ac)" stroke-width="1.2" stroke-linecap="round"/>
+            <line x1="31" y1="7.5"  x2="31" y2="14.5"  stroke="var(--ac)" stroke-width="2"   stroke-linecap="round"/>
+            <line x1="27.5" y1="11" x2="34.5" y2="11"  stroke="var(--ac)" stroke-width="2"   stroke-linecap="round"/>
+            <line x1="28.5" y1="8.5" x2="33.5" y2="13.5" stroke="var(--ac)" stroke-width="1.3" stroke-linecap="round"/>
+            <line x1="28.5" y1="13.5" x2="33.5" y2="8.5" stroke="var(--ac)" stroke-width="1.3" stroke-linecap="round"/>
+            <line x1="49" y1="7.5"  x2="49" y2="14.5"  stroke="var(--ac)" stroke-width="2"   stroke-linecap="round"/>
+            <line x1="45.5" y1="11" x2="52.5" y2="11"  stroke="var(--ac)" stroke-width="2"   stroke-linecap="round"/>
+            <line x1="46.5" y1="8.5" x2="51.5" y2="13.5" stroke="var(--ac)" stroke-width="1.3" stroke-linecap="round"/>
+            <line x1="46.5" y1="13.5" x2="51.5" y2="8.5" stroke="var(--ac)" stroke-width="1.3" stroke-linecap="round"/>
           </g>
 
           <!-- happy: upward curved squint eyes + smile -->
@@ -619,24 +615,21 @@
             <path d="M34,17.5 Q40,21 46,17.5" stroke="var(--tx)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
           </g>
 
-          <!-- surprised: big eyes, raised brows, O mouth -->
+          <!-- surprised: transparent big eyes, raised brows, O mouth -->
           <g class="dc-expr dc-expr-surprised">
-            <circle cx="31" cy="11" r="4.5" fill="white" stroke="var(--tx)" stroke-width="1.5"/>
-            <circle cx="49" cy="11" r="4.5" fill="white" stroke="var(--tx)" stroke-width="1.5"/>
+            <circle cx="31" cy="11" r="4.5" fill="transparent" stroke="var(--tx)" stroke-width="1.8"/>
+            <circle cx="49" cy="11" r="4.5" fill="transparent" stroke="var(--tx)" stroke-width="1.8"/>
             <circle cx="31" cy="11" r="2.3" fill="var(--tx)"/>
             <circle cx="49" cy="11" r="2.3" fill="var(--tx)"/>
-            <circle cx="29.7" cy="9.7" r="1" fill="white"/>
-            <circle cx="47.7" cy="9.7" r="1" fill="white"/>
             <path d="M27,5.5 Q31,3 35,5.5"   stroke="var(--tx)" stroke-width="1.8" fill="none" stroke-linecap="round"/>
             <path d="M45,5.5 Q49,3 53,5.5"   stroke="var(--tx)" stroke-width="1.8" fill="none" stroke-linecap="round"/>
-            <ellipse cx="40" cy="18.5" rx="2.5" ry="2" fill="none" stroke="var(--tx)" stroke-width="1.3"/>
+            <ellipse cx="40" cy="18.5" rx="2.5" ry="2" fill="none" stroke="var(--tx)" stroke-width="1.5"/>
           </g>
 
-          <!-- wink: left eye open, right eye closed + smile -->
+          <!-- wink: left transparent circle, right closed arc + smile -->
           <g class="dc-expr dc-expr-wink">
-            <ellipse cx="31" cy="11" rx="4.5" ry="4"  fill="white" stroke="var(--tx)" stroke-width="1.5"/>
+            <ellipse cx="31" cy="11" rx="4.5" ry="4"  fill="transparent" stroke="var(--tx)" stroke-width="1.8"/>
             <circle cx="31" cy="11" r="2.2"            fill="var(--tx)"/>
-            <circle cx="30" cy="9.8" r="1"             fill="white"/>
             <path d="M45,11 Q49,14 53,11"              stroke="var(--tx)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
             <path d="M36,17 Q40,20 44,17"              stroke="var(--tx)" stroke-width="1.3" fill="none" stroke-linecap="round"/>
           </g>
@@ -877,6 +870,7 @@
 
   /* ── Top bar ── */
   .top-bar {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -887,7 +881,7 @@
     flex-shrink: 0;
     gap: 12px;
     z-index: 100;
-    overflow: visible;
+    overflow: hidden;
   }
 
   .top-left {
@@ -906,7 +900,6 @@
 
   /* ── DNA character widget ──────────────────────────────────── */
   .enzo-activity {
-    position: relative;
     display: flex;
     align-items: center;
     flex-shrink: 0;
@@ -933,10 +926,6 @@
     to   { transform: translateX(-40px); }
   }
 
-  /* Face bubble */
-  .dc-face-bg   { fill: var(--sf); }
-  .dc-face-ring { fill: none; stroke: var(--bd2); stroke-width: 1.5; }
-
   /* Expressions: hidden by default, shown via data-expr attribute */
   .dc-expr { opacity: 0; transition: opacity 0.3s ease; pointer-events: none; }
   .enzo-activity[data-expr="idle"]      .dc-expr-idle      { opacity: 1; }
@@ -950,35 +939,30 @@
   .enzo-activity[data-expr="surprised"] .dc-expr-surprised { opacity: 1; }
   .enzo-activity[data-expr="wink"]      .dc-expr-wink      { opacity: 1; }
 
-  /* Fact bubble */
+  /* Fact bubble — centered inside .top-bar */
   .dna-fact-bubble {
     position: absolute;
-    bottom: calc(100% + 8px);
-    left: 0;
-    background: var(--sf);
-    border: 1.5px solid var(--bd2);
-    border-radius: 8px;
-    padding: 6px 10px;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--sf2);
+    border: 1px solid var(--bd2);
+    border-radius: 20px;
+    padding: 4px 14px;
     font-size: 0.67rem;
-    line-height: 1.4;
-    color: var(--tx);
-    max-width: 220px;
+    line-height: 1.3;
+    color: var(--tx2);
+    max-width: min(360px, 38vw);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     pointer-events: none;
-    z-index: 200;
-    box-shadow: 0 3px 12px rgba(0,0,0,0.18);
-    animation: fact-pop 0.2s ease;
-  }
-  .dna-fact-bubble::after {
-    content: '';
-    position: absolute;
-    top: 100%;
-    left: 16px;
-    border: 5px solid transparent;
-    border-top-color: var(--bd2);
+    z-index: 5;
+    animation: fact-pop 0.25s ease;
   }
   @keyframes fact-pop {
-    from { opacity: 0; transform: translateY(4px); }
-    to   { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; transform: translate(-50%, -50%) scale(0.94); }
+    to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   }
 
   .top-right {
