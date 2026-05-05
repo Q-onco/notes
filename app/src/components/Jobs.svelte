@@ -1,6 +1,6 @@
 <script lang="ts">
   import { store } from '../lib/store.svelte';
-  import { generateCoverLetter, improveExpBullets } from '../lib/groq';
+  import { generateCoverLetter, improveExpBullets, generateInterviewQuestions } from '../lib/groq';
   import { exportCvHtml, exportCvPdf, exportCoverLetterDocx, exportCoverLetterPdf } from '../lib/export';
   import { nanoid } from 'nanoid';
   import RichEditor from './RichEditor.svelte';
@@ -112,6 +112,37 @@
   // ── Tracker state ─────────────────────────────────────────────────────────────
   let trackerFilter = $state<JobStatus | 'all'>('all');
   let expandedJobId = $state<string | null>(null);
+
+  // ── Interview prep state ──────────────────────────────────────
+  let prepJobId = $state<string | null>(null);
+  let prepText = $state('');
+  let prepStreaming = $state(false);
+  let prepAbort: AbortController | null = null;
+
+  async function runInterviewPrep(job: SavedJob) {
+    if (prepJobId === job.id && prepStreaming) { prepAbort?.abort(); prepStreaming = false; return; }
+    prepAbort?.abort();
+    prepAbort = new AbortController();
+    prepJobId = job.id;
+    prepText = '';
+    prepStreaming = true;
+    const cvSummary = [
+      store.researcherProfile.currentRole,
+      store.researcherProfile.institution,
+      'Specializations: ' + store.researcherProfile.specializations.join(', '),
+      store.researcherProfile.cvHighlights.slice(0, 5).join('; '),
+    ].filter(Boolean).join('\n');
+    try {
+      await generateInterviewQuestions(
+        job.listing.title, job.listing.company,
+        job.listing.description,
+        cvSummary,
+        (chunk) => { prepText += chunk; },
+        prepAbort.signal
+      );
+    } catch { /* aborted */ }
+    prepStreaming = false;
+  }
   let editingNotesId = $state<string | null>(null);
   let editingNotesDraft = $state('');
   let addingInterviewId = $state<string | null>(null);
@@ -810,6 +841,36 @@
                         <span class="text-xs text-mu">Enable "Cover letter generator" in Settings → AI features to generate letters.</span>
                       </div>
                       {/if}
+
+                      <!-- Interview prep (Enzo) -->
+                      <div class="expand-section">
+                        <div class="expand-head">
+                          <span class="field-label">Interview prep</span>
+                          <button
+                            class="btn btn-ghost btn-xs prep-btn"
+                            class:prep-active={prepJobId === job.id}
+                            onclick={() => runInterviewPrep(job)}
+                          >
+                            {#if prepStreaming && prepJobId === job.id}
+                              <span class="spinner-xs-inline"></span> Thinking…
+                            {:else}
+                              <span class="enzo-dot-tiny"></span>
+                              Ask Enzo
+                            {/if}
+                          </button>
+                        </div>
+                        {#if prepJobId === job.id && (prepText || prepStreaming)}
+                          <div class="prep-panel">
+                            <div class="prep-body text-xs" style="white-space:pre-wrap;line-height:1.65">{prepText || '…'}</div>
+                            {#if !prepStreaming}
+                              <div class="prep-footer">
+                                <button class="btn-link text-xs" onclick={() => { navigator.clipboard.writeText(prepText); showToast('Copied'); }}>Copy</button>
+                                <button class="btn-link text-xs" onclick={() => { prepJobId = null; prepText = ''; }}>Close</button>
+                              </div>
+                            {/if}
+                          </div>
+                        {/if}
+                      </div>
                     {/if}
                     <a class="btn btn-ghost btn-sm" href={job.listing.url} target="_blank" rel="noreferrer">View original posting →</a>
                   </div>
@@ -1630,6 +1691,20 @@
   .iv-notes, .iv-outcome { margin: 0; font-size: 0.82rem; }
   .iv-outcome { color: var(--gn); }
   .job-notes-text { padding: 6px 8px; background: var(--sf2); border-radius: var(--radius-sm); }
+
+  .prep-btn { color: var(--enzo, #a855f7); }
+  .prep-btn:hover, .prep-active { background: var(--enzo-bg, rgba(168,85,247,0.12)); }
+  .enzo-dot-tiny { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--enzo, #a855f7); margin-right: 3px; vertical-align: middle; }
+  .prep-panel {
+    margin-top: 8px;
+    background: var(--enzo-bg, rgba(168,85,247,0.06));
+    border: 1px solid rgba(168,85,247,0.2);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+  }
+  .prep-body { color: var(--tx); }
+  .prep-footer { display: flex; gap: 12px; justify-content: flex-end; margin-top: 8px; border-top: 1px solid var(--bd); padding-top: 6px; }
+  .spinner-xs-inline { display: inline-block; width: 10px; height: 10px; border: 1.5px solid var(--bd2); border-top-color: var(--enzo, #a855f7); border-radius: 50%; animation: spin 0.7s linear infinite; }
 
   /* ── Companies ── */
   .companies-view { display: flex; flex-direction: column; gap: 24px; }
