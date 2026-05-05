@@ -11,6 +11,7 @@
     { id: 'start',    label: 'Getting Started', icon: 'M13 10V3L4 14h7v7l9-11h-7z' },
     { id: 'modules',  label: 'All Features',   icon: 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z' },
     { id: 'shortcuts', label: 'Shortcuts',     icon: 'M9 7H6a2 2 0 00-2 2v9a2 2 0 002 2h9a2 2 0 002-2v-3M16 5l3 3m-3-3L7 18' },
+    { id: 'commands', label: 'Enzo Commands',  icon: 'M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4' },
     { id: 'enzo',     label: 'Enzo Guide',     icon: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z' },
   ];
 
@@ -80,6 +81,104 @@
     { cat: 'Career', prompt: 'I\'m applying to a Roche R&D Scientist position. What questions should I prepare for?', color: 'yw' },
     { cat: 'Critique', prompt: 'Challenge my hypothesis that macrophage polarisation drives PARPi resistance', color: 'rd' },
     { cat: 'Summary', prompt: 'Summarise the key arguments in my pinned papers about TLS in ovarian cancer', color: 'enzo' },
+  ];
+
+  const CMD_GROUPS = [
+    {
+      id: 'capture', label: 'Capture', color: 'gn',
+      desc: 'Quickly log tasks, notes, ideas, and journal entries without leaving the chat.',
+      cmds: [
+        { cmd: '/task',  usage: '/task <description>',   desc: 'Add a task to your task list.',                         ex: '/task Draft methods section by Friday' },
+        { cmd: '/note',  usage: '/note <title>',          desc: 'Create a new note and open it.',                        ex: '/note PARP inhibitor resistance notes' },
+        { cmd: '/log',   usage: '/log <entry>',           desc: 'Add an entry to today\'s lab journal.',                 ex: '/log UMAP clusters look strange — revisit' },
+        { cmd: '/idea',  usage: '/idea <text>',           desc: 'Capture an idea with an Idea context tag.',             ex: '/idea Use cell2location for CAF mapping' },
+        { cmd: '/hyp',   usage: '/hyp <hypothesis>',      desc: 'Record a hypothesis and have Enzo evaluate it.',        ex: '/hyp Macrophage M2 drives PARPi resistance' },
+        { cmd: '/todo',  usage: '/todo',                  desc: 'Show all open tasks grouped by priority.',              ex: '/todo' },
+        { cmd: '/today', usage: '/today',                 desc: 'Today\'s tasks plus the current journal snapshot.',     ex: '/today' },
+      ],
+    },
+    {
+      id: 'research', label: 'Research', color: 'pu',
+      desc: 'Search literature, critique papers, and stress-test hypotheses.',
+      cmds: [
+        { cmd: '/read',      usage: '/read',                      desc: 'Paste an abstract for a 5-question Socratic deep read.',  ex: '/read (then paste abstract)' },
+        { cmd: '/critique',  usage: '/critique',                  desc: 'Peer-review style critique of an abstract.',              ex: '/critique (then paste abstract)' },
+        { cmd: '/reading',   usage: '/reading',                   desc: 'Generate a structured reading note (background, methods, findings, relevance).',  ex: '/reading' },
+        { cmd: '/devil',     usage: '/devil <hypothesis>',        desc: 'Enzo argues the strongest counter-case against your hypothesis.', ex: '/devil VEGF inhibition will synergise with PARPi' },
+        { cmd: '/paper',     usage: '/paper <query>',             desc: 'Search your pinned papers and reading list.',              ex: '/paper spatial transcriptomics ovarian TME' },
+        { cmd: '/pubmed',    usage: '/pubmed <query>',            desc: 'Direct PubMed literature search.',                        ex: '/pubmed HGSOC immune checkpoint 2024' },
+        { cmd: '/cite',      usage: '/cite <DOI or title>',       desc: 'Format a citation in APA or Vancouver style.',            ex: '/cite 10.1038/s41586-020-2048-1' },
+        { cmd: '/explain',   usage: '/explain <term>',            desc: 'Explain a scientific concept in depth.',                  ex: '/explain homologous recombination deficiency' },
+        { cmd: '/compare',   usage: '/compare <A> vs <B>',        desc: 'Compare two methods, drugs, or biological concepts.',     ex: '/compare Seurat vs Scanpy for scRNA-seq' },
+        { cmd: '/mechanism', usage: '/mechanism <pathway/drug>',  desc: 'Detailed mechanism of action deep-dive.',                 ex: '/mechanism olaparib in BRCA-mutated cells' },
+      ],
+    },
+    {
+      id: 'analysis', label: 'Bioinformatics', color: 'ac',
+      desc: 'Code help for R, Python, Seurat, Scanpy, Nextflow, and shell pipelines.',
+      cmds: [
+        { cmd: '/r',        usage: '/r <question>',        desc: 'R / Seurat / Bioconductor code and debugging.',       ex: '/r how do I run DoubletFinder in Seurat v5' },
+        { cmd: '/py',       usage: '/py <question>',       desc: 'Python / Scanpy / AnnData code and debugging.',       ex: '/py AnnData subset to CD8 T cells' },
+        { cmd: '/code',     usage: '/code <prompt>',       desc: 'Generate complete analysis scripts.',                 ex: '/code UMAP of 10x data with harmony batch correction' },
+        { cmd: '/seurat',   usage: '/seurat <question>',   desc: 'Seurat v4/v5 specific questions.',                    ex: '/seurat SCTransform vs NormalizeData differences' },
+        { cmd: '/scanpy',   usage: '/scanpy <question>',   desc: 'Scanpy / AnnData specific questions.',                ex: '/scanpy leiden clustering parameter tuning' },
+        { cmd: '/spatial',  usage: '/spatial <question>',  desc: 'Spatial transcriptomics — Visium, Slide-seq, MERFISH.', ex: '/spatial deconvolution with cell2location' },
+        { cmd: '/nextflow', usage: '/nextflow <question>', desc: 'Nextflow / Snakemake workflow help.',                 ex: '/nextflow nf-core/rnaseq on SLURM cluster' },
+        { cmd: '/stats',    usage: '/stats <question>',    desc: 'Statistical analysis and DESeq2 / edgeR questions.',  ex: '/stats pseudobulk DESeq2 multi-donor design' },
+        { cmd: '/bash',     usage: '/bash <question>',     desc: 'Shell scripting, SLURM, HPC job management.',         ex: '/bash submit 100 STAR jobs to SLURM array' },
+        { cmd: '/debug',    usage: '/debug <code/error>',  desc: 'Paste code or error messages for diagnosis.',         ex: '/debug Error in Seurat: subscript out of bounds' },
+      ],
+    },
+    {
+      id: 'writing', label: 'Writing', color: 'yw',
+      desc: 'Draft and refine scientific text, cover letters, emails, and presentations.',
+      cmds: [
+        { cmd: '/draft',     usage: '/draft <prompt>',            desc: 'Draft any scientific text passage.',              ex: '/draft limitations paragraph for scRNA-seq study' },
+        { cmd: '/abstract',  usage: '/abstract <title>',          desc: 'Draft a structured paper abstract.',              ex: '/abstract Spatial mapping of HGSOC immune infiltrates' },
+        { cmd: '/slides',    usage: '/slides <topic>',            desc: 'Create a slide outline for a talk.',              ex: '/slides group meeting on PARPi resistance' },
+        { cmd: '/cover',     usage: '/cover <role at company>',   desc: 'Draft a tailored cover letter.',                  ex: '/cover R&D Scientist at Roche' },
+        { cmd: '/bullets',   usage: '/bullets <role>',            desc: 'Sharpen CV bullet points for a specific role.',   ex: '/bullets postdoc bioinformatics immuno-oncology' },
+        { cmd: '/interview', usage: '/interview <role at company>', desc: 'Interview question bank + talking points.',     ex: '/interview group leader ovarian cancer Karolinska' },
+        { cmd: '/email',     usage: '/email <prompt>',            desc: 'Draft a professional email.',                     ex: '/email request collaboration with Prof Chen at DKFZ' },
+        { cmd: '/reply',     usage: '/reply <context>',           desc: 'Draft a reply to a received email.',              ex: '/reply (paste email then describe reply intent)' },
+        { cmd: '/translate', usage: '/translate <text>',          desc: 'Translate text to English.',                      ex: '/translate (paste German abstract)' },
+        { cmd: '/simplify',  usage: '/simplify <text>',           desc: 'Rewrite for a non-specialist audience.',          ex: '/simplify (paste your dense methods paragraph)' },
+      ],
+    },
+    {
+      id: 'manuscript', label: 'Manuscript', color: 'pu',
+      desc: 'Section-by-section AI writing assistance for your active manuscript.',
+      cmds: [
+        { cmd: '/intro',      usage: '/intro',               desc: 'Contextualise Introduction against your literature.', ex: '/intro' },
+        { cmd: '/methods',    usage: '/methods',             desc: 'Help with Methods — describe what you ran.',           ex: '/methods' },
+        { cmd: '/results',    usage: '/results',             desc: 'Turn bullet-point findings into Results prose.',       ex: '/results' },
+        { cmd: '/discussion', usage: '/discussion',          desc: 'Draft Discussion framing for your key findings.',      ex: '/discussion' },
+        { cmd: '/revise',     usage: '/revise <paragraph>',  desc: 'Tighten and improve any paragraph.',                   ex: '/revise (paste paragraph)' },
+        { cmd: '/title',      usage: '/title <one-liner>',   desc: 'Generate 5 title options for your paper.',             ex: '/title spatial immune atlas HGSOC TME' },
+      ],
+    },
+    {
+      id: 'reports', label: 'Reports', color: 'rd',
+      desc: 'Auto-generate weekly digests, PI reports, and usage stats.',
+      cmds: [
+        { cmd: '/digest', usage: '/digest', desc: 'Summarise this week\'s journal, tasks, and papers into a research digest.', ex: '/digest' },
+        { cmd: '/pi',     usage: '/pi',     desc: 'Draft a structured progress email for your PI.',                             ex: '/pi' },
+        { cmd: '/status', usage: '/status', desc: 'Show app data counts and AI token usage for today.',                         ex: '/status' },
+      ],
+    },
+    {
+      id: 'nav', label: 'Navigation', color: 'mu',
+      desc: 'Jump anywhere in the app or interact with the current view.',
+      cmds: [
+        { cmd: '/go',       usage: '/go <section>',  desc: 'Navigate to any section by name or alias.', ex: '/go pipeline — or — /go rsch — or — /go ms' },
+        { cmd: '/summarize', usage: '/summarize',    desc: 'Summarise the note currently open in the editor.', ex: '/summarize' },
+        { cmd: '/files',    usage: '/files',          desc: 'List stored files grouped by folder.',      ex: '/files' },
+        { cmd: '/find',     usage: '/find <query>',   desc: 'Search filenames and descriptions.',        ex: '/find ovarian scRNA 2024' },
+        { cmd: '/send',     usage: '/send <recipient>', desc: 'Open mail compose pre-filled to a recipient.', ex: '/send supervisor@uni.de' },
+        { cmd: '/help',     usage: '/help',           desc: 'Show the full command picker with all 54 commands.', ex: '/help' },
+        { cmd: '/clear',    usage: '/clear',          desc: 'Clear the current Enzo chat session.',      ex: '/clear' },
+      ],
+    },
   ];
 </script>
 
@@ -227,6 +326,45 @@
             </svg>
             <span>Most actions that happen in a modal can be confirmed with <kbd>Enter</kbd> and cancelled with <kbd>Esc</kbd>.</span>
           </div>
+        </div>
+
+      <!-- ENZO COMMANDS -->
+      {:else if active === 'commands'}
+        <div class="section-wrap">
+          <div class="section-head">
+            <h2>Enzo slash commands</h2>
+            <p class="section-sub">Type <code class="inline-code">/</code> in the Enzo chat input to open the picker. 54 commands across 7 groups.</p>
+          </div>
+
+          <div class="cmd-intro card-inset">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--ac);flex-shrink:0">
+              <path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+            </svg>
+            <span>Start typing <strong>/</strong> to open the live picker. Use ↑↓ to navigate, Enter to run, Esc to dismiss. Commands that need arguments fill the input as a template — just complete and send.</span>
+          </div>
+
+          {#each CMD_GROUPS as grp}
+            <div class="cmd-group-block">
+              <div class="cmd-group-header">
+                <span class="cmd-group-pill badge-{grp.color}">{grp.label}</span>
+                <span class="cmd-group-desc">{grp.desc}</span>
+              </div>
+              <div class="cmd-table">
+                {#each grp.cmds as c}
+                  <div class="cmd-row">
+                    <div class="cmd-row-left">
+                      <code class="cmd-code">{c.cmd}</code>
+                      <span class="cmd-usage-text">{c.usage}</span>
+                    </div>
+                    <div class="cmd-row-right">
+                      <span class="cmd-row-desc">{c.desc}</span>
+                      <span class="cmd-row-ex">e.g. <em>{c.ex}</em></span>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/each}
         </div>
 
       <!-- ENZO GUIDE -->
@@ -598,6 +736,55 @@
     color: var(--tx);
   }
 
+  /* ── Commands tab ── */
+  .inline-code {
+    font-family: var(--mono);
+    font-size: 0.85em;
+    background: var(--sf2);
+    border: 1px solid var(--bd);
+    border-radius: 3px;
+    padding: 1px 5px;
+    color: var(--ac);
+  }
+  .cmd-intro {
+    display: flex; gap: 10px; align-items: flex-start;
+    font-size: 0.82rem; color: var(--tx2); line-height: 1.6;
+  }
+  .cmd-group-block { display: flex; flex-direction: column; gap: 8px; }
+  .cmd-group-header {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .cmd-group-pill {
+    font-size: 0.65rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.08em; padding: 2px 9px; border-radius: 10px;
+    flex-shrink: 0;
+  }
+  .cmd-group-desc { font-size: 0.8rem; color: var(--mu); }
+
+  .cmd-table { display: flex; flex-direction: column; gap: 2px; }
+  .cmd-row {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 12px;
+    align-items: start;
+    padding: 8px 12px;
+    border-radius: 7px;
+    border: 1px solid var(--bd);
+    background: var(--sf);
+    transition: background var(--transition);
+  }
+  .cmd-row:hover { background: var(--sf2); }
+  .cmd-row-left { display: flex; flex-direction: column; gap: 2px; }
+  .cmd-code {
+    font-family: var(--mono); font-size: 0.82rem; font-weight: 700;
+    color: var(--ac);
+  }
+  .cmd-usage-text { font-family: var(--mono); font-size: 0.72rem; color: var(--mu); }
+  .cmd-row-right { display: flex; flex-direction: column; gap: 2px; }
+  .cmd-row-desc { font-size: 0.82rem; color: var(--tx2); line-height: 1.45; }
+  .cmd-row-ex   { font-size: 0.75rem; color: var(--mu);  line-height: 1.4; }
+  .cmd-row-ex em { font-style: normal; color: var(--tx2); }
+
   @media (max-width: 720px) {
     .modal { flex-direction: column; height: 95vh; }
     .side-nav { width: 100%; height: auto; flex-direction: row; flex-wrap: wrap; padding: 10px; border-right: none; border-bottom: 1px solid var(--bd); }
@@ -607,6 +794,7 @@
     .feature-grid { grid-template-columns: 1fr; }
     .shortcuts-groups { grid-template-columns: 1fr; }
     .enzo-modes { grid-template-columns: 1fr; }
+    .cmd-row { grid-template-columns: 1fr; }
     .section-wrap { padding: 20px; }
   }
 </style>
