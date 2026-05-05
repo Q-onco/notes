@@ -10,12 +10,11 @@ ALLOWED_ORIGIN = "https://q-onco.github.io"
 binding     = "QONCO_FILES"
 bucket_name = "qonco-files"
 
-# ── D1 database — uncomment after running: wrangler d1 create qonco-mail ─────
-# Then paste the database_id from the output below.
-# [[d1_databases]]
-# binding       = "QONCO_MAIL"
-# database_name = "qonco-mail"
-# database_id   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+# ── D1 database ───────────────────────────────────────────────────────────────
+[[d1_databases]]
+binding       = "QONCO_MAIL"
+database_name = "qonco-mail"
+database_id   = "6f226e32-33b8-4618-ab49-c95e859b31d7"
 
 # Secrets (set via: wrangler secret put <NAME>)
 #   GROQ_API_KEY
