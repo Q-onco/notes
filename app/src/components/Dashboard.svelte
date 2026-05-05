@@ -3,7 +3,7 @@
   import { nanoid } from 'nanoid';
   import type { Note } from '../lib/types';
   import { exportPapers } from '../lib/export';
-  import { generateWeeklyDigest } from '../lib/groq';
+  import { generateWeeklyDigest, generatePiReport } from '../lib/groq';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -162,6 +162,37 @@
   let digestOpen = $state(false);
   let digestAbort: AbortController | null = null;
 
+  // ── PI Report ─────────────────────────────────────────────────
+  let piText = $state('');
+  let piStreaming = $state(false);
+  let piOpen = $state(false);
+  let piAbort: AbortController | null = null;
+
+  async function runPiReport() {
+    if (piStreaming) { piAbort?.abort(); piStreaming = false; return; }
+    piAbort = new AbortController();
+    piOpen = true;
+    piText = '';
+    piStreaming = true;
+    const ws = Date.now() - 7 * 86400000;
+    const data = {
+      journalEntries: [...store.journal].filter(e => e.createdAt > ws).sort((a,b) => b.createdAt - a.createdAt).map(e => ({
+        date: new Date(e.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+        body: e.body.replace(/<[^>]*>/g, ' ').slice(0, 200),
+        mood: e.mood,
+      })),
+      tasksDone: store.tasks.filter(t => t.done).slice(0, 12).map(t => t.text),
+      tasksOpen: store.tasks.filter(t => !t.done).slice(0, 10).map(t => t.text),
+      pipelineRuns: store.pipelineRuns.filter(r => r.updatedAt > ws).map(r => ({ title: r.title, status: r.status, pipelineType: r.pipelineType })),
+      papersRead: store.readingList.filter(r => r.read && r.readAt && r.readAt > ws).map(r => ({ title: r.paper.title, journal: r.paper.journal })),
+      hypotheses: store.hypotheses.slice(0, 6).map(h => ({ text: h.text, status: h.status })),
+    };
+    try {
+      await generatePiReport(data, (chunk) => { piText += chunk; }, piAbort.signal);
+    } catch { /* aborted */ }
+    piStreaming = false;
+  }
+
   async function runDigest() {
     if (digestStreaming) { digestAbort?.abort(); digestStreaming = false; return; }
     digestAbort = new AbortController();
@@ -276,6 +307,29 @@
           <div class="digest-body text-sm">{digestText || '…'}</div>
         </div>
       {/if}
+    {/if}
+
+    <!-- PI Report -->
+    <div class="digest-row">
+      <button class="btn btn-ghost btn-sm pi-report-btn" onclick={runPiReport}>
+        {#if piStreaming}
+          <span class="spinner-xs-inline"></span> Stop
+        {:else}
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          PI progress email
+        {/if}
+      </button>
+      {#if piOpen}
+        <button class="btn-link" onclick={() => { piOpen = false; piText = ''; }}>Close ✕</button>
+        {#if piText && !piStreaming}
+          <button class="btn-link" onclick={() => { navigator.clipboard.writeText(piText); showToast('Email copied'); }}>Copy</button>
+        {/if}
+      {/if}
+    </div>
+    {#if piOpen && (piText || piStreaming)}
+      <div class="digest-panel card pi-report-panel">
+        <div class="digest-body text-sm" style="white-space:pre-wrap">{piText || '…'}</div>
+      </div>
     {/if}
 
     <!-- Analytics strip -->
@@ -596,6 +650,9 @@
   .digest-row { display: flex; align-items: center; gap: 10px; }
   .digest-panel { padding: 16px; white-space: pre-wrap; line-height: 1.7; }
   .digest-body { white-space: pre-wrap; }
+  .pi-report-btn { color: var(--enzo, #a855f7); border-color: rgba(168,85,247,0.25); }
+  .pi-report-btn:hover { background: var(--enzo-bg, rgba(168,85,247,0.1)); }
+  .pi-report-panel { background: var(--enzo-bg, rgba(168,85,247,0.05)); border-color: rgba(168,85,247,0.2); }
   .spinner-xs-inline { display: inline-block; width: 10px; height: 10px; border: 1.5px solid var(--bd2); border-top-color: var(--ac); border-radius: 50%; animation: spin 0.7s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .btn-link { background: transparent; border: none; color: var(--ac); cursor: pointer; font-size: 0.78rem; padding: 2px 6px; border-radius: var(--radius-sm); font-family: var(--font); }

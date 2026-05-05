@@ -3,6 +3,7 @@
   import { store } from '../lib/store.svelte';
   import { nanoid } from 'nanoid';
   import RichEditor from './RichEditor.svelte';
+  import { devilsAdvocate } from '../lib/groq';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -15,6 +16,26 @@
   let hypRationale = $state('');
   let hypStatus = $state<Hypothesis['status']>('active');
   let hypResult = $state('');
+
+  // ── Devil's Advocate state ────────────────────────────────────
+  let daHypId = $state<string | null>(null);
+  let daText = $state('');
+  let daStreaming = $state(false);
+  let daAbort: AbortController | null = null;
+
+  async function doDevilsAdvocate(hyp: Hypothesis) {
+    if (daHypId === hyp.id && daStreaming) { daAbort?.abort(); daStreaming = false; return; }
+    daAbort?.abort();
+    daAbort = new AbortController();
+    daHypId = hyp.id;
+    daText = '';
+    daStreaming = true;
+    const paperTitles = store.pinnedPapers.map(p => p.title);
+    try {
+      await devilsAdvocate(hyp.text, hyp.rationale, paperTitles, (chunk) => { daText += chunk; }, daAbort.signal);
+    } catch { /* aborted */ }
+    daStreaming = false;
+  }
 
   function startNewHyp() {
     editHypId = null; hypText = ''; hypRationale = ''; hypStatus = 'active'; hypResult = '';
@@ -658,6 +679,18 @@
                 <div class="hyp-card-head">
                   <span class="hyp-status-badge {HYP_STATUS_CLS[h.status]}">{HYP_STATUS_LABELS[h.status]}</span>
                   <div class="hyp-actions">
+                    <button
+                      class="btn-icon da-btn"
+                      class:da-active={daHypId === h.id}
+                      onclick={() => doDevilsAdvocate(h)}
+                      title="Devil's Advocate — Enzo argues against this"
+                    >
+                      {#if daStreaming && daHypId === h.id}
+                        <span class="spinner-xs"></span>
+                      {:else}
+                        <span style="font-size:0.6rem;font-weight:700;font-family:var(--mono)">DA</span>
+                      {/if}
+                    </button>
                     <button class="btn-icon" onclick={() => startEditHyp(h)} title="Edit">
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4z"/></svg>
                     </button>
@@ -672,6 +705,19 @@
                 {/if}
                 {#if h.result && h.status !== 'active'}
                   <p class="hyp-result text-xs">→ {h.result}</p>
+                {/if}
+                {#if daHypId === h.id && (daText || daStreaming)}
+                  <div class="da-panel">
+                    <div class="da-panel-head">
+                      <span class="da-label">Enzo · Devil's Advocate</span>
+                      {#if daStreaming}
+                        <span class="spinner-xs"></span>
+                      {:else}
+                        <button class="btn-link" onclick={() => { daHypId = null; daText = ''; }}>Close</button>
+                      {/if}
+                    </div>
+                    <div class="da-body text-xs" style="white-space:pre-wrap">{daText}</div>
+                  </div>
                 {/if}
                 <p class="hyp-date text-xs text-mu">{new Date(h.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
               </div>
@@ -1464,6 +1510,32 @@
   .hyp-card { display: flex; flex-direction: column; gap: 6px; }
   .hyp-card-head { display: flex; align-items: center; justify-content: space-between; }
   .hyp-actions { display: flex; gap: 2px; }
+
+  .spinner-xs {
+    width: 11px; height: 11px;
+    border: 1.5px solid var(--bd2);
+    border-top-color: var(--enzo, #a855f7);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: inline-block; flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .da-btn { color: var(--enzo, #a855f7); }
+  .da-btn:hover, .da-active { background: var(--enzo-bg, rgba(168,85,247,0.12)); }
+  .da-panel {
+    margin-top: 6px;
+    background: var(--enzo-bg, rgba(168,85,247,0.08));
+    border: 1px solid rgba(168,85,247,0.2);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+  }
+  .da-panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .da-label { font-size: 0.7rem; font-weight: 700; color: var(--enzo, #a855f7); text-transform: uppercase; letter-spacing: 0.05em; }
+  .da-body { line-height: 1.55; color: var(--tx); font-size: 0.78rem; }
   .hyp-text { font-size: 0.87rem; font-weight: 500; color: var(--tx); line-height: 1.5; }
   .hyp-rationale { line-height: 1.5; }
   .hyp-result { color: var(--gn); font-style: italic; }
