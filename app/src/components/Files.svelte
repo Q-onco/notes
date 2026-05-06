@@ -68,27 +68,14 @@
     if (fileInput) fileInput.value = '';
   }
 
-  // Max file size for base64-in-GitHub storage (~400 KB leaves headroom for
-  // the encrypted JSON payload to stay under GitHub's 1 MB Content API limit).
-  const MAX_B64_BYTES = 400 * 1024;
-
-  // Probe once per session whether the worker has a real /upload (R2) endpoint.
-  let r2Available: boolean | null = null;
-  async function checkR2(workerBase: string): Promise<boolean> {
-    if (r2Available !== null) return r2Available;
-    try {
-      const res = await fetch(`${workerBase}/upload`, { method: 'HEAD' });
-      r2Available = res.status !== 404 && res.status !== 405;
-    } catch {
-      r2Available = false;
-    }
-    return r2Available;
-  }
+  // Fallback cap for base64-in-GitHub (when R2 upload fails).
+  // GitHub Content API handles up to ~1 MB per commit; 600 KB leaves headroom
+  // for encryption overhead + existing records in the array.
+  const MAX_B64_BYTES = 600 * 1024;
 
   async function uploadFiles(files: File[]) {
     uploading = true;
     const workerBase = store.workerBase;
-    const hasR2 = await checkR2(workerBase);
     try {
       const records: FileRecord[] = [];
       for (const file of files) {
@@ -96,20 +83,27 @@
         let r2Key: string | undefined;
         let b64: string | undefined;
 
-        if (hasR2) {
+        // Try R2 upload first; fall back to base64 only if the endpoint is absent.
+        try {
           const fd = new FormData();
           fd.append('file', file, file.name);
           fd.append('prefix', 'files');
           const res = await fetch(`${workerBase}/upload`, { method: 'POST', body: fd });
-          if (!res.ok) throw new Error(`Upload failed (${res.status}). Please try again.`);
+          if (res.status === 404) throw new Error('no-r2');
+          if (!res.ok) throw new Error(`Upload failed (${res.status})`);
           const data = await res.json() as { key: string };
           r2Key = data.key;
-        } else {
-          if (file.size > MAX_B64_BYTES) {
-            showToast(`"${file.name}" is ${(file.size/1024).toFixed(0)} KB — files over 400 KB require cloud storage (not yet configured). Skipping.`, 'error');
-            continue;
+        } catch (err) {
+          if ((err as Error).message === 'no-r2') {
+            // Worker has no R2 bucket — fall back to base64 for small files.
+            if (file.size > MAX_B64_BYTES) {
+              showToast(`"${file.name}" is ${(file.size / 1024 / 1024).toFixed(1)} MB — cloud storage is not configured. Files over 600 KB cannot be stored.`, 'error');
+              continue;
+            }
+            b64 = await readAsBase64(file);
+          } else {
+            throw err;
           }
-          b64 = await readAsBase64(file);
         }
 
         records.push({
