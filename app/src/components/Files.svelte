@@ -68,24 +68,48 @@
     if (fileInput) fileInput.value = '';
   }
 
+  // Max file size for base64-in-GitHub storage (~400 KB leaves headroom for
+  // the encrypted JSON payload to stay under GitHub's 1 MB Content API limit).
+  const MAX_B64_BYTES = 400 * 1024;
+
+  // Probe once per session whether the worker has a real /upload (R2) endpoint.
+  let r2Available: boolean | null = null;
+  async function checkR2(workerBase: string): Promise<boolean> {
+    if (r2Available !== null) return r2Available;
+    try {
+      const res = await fetch(`${workerBase}/upload`, { method: 'HEAD' });
+      r2Available = res.status !== 404 && res.status !== 405;
+    } catch {
+      r2Available = false;
+    }
+    return r2Available;
+  }
+
   async function uploadFiles(files: File[]) {
     uploading = true;
     const workerBase = store.workerBase;
-    const useR2 = !!workerBase;
+    const hasR2 = await checkR2(workerBase);
     try {
       const records: FileRecord[] = [];
       for (const file of files) {
         const mime = file.type || guessMime(file.name);
         let r2Key: string | undefined;
+        let b64: string | undefined;
 
-        if (useR2) {
+        if (hasR2) {
           const fd = new FormData();
           fd.append('file', file, file.name);
           fd.append('prefix', 'files');
           const res = await fetch(`${workerBase}/upload`, { method: 'POST', body: fd });
-          if (!res.ok) throw new Error(`R2 upload failed: ${res.status}`);
+          if (!res.ok) throw new Error(`Upload failed (${res.status}). Please try again.`);
           const data = await res.json() as { key: string };
           r2Key = data.key;
+        } else {
+          if (file.size > MAX_B64_BYTES) {
+            showToast(`"${file.name}" is ${(file.size/1024).toFixed(0)} KB — files over 400 KB require cloud storage (not yet configured). Skipping.`, 'error');
+            continue;
+          }
+          b64 = await readAsBase64(file);
         }
 
         records.push({
@@ -94,7 +118,7 @@
           mimeType: mime,
           size: file.size,
           r2Key,
-          data: useR2 ? undefined : await readAsBase64(file),
+          data: b64,
           tags: [],
           folder: activeFolder || undefined,
           linkedNoteIds: [],
@@ -104,13 +128,13 @@
           updatedAt: Date.now(),
         });
       }
+      if (records.length === 0) return;
       store.files = [...records, ...store.files];
       await store.saveFiles();
       showToast(`${records.length} file${records.length > 1 ? 's' : ''} uploaded`);
-      // Select after save completes — won't trigger viewer reload mid-save
       selectedId = records[0].id;
     } catch (err) {
-      showToast('Upload failed: ' + (err as Error).message, 'error');
+      showToast((err as Error).message, 'error');
     } finally { uploading = false; }
   }
 
