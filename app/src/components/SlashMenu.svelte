@@ -390,6 +390,9 @@
     { id: 'to-pipeline',label: 'Add → Pipeline run',desc: 'Create pipeline run from note',        prompt: 'Extract pipeline run details from this note as JSON: {"title": "...", "pipelineType": "scrna-seq|spatial|bulk-rna|wes|custom", "sampleDescription": "...", "notes": "..."}. Return ONLY the JSON, nothing else.', isRoute: true, routeTarget: 'pipeline' },
   ];
 
+  let enzoQuery = $state('');
+  let enzoSelected = $state(0);
+
   let enzoFilteredOptions = $derived(
     enzoQuery
       ? ENZO_OPTIONS.filter(o =>
@@ -399,9 +402,6 @@
         )
       : ENZO_OPTIONS
   );
-
-  let enzoQuery = $state('');
-  let enzoSelected = $state(0);
 
   // ── Enzo execution ─────────────────────────────────────────
   async function runEnzoOption(opt: EnzoOption) {
