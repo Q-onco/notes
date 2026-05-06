@@ -949,4 +949,10 @@
   }
 
   .empty-state { padding: 40px; text-align: center; }
+
+  @media (max-width: 540px) {
+    .audio-view { padding: 16px; gap: 14px; }
+    .recorder-top { flex-wrap: wrap; }
+    .rec-player { height: 44px; }
+  }
 </style>

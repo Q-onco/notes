@@ -8,6 +8,7 @@ export interface Note {
   pinned: boolean;
   archived: boolean;
   audioIds: string[];
+  color?: 'ac' | 'gn' | 'rd' | 'yw' | 'pu' | 'enzo';
 }
 
 export interface JournalEntry {
@@ -20,6 +21,12 @@ export interface JournalEntry {
   audioIds: string[];
 }
 
+export interface SubTask {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
 export interface Task {
   id: string;
   text: string;
@@ -29,6 +36,8 @@ export interface Task {
   dueAt: number | null;
   priority: 'high' | 'medium' | 'low';
   repeat?: 'daily' | 'weekly' | 'monthly';
+  tags?: string[];
+  subtasks?: SubTask[];
 }
 
 export interface AudioRecord {
@@ -559,6 +568,7 @@ export interface AppSettings {
   groqModel?: string;
   ai?: AiFeatureSettings;
   weeklyReadingGoal?: number;
+  customTemplates?: { label: string; body: string }[];
 }
 
 // ── FileRecord extension ──────────────────────────────────────────────────────

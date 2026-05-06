@@ -1608,4 +1608,9 @@ Format your response as:
     .save-label-input { width: 120px; }
     .tab-btn { padding: 4px 8px; font-size: 0.72rem; }
   }
+  @media (max-width: 540px) {
+    .source-row { flex-wrap: wrap; gap: 4px; }
+    .search-row { flex-direction: column; }
+    .search-row input { width: 100%; }
+  }
 </style>

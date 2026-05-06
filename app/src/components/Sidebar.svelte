@@ -4,6 +4,33 @@
   import type { Note } from '../lib/types';
 
   let search = $state('');
+  let activeTagFilter = $state('');
+  let showArchived = $state(false);
+
+  // Hover preview
+  let hoveredNote = $state<Note | null>(null);
+  let hoverX = $state(0);
+  let hoverY = $state(0);
+  let hoverTimer: ReturnType<typeof setTimeout>;
+
+  function onNoteHover(e: MouseEvent, n: Note) {
+    clearTimeout(hoverTimer);
+    hoverTimer = setTimeout(() => {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      hoverX = rect.right + 10;
+      hoverY = Math.min(rect.top, window.innerHeight - 130);
+      hoveredNote = n;
+    }, 350);
+  }
+
+  function onNoteLeave() {
+    clearTimeout(hoverTimer);
+    hoveredNote = null;
+  }
+
+  function previewText(n: Note) {
+    return n.body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180);
+  }
 
   const NAV = [
     { id: 'dashboard', label: 'Dashboard',   icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
@@ -27,7 +54,6 @@
 
   function navClick(id: string) {
     store.view = id as ViewId;
-    // auto-select most recent note when navigating to notes with nothing selected
     if (id === 'notes' && !store.currentNoteId && store.recentNotes.length > 0) {
       store.currentNoteId = store.recentNotes[0].id;
     }
@@ -36,15 +62,9 @@
 
   function newNote() {
     const note: Note = {
-      id: nanoid(),
-      title: 'Untitled note',
-      body: '',
-      tags: [],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      pinned: false,
-      archived: false,
-      audioIds: []
+      id: nanoid(), title: 'Untitled note', body: '', tags: [],
+      createdAt: Date.now(), updatedAt: Date.now(),
+      pinned: false, archived: false, audioIds: []
     };
     store.notes = [note, ...store.notes];
     store.currentNoteId = note.id;
@@ -52,10 +72,16 @@
     store.saveNotes();
   }
 
+  // All tags from active (non-archived) notes
+  const allTags = $derived(
+    [...new Set(store.notes.filter(n => !n.archived).flatMap(n => n.tags))].sort()
+  );
+
   const filteredNotes = $derived(
     store.notes
       .filter(n => !n.archived)
       .filter(n => !search || n.title.toLowerCase().includes(search.toLowerCase()) || n.body.toLowerCase().includes(search.toLowerCase()))
+      .filter(n => !activeTagFilter || n.tags.includes(activeTagFilter))
       .sort((a, b) => {
         if (a.pinned && !b.pinned) return -1;
         if (!a.pinned && b.pinned) return 1;
@@ -63,6 +89,15 @@
       })
       .slice(0, 30)
   );
+
+  const archivedNotes = $derived(
+    store.notes.filter(n => n.archived).sort((a, b) => b.updatedAt - a.updatedAt)
+  );
+
+  async function restoreNote(n: Note) {
+    n.archived = false;
+    await store.saveNotes();
+  }
 
   function relTime(ts: number): string {
     const diff = Date.now() - ts;
@@ -116,21 +151,35 @@
       </button>
     </div>
 
+    <!-- Search -->
     <div class="search-wrap">
-      <input
-        type="search"
-        bind:value={search}
-        placeholder="Search notes..."
-        class="search-input"
-      />
+      <input type="search" bind:value={search} placeholder="Search notes…" class="search-input" />
     </div>
 
+    <!-- Tag filter chips -->
+    {#if allTags.length > 0}
+      <div class="tag-chips">
+        <button class="tag-chip" class:chip-active={!activeTagFilter} onclick={() => activeTagFilter = ''}>All</button>
+        {#each allTags.slice(0, 8) as tag}
+          <button class="tag-chip" class:chip-active={activeTagFilter === tag}
+            onclick={() => activeTagFilter = activeTagFilter === tag ? '' : tag}>
+            {tag}
+          </button>
+        {/each}
+      </div>
+    {/if}
+
+    <!-- Note list -->
     <div class="notes-list">
       {#each filteredNotes as note (note.id)}
         <button
           class="note-item"
           class:active={store.currentNoteId === note.id && store.view === 'notes'}
+          class:has-color={note.color}
+          style={note.color ? `border-left-color: var(--${note.color})` : ''}
           onclick={() => { store.currentNoteId = note.id; store.view = 'notes'; }}
+          onmouseenter={(e) => onNoteHover(e, note)}
+          onmouseleave={onNoteLeave}
         >
           <span class="note-title">
             {#if note.pinned}
@@ -141,146 +190,202 @@
           <span class="note-time">{relTime(note.updatedAt)}</span>
         </button>
       {:else}
-        <p class="empty-hint">No notes yet — press + to start</p>
+        <p class="empty-hint">{activeTagFilter ? `No notes tagged "${activeTagFilter}"` : 'No notes yet — press + to start'}</p>
       {/each}
     </div>
+
+    <!-- Archive section -->
+    {#if archivedNotes.length > 0}
+      <div class="archive-section">
+        <button class="archive-toggle" onclick={() => showArchived = !showArchived}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/>
+          </svg>
+          <span>Archived ({archivedNotes.length})</span>
+          <svg class="chevron" class:open={showArchived} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        {#if showArchived}
+          <div class="archived-list">
+            {#each archivedNotes as note (note.id)}
+              <div class="archived-item">
+                <button class="archived-btn" onclick={() => { store.currentNoteId = note.id; store.view = 'notes'; }}>
+                  <span class="note-title">{note.title || 'Untitled'}</span>
+                  <span class="note-time">{relTime(note.updatedAt)}</span>
+                </button>
+                <button class="restore-btn" onclick={() => restoreNote(note)} title="Restore note">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 12a9 9 0 109-9 9 9 0 00-6 2.3L3 8"/><path d="M3 3v5h5"/>
+                  </svg>
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
   </div>
 </nav>
 
+<!-- Hover preview popover -->
+{#if hoveredNote}
+  <div class="note-preview" style="left: {hoverX}px; top: {hoverY}px">
+    <p class="preview-title">{hoveredNote.title || 'Untitled'}</p>
+    {#if previewText(hoveredNote)}
+      <p class="preview-body">{previewText(hoveredNote)}{hoveredNote.body.length > 180 ? '…' : ''}</p>
+    {:else}
+      <p class="preview-body preview-empty">Empty note</p>
+    {/if}
+    {#if hoveredNote.tags.length > 0}
+      <div class="preview-tags">
+        {#each hoveredNote.tags.slice(0, 4) as tag}
+          <span class="preview-tag">{tag}</span>
+        {/each}
+      </div>
+    {/if}
+  </div>
+{/if}
+
 <style>
   .sidebar {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    padding: 10px 0;
+    display: flex; flex-direction: column; height: 100%; padding: 10px 0;
   }
 
   .nav-section { padding: 0 8px; }
 
   .nav-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 7px 10px;
-    border-radius: var(--radius-sm);
-    background: transparent;
-    color: var(--tx2);
-    font-size: 0.875rem;
-    font-weight: 500;
-    text-align: left;
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 7px 10px; border-radius: var(--radius-sm);
+    background: transparent; color: var(--tx2); font-size: 0.875rem;
+    font-weight: 500; text-align: left;
     transition: background var(--transition), color var(--transition);
     position: relative;
   }
-
   .nav-item:hover { background: var(--sf2); color: var(--tx); }
   .nav-item.active { background: var(--ac-bg); color: var(--ac); }
   .nav-item.active svg { stroke: var(--ac); }
 
   .badge {
-    margin-left: auto;
-    background: var(--ac);
-    color: white;
-    font-size: 0.7rem;
-    font-weight: 700;
-    padding: 1px 6px;
-    border-radius: 10px;
-    min-width: 18px;
-    text-align: center;
+    margin-left: auto; background: var(--ac); color: white;
+    font-size: 0.7rem; font-weight: 700; padding: 1px 6px;
+    border-radius: 10px; min-width: 18px; text-align: center;
   }
 
   .divider { border: none; border-top: 1px solid var(--bd); margin: 8px 0; }
 
   .notes-section {
-    flex: 1;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    padding: 0 8px;
+    flex: 1; overflow: hidden; display: flex; flex-direction: column; padding: 0 8px;
   }
 
   .section-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    display: flex; align-items: center; justify-content: space-between;
     padding: 4px 4px 6px;
   }
-
   .section-label {
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--mu);
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--mu);
   }
-
   .new-note-btn {
     width: 24px; height: 24px;
-    display: flex; align-items: center; justify-content: center;
-    color: var(--mu);
+    display: flex; align-items: center; justify-content: center; color: var(--mu);
     border-radius: var(--radius-sm);
   }
   .new-note-btn:hover { background: var(--sf2); color: var(--ac); }
 
-  .search-wrap { margin-bottom: 6px; }
-  .search-input {
-    padding: 5px 10px;
-    font-size: 0.8rem;
-    border-radius: var(--radius-sm);
-  }
+  .search-wrap { margin-bottom: 5px; }
+  .search-input { padding: 5px 10px; font-size: 0.8rem; border-radius: var(--radius-sm); }
 
+  /* ── Tag filter chips ── */
+  .tag-chips {
+    display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 6px; padding: 0 1px;
+  }
+  .tag-chip {
+    font-size: 0.68rem; font-weight: 500; padding: 2px 7px;
+    border-radius: 10px; border: 1px solid var(--bd);
+    background: var(--sf2); color: var(--tx2); cursor: pointer;
+    transition: background var(--transition), color var(--transition), border-color var(--transition);
+    white-space: nowrap;
+  }
+  .tag-chip:hover { border-color: var(--ac); color: var(--ac); }
+  .chip-active { background: var(--ac-bg) !important; color: var(--ac) !important; border-color: var(--ac) !important; }
+
+  /* ── Note list ── */
   .notes-list {
-    flex: 1;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
+    flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1px;
   }
 
   .note-item {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    width: 100%;
-    padding: 7px 10px;
-    border-radius: var(--radius-sm);
-    background: transparent;
-    text-align: left;
-    cursor: pointer;
+    display: flex; flex-direction: column; gap: 2px; width: 100%;
+    padding: 7px 10px; border-radius: var(--radius-sm);
+    background: transparent; text-align: left; cursor: pointer;
     transition: background var(--transition);
-    position: relative;
+    border-left: 2px solid transparent; position: relative;
   }
-
   .note-item:hover { background: var(--sf2); }
   .note-item.active { background: var(--ac-bg); }
+  .note-item.has-color { padding-left: 8px; }
 
   .note-title {
-    font-size: 0.82rem;
-    font-weight: 500;
-    color: var(--tx);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: flex;
-    align-items: center;
-    gap: 4px;
+    font-size: 0.82rem; font-weight: 500; color: var(--tx);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    display: flex; align-items: center; gap: 4px;
   }
-
-  .note-time {
-    font-size: 0.7rem;
-    color: var(--mu);
-  }
-
-  .pin-icon {
-    color: var(--enzo);
-    flex-shrink: 0;
-  }
+  .note-time { font-size: 0.7rem; color: var(--mu); }
+  .pin-icon { color: var(--enzo); flex-shrink: 0; }
 
   .empty-hint {
-    font-size: 0.78rem;
-    color: var(--mu);
-    text-align: center;
-    padding: 16px 8px;
-    line-height: 1.5;
+    font-size: 0.78rem; color: var(--mu); text-align: center;
+    padding: 16px 8px; line-height: 1.5;
+  }
+
+  /* ── Archive section ── */
+  .archive-section { border-top: 1px solid var(--bd); margin-top: 4px; padding-top: 4px; flex-shrink: 0; }
+  .archive-toggle {
+    display: flex; align-items: center; gap: 5px; width: 100%;
+    padding: 5px 4px; background: transparent; border: none;
+    font-size: 0.72rem; color: var(--mu); cursor: pointer;
+    font-family: var(--font); text-align: left;
+  }
+  .archive-toggle:hover { color: var(--tx2); }
+  .chevron { margin-left: auto; transition: transform var(--transition); flex-shrink: 0; }
+  .chevron.open { transform: rotate(180deg); }
+
+  .archived-list { display: flex; flex-direction: column; gap: 1px; max-height: 160px; overflow-y: auto; padding-bottom: 4px; }
+  .archived-item { display: flex; align-items: center; gap: 2px; border-radius: var(--radius-sm); }
+  .archived-btn {
+    flex: 1; display: flex; flex-direction: column; gap: 1px;
+    padding: 5px 8px; background: transparent; border: none;
+    text-align: left; cursor: pointer; font-family: var(--font);
+    opacity: 0.65;
+  }
+  .archived-btn:hover { opacity: 1; background: var(--sf2); border-radius: var(--radius-sm); }
+  .restore-btn {
+    flex-shrink: 0; width: 26px; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    background: transparent; border: none; cursor: pointer; color: var(--mu);
+    border-radius: var(--radius-sm); opacity: 0;
+  }
+  .archived-item:hover .restore-btn { opacity: 1; }
+  .restore-btn:hover { color: var(--ac); background: var(--ac-bg); }
+
+  /* ── Hover preview ── */
+  .note-preview {
+    position: fixed; z-index: 800;
+    background: var(--sf); border: 1px solid var(--bd);
+    border-radius: var(--radius); box-shadow: 0 12px 32px rgba(0,0,0,0.22);
+    padding: 10px 14px; width: 220px; pointer-events: none;
+  }
+  .preview-title {
+    font-size: 0.82rem; font-weight: 600; color: var(--tx);
+    margin: 0 0 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .preview-body {
+    font-size: 0.76rem; color: var(--tx2); line-height: 1.5; margin: 0;
+    display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .preview-empty { color: var(--mu); font-style: italic; }
+  .preview-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 6px; }
+  .preview-tag {
+    font-size: 0.66rem; padding: 1px 6px; border-radius: 8px;
+    background: var(--ac-bg); color: var(--ac); border: 1px solid var(--ac);
   }
 </style>

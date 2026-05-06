@@ -156,6 +156,74 @@
     return () => clearInterval(t);
   });
 
+  // ── Deadline notifications ─────────────────────────────────────
+  function checkDeadlines() {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    const today = new Date().toDateString();
+    if (localStorage.getItem('qonco-notif-date') === today) return;
+    localStorage.setItem('qonco-notif-date', today);
+
+    const now = Date.now();
+    const day = 86400000;
+
+    const overdue = store.tasks.filter(t => !t.done && t.dueAt && t.dueAt < now);
+    const dueToday = store.tasks.filter(t => !t.done && t.dueAt && t.dueAt !== null && t.dueAt >= now && t.dueAt < now + day);
+    const dueTomorrow = store.tasks.filter(t => !t.done && t.dueAt && t.dueAt >= now + day && t.dueAt < now + 2 * day);
+
+    if (overdue.length) new Notification('Q·onco — Overdue tasks', {
+      body: overdue.length === 1 ? `"${overdue[0].text}" is overdue.` : `${overdue.length} tasks are overdue.`,
+      tag: 'tasks-overdue', icon: '/icon-192.png'
+    });
+    if (dueToday.length) new Notification('Q·onco — Due today', {
+      body: dueToday.length === 1 ? `"${dueToday[0].text}" is due today.` : `${dueToday.length} tasks due today.`,
+      tag: 'tasks-today', icon: '/icon-192.png'
+    });
+    if (dueTomorrow.length) new Notification('Q·onco — Due tomorrow', {
+      body: dueTomorrow.length === 1 ? `"${dueTomorrow[0].text}" is due tomorrow.` : `${dueTomorrow.length} tasks due tomorrow.`,
+      tag: 'tasks-tomorrow', icon: '/icon-192.png'
+    });
+
+    const grantsDue = store.grants.filter(g =>
+      g.deadline && !['awarded', 'rejected', 'withdrawn', 'submitted'].includes(g.status) &&
+      g.deadline > now && g.deadline < now + 7 * day
+    );
+    for (const g of grantsDue) {
+      const d = Math.ceil((g.deadline! - now) / day);
+      new Notification('Q·onco — Grant deadline', {
+        body: `"${g.title}" deadline in ${d} day${d !== 1 ? 's' : ''}.`,
+        tag: `grant-${g.id}`, icon: '/icon-192.png'
+      });
+    }
+
+    const prDue = store.peerReviews.filter(p =>
+      p.dueAt && ['accepted', 'in-progress'].includes(p.status) &&
+      p.dueAt > now && p.dueAt < now + 7 * day
+    );
+    for (const p of prDue) {
+      const d = Math.ceil((p.dueAt! - now) / day);
+      new Notification('Q·onco — Peer review due', {
+        body: `Review for "${p.manuscriptTitle}" due in ${d} day${d !== 1 ? 's' : ''}.`,
+        tag: `pr-${p.id}`, icon: '/icon-192.png'
+      });
+    }
+
+    const jobsDue = store.savedJobs.filter(j =>
+      j.nextActionAt && j.status !== 'closed' &&
+      j.nextActionAt > now && j.nextActionAt < now + 2 * day
+    );
+    for (const j of jobsDue) {
+      const d = Math.ceil((j.nextActionAt! - now) / day);
+      new Notification('Q·onco — Job follow-up', {
+        body: `"${j.nextAction}" for ${j.listing.company} due in ${d} day${d !== 1 ? 's' : ''}.`,
+        tag: `job-${j.id}`, icon: '/icon-192.png'
+      });
+    }
+  }
+
+  $effect(() => {
+    if (store.authenticated) checkDeadlines();
+  });
+
   function addAlarm() {
     if (!newAlarmTime) return;
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') {

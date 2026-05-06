@@ -148,7 +148,7 @@ button:focus-visible { outline: 2px solid var(--ac); outline-offset: 2px; }
 .btn-icon:hover { background: var(--sf2); color: var(--tx); }
 
 /* ── Inputs ── */
-input, textarea, select {
+input:not([type="checkbox"]):not([type="radio"]), textarea, select {
   font-family: var(--font);
   font-size: 0.9rem;
   background: var(--sf);
@@ -160,7 +160,11 @@ input, textarea, select {
   transition: border-color var(--transition), box-shadow var(--transition);
   outline: none;
 }
-input:focus, textarea:focus, select:focus {
+input[type="checkbox"], input[type="radio"] {
+  width: auto;
+  flex-shrink: 0;
+}
+input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:focus {
   border-color: var(--ac);
   box-shadow: 0 0 0 3px var(--ac-bg);
 }
@@ -272,7 +276,10 @@ textarea { resize: vertical; line-height: 1.6; }
 @media (max-width: 540px) {
   .btn-icon { padding: 10px; min-width: 40px; min-height: 40px; }
   .btn { min-height: 40px; }
-  .btn-sm { min-height: 36px; }
+  .btn-sm { min-height: 36px; padding: 6px 12px; }
+  select, input[type="date"], input[type="time"] { min-height: 40px; }
+  .md table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  pre { white-space: pre-wrap; word-break: break-word; }
 }
 
 /* ── Utility ── */

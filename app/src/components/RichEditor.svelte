@@ -16,17 +16,27 @@
   import { Placeholder } from '@tiptap/extension-placeholder';
   import { marked } from 'marked';
 
+  export interface SlashRef {
+    getEditor: () => Editor | null;
+  }
+
   let {
     value = $bindable(''),
     placeholder = 'Start writing…',
     minHeight = '120px',
     onchange,
+    onSlashQuery,
+    onSlashClose,
+    slashRef = $bindable<SlashRef | null>(null),
     class: extraClass = '',
   }: {
     value?: string;
     placeholder?: string;
     minHeight?: string;
     onchange?: (html: string) => void;
+    onSlashQuery?: (query: string, x: number, y: number, from: number, to: number) => void;
+    onSlashClose?: () => void;
+    slashRef?: SlashRef | null;
     class?: string;
   } = $props();
 
@@ -64,10 +74,30 @@
         const html = e.getHTML();
         value = html;
         onchange?.(html);
+        detectSlash(e);
       },
     });
+
+    slashRef = { getEditor: () => editor };
     mounted = true;
   });
+
+  function detectSlash(e: Editor) {
+    const { from } = e.state.selection;
+    const textBefore = e.state.doc.textBetween(Math.max(0, from - 120), from, '\n');
+    // Match / preceded by start-of-string, newline, or whitespace
+    const match = textBefore.match(/(?:^|\n| )\/([a-zA-Z0-9 _-]*)$/);
+    if (match) {
+      const slashOffset = match[0].indexOf('/');
+      const slashFrom = from - (match[0].length - slashOffset);
+      try {
+        const coords = e.view.coordsAtPos(slashFrom);
+        onSlashQuery?.(match[1], coords.left, coords.bottom, slashFrom, from);
+      } catch { /* coords unavailable */ }
+    } else {
+      onSlashClose?.();
+    }
+  }
 
   onDestroy(() => {
     editor?.destroy();

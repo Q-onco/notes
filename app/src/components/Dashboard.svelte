@@ -946,4 +946,9 @@
     .dash-grid { grid-template-columns: 1fr; }
     .analytics-strip { grid-template-columns: 1fr; }
   }
+  @media (max-width: 540px) {
+    .stats-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .stat-card { padding: 10px 12px; }
+    .stat-val { font-size: 1.4rem; }
+  }
 </style>

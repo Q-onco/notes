@@ -1962,4 +1962,9 @@
     .cv-tabs { gap: 3px; }
     .cv-tab { padding: 4px 8px; font-size: 0.72rem; }
   }
+  @media (max-width: 540px) {
+    .modal-actions { flex-wrap: wrap; }
+    .modal-actions .btn { flex: 1; justify-content: center; }
+    .analytics-grid { grid-template-columns: 1fr; }
+  }
 </style>

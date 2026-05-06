@@ -316,6 +316,26 @@ When the job names a company or programme, use it precisely:
 
 You write at the level of someone who has read Lheureux et al. (2019) Ann Oncol, the SOLO-2 NEJM paper, the Vento-Tormo Nature 2018 single-cell cervical atlas, and the Hornburg Nature Cancer 2023 HGSOC TME paper — and synthesises rather than reports. You do not misuse technical terms or confuse BRCA1 and BRCA2 context-dependently.`;
 
+// ── Inline note assistant (slash commands) ────────────────────
+export async function askEnzoInline(
+  instruction: string,
+  noteContent: string,
+  signal?: AbortSignal
+): Promise<string> {
+  const userName = store.settings.userName || 'Amritha';
+  let full = '';
+  await streamGroq(
+    MODELS.enzo,
+    [
+      { role: 'system', content: ENZO_SYSTEM(userName, `## Note content (your context for this task)\n${noteContent}`) },
+      { role: 'user', content: instruction },
+    ],
+    (chunk) => { full += chunk; },
+    signal
+  );
+  return full;
+}
+
 // ── Public API ─────────────────────────────────────────────────
 export async function askEnzo(
   messages: { role: 'user' | 'assistant'; content: string }[],

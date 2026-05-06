@@ -431,6 +431,30 @@
       </div>
 
       <div class="card settings-card">
+        <span class="section-title">Browser notifications</span>
+        <p class="section-hint text-xs text-mu">Fires on app open (once per day): overdue tasks, tasks due today/tomorrow, grant deadlines within 7 days, peer review due dates, job follow-ups. Alarms fire at the exact minute you set them.</p>
+        {#if typeof Notification !== 'undefined'}
+          {#if Notification.permission === 'granted'}
+            <div class="notif-status notif-ok">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              Notifications enabled
+            </div>
+          {:else if Notification.permission === 'denied'}
+            <div class="notif-status notif-denied">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              Blocked — allow in browser site settings
+            </div>
+          {:else}
+            <button class="btn btn-ghost btn-sm" onclick={() => Notification.requestPermission()}>
+              Enable notifications
+            </button>
+          {/if}
+        {:else}
+          <p class="text-xs text-mu">Not supported in this browser.</p>
+        {/if}
+      </div>
+
+      <div class="card settings-card">
         <span class="section-title">Send as email — available in</span>
         <div class="send-locations">
           {#each ['Dashboard (progress report)', 'Journal entries', 'Notes', 'Task plans', 'Research (reading list)', 'Manuscripts (section drafts)', 'Grants summaries', 'Pipeline hypotheses', 'Audio transcripts'] as loc}
@@ -689,6 +713,13 @@
 
   /* ── Notifications ── */
   .notif-test-row { display: flex; align-items: center; gap: 10px; }
+  .notif-status {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 0.82rem; font-weight: 500;
+    padding: 5px 10px; border-radius: var(--radius-sm);
+  }
+  .notif-ok { color: var(--gn); background: var(--gn-bg); }
+  .notif-denied { color: var(--rd); background: var(--rd-bg); }
   .send-locations { display: flex; flex-direction: column; gap: 5px; }
   .send-loc-item { display: flex; align-items: center; gap: 8px; }
 
@@ -757,5 +788,11 @@
     .settings-header { padding: 16px 16px 0; }
     .tab-bar { padding: 10px 16px 0; }
     .save-bar { padding: 12px 16px; }
+  }
+  @media (max-width: 540px) {
+    .tab-bar { gap: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .tab-btn { padding: 6px 10px; font-size: 0.75rem; white-space: nowrap; }
+    .sync-grid { grid-template-columns: 1fr; }
+    .save-bar { flex-wrap: wrap; }
   }
 </style>
