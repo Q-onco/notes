@@ -18,6 +18,7 @@
 
   export interface SlashRef {
     getEditor: () => Editor | null;
+    insertNoteLink: (id: string, title: string, from: number, to: number) => void;
   }
 
   let {
@@ -36,6 +37,8 @@
     onchange?: (html: string) => void;
     onSlashQuery?: (query: string, x: number, y: number, from: number, to: number) => void;
     onSlashClose?: () => void;
+    onNoteLinkQuery?: (query: string, x: number, y: number, from: number, to: number) => void;
+    onNoteLinkClose?: () => void;
     slashRef?: SlashRef | null;
     class?: string;
   } = $props();
@@ -74,13 +77,46 @@
         const html = e.getHTML();
         value = html;
         onchange?.(html);
-        detectSlash(e);
+        const { from } = e.state.selection;
+        const textBefore = e.state.doc.textBetween(Math.max(0, from - 80), from, '\n');
+        if (textBefore.match(/\[\[([^\]]*)$/)) {
+          onSlashClose?.();
+          detectNoteLink(e, textBefore);
+        } else {
+          onNoteLinkClose?.();
+          detectSlash(e);
+        }
       },
     });
 
-    slashRef = { getEditor: () => editor };
+    slashRef = {
+      getEditor: () => editor,
+      insertNoteLink: (id: string, title: string, from: number, to: number) => {
+        if (!editor) return;
+        editor.chain()
+          .focus()
+          .deleteRange({ from, to })
+          .insertContent({
+            type: 'text',
+            text: title,
+            marks: [{ type: 'link', attrs: { href: `note:${id}`, target: null, class: 'note-internal-link' } }]
+          })
+          .insertContent(' ')
+          .run();
+      },
+    };
     mounted = true;
   });
+
+  function detectNoteLink(e: Editor, textBefore: string) {
+    const match = textBefore.match(/\[\[([^\]]*)$/);
+    if (!match) { onNoteLinkClose?.(); return; }
+    const linkFrom = e.state.selection.from - match[0].length;
+    try {
+      const coords = e.view.coordsAtPos(linkFrom);
+      onNoteLinkQuery?.(match[1], coords.left, coords.bottom, linkFrom, e.state.selection.from);
+    } catch { /* coords unavailable */ }
+  }
 
   function detectSlash(e: Editor) {
     const { from } = e.state.selection;
@@ -293,6 +329,7 @@
   :global(.re-content .ProseMirror pre code) { background: none; padding: 0; color: var(--tx); font-size: 0.85rem; }
   :global(.re-content .ProseMirror mark) { background: color-mix(in srgb, var(--yw) 30%, transparent); color: inherit; border-radius: 2px; padding: 0 2px; }
   :global(.re-content .ProseMirror a) { color: var(--ac); text-decoration: underline; }
+  :global(.re-content .ProseMirror a.note-internal-link) { color: var(--pu); text-decoration: underline; text-decoration-style: dashed; }
   :global(.re-content .ProseMirror hr) { border: none; border-top: 1px solid var(--bd); margin: 1em 0; }
   :global(.re-content .ProseMirror table) { border-collapse: collapse; width: 100%; margin: 0.6em 0; font-size: 0.88rem; }
   :global(.re-content .ProseMirror th, .re-content .ProseMirror td) { border: 1px solid var(--bd); padding: 5px 10px; text-align: left; }

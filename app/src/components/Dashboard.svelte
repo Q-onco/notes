@@ -145,6 +145,33 @@
   }
   $effect(() => { fetchPubImpact(); });
 
+  // ── Grant countdown (60-day window) ───────────────────────────
+  const EX_GRANTS = [
+    { title: 'ERC Starting Grant — HGSOC Immune Evasion', daysLeft: 28, agency: 'ERC' },
+    { title: 'CRUK Early Career Award', daysLeft: 8, agency: 'CRUK' },
+  ];
+  const upcomingGrants = $derived((() => {
+    const now = Date.now();
+    const window60 = now + 60 * 86400000;
+    return store.grants
+      .filter(g =>
+        g.deadline !== null &&
+        g.deadline > now &&
+        g.deadline < window60 &&
+        g.status !== 'awarded' &&
+        g.status !== 'rejected' &&
+        g.status !== 'withdrawn'
+      )
+      .sort((a, b) => (a.deadline ?? 0) - (b.deadline ?? 0))
+      .slice(0, 5)
+      .map(g => ({
+        title: g.title,
+        daysLeft: Math.ceil((g.deadline! - now) / 86400000),
+        agency: g.agency,
+      }));
+  })());
+  const showExampleGrants = $derived(store.grants.length === 0 || upcomingGrants.length === 0);
+
   const todayStartTs = $derived((() => { const d = new Date(); d.setHours(0,0,0,0); return d.getTime(); })());
   const journalToday = $derived(store.journal.some(e => e.createdAt >= todayStartTs));
   const todayTopTasks = $derived(store.activeTasks.slice(0, 4));
@@ -551,6 +578,34 @@
         </div>
       </section>
 
+      <!-- Upcoming grant deadlines -->
+      <section class="card dash-card">
+        <div class="card-head">
+          <h3>Upcoming deadlines</h3>
+          <button class="btn btn-ghost btn-sm" onclick={() => store.view = 'grants'}>All</button>
+        </div>
+        <div class="grant-rows">
+          {#if showExampleGrants}
+            {#each EX_GRANTS as g}
+              <div class="grant-row example-row">
+                <span class="grant-title">{g.title.length > 48 ? g.title.slice(0, 48) + '…' : g.title}</span>
+                <div class="grant-row-right">
+                  <span class="days-badge days-badge-{g.daysLeft <= 7 ? 'red' : g.daysLeft <= 14 ? 'yellow' : 'green'}">{g.daysLeft}d</span>
+                  <span class="example-mu">· example</span>
+                </div>
+              </div>
+            {/each}
+          {:else}
+            {#each upcomingGrants as g}
+              <div class="grant-row">
+                <span class="grant-title">{g.title.length > 52 ? g.title.slice(0, 52) + '…' : g.title}</span>
+                <span class="days-badge days-badge-{g.daysLeft <= 7 ? 'red' : g.daysLeft <= 14 ? 'yellow' : 'green'}">{g.daysLeft}d</span>
+              </div>
+            {/each}
+          {/if}
+        </div>
+      </section>
+
     </div>
 
     <!-- Pinned research papers -->
@@ -777,8 +832,40 @@
   .prompt-chip:hover { border-color: var(--enzo); background: var(--enzo-bg); color: var(--enzo); }
 
   .empty { padding: 8px 4px; }
-  .example-row { opacity: 0.72; pointer-events: none; }
-  .example-mu { font-size: 0.68rem; color: var(--mu); margin-left: auto; letter-spacing: 0.04em; }
+  .example-row { opacity: 0.6; pointer-events: none; }
+  .example-mu { font-size: 0.68rem; color: var(--mu); margin-left: 4px; letter-spacing: 0.04em; }
+
+  /* Grant countdown */
+  .grant-rows { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .grant-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 5px 6px;
+    border-radius: var(--radius-sm);
+  }
+  .grant-row:not(.example-row):hover { background: var(--sf2); }
+  .grant-title {
+    font-size: 0.84rem;
+    color: var(--tx);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .grant-row-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .days-badge {
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 10px;
+    flex-shrink: 0;
+    letter-spacing: 0.02em;
+  }
+  .days-badge-red    { background: var(--rd-bg); color: var(--rd); }
+  .days-badge-yellow { background: var(--yw-bg); color: var(--yw); }
+  .days-badge-green  { background: var(--gn-bg); color: var(--gn); }
 
   /* Pinned papers */
   .pinned-section { display: flex; flex-direction: column; gap: 10px; }

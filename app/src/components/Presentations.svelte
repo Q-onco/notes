@@ -2,30 +2,64 @@
   import { store } from '../lib/store.svelte';
   import { nanoid } from 'nanoid';
   import { marked } from 'marked';
-  import { generateSlides } from '../lib/groq';
+  import { generateSlides, askEnzoInline } from '../lib/groq';
   import RichEditor from './RichEditor.svelte';
   import type { Presentation, Slide, PresTheme } from '../lib/types';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
   // ── State ─────────────────────────────────────────────────────
-  let selectedId   = $state<string | null>(null);
-  let presentMode  = $state(false);
-  let presentIdx   = $state(0);
-  let notesVisible = $state(false);
-  let genOpen      = $state(false);
-  let genTopic     = $state('');
-  let genCount     = $state(10);
-  let genFrom      = $state<'prompt' | 'note' | 'paper'>('prompt');
-  let genNoteId    = $state('');
-  let genPaperId   = $state('');
-  let generating   = $state(false);
-  let saving       = $state(false);
+  let selectedId      = $state<string | null>(null);
+  let presentMode     = $state(false);
+  let presentIdx      = $state(0);
+  let notesVisible    = $state(false);
+  let genOpen         = $state(false);
+  let genTopic        = $state('');
+  let genCount        = $state(10);
+  let genFrom         = $state<'prompt' | 'note' | 'paper'>('prompt');
+  let genNoteId       = $state('');
+  let genPaperId      = $state('');
+  let generating      = $state(false);
+  let saving          = $state(false);
   let saveTimer: ReturnType<typeof setTimeout>;
-  let dragIdx      = $state<number | null>(null);
-  let dragOver     = $state<number | null>(null);
-  let renamingId   = $state<string | null>(null);
-  let renameDraft  = $state('');
+  let dragIdx         = $state<number | null>(null);
+  let dragOver        = $state<number | null>(null);
+  let renamingId      = $state<string | null>(null);
+  let renameDraft     = $state('');
+  let showTemplates   = $state(false);
+  let activeSlideIdx  = $state(0);
+  let enzoLoadingIdx  = $state<number | null>(null);
+
+  // ── Presenter timer ───────────────────────────────────────────
+  let presentTimer    = $state(0);
+  let timerInterval: ReturnType<typeof setInterval> | null = null;
+
+  $effect(() => {
+    if (presentMode) {
+      presentTimer = 0;
+      timerInterval = setInterval(() => { presentTimer++; }, 1000);
+    } else {
+      if (timerInterval !== null) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+    }
+    return () => {
+      if (timerInterval !== null) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+    };
+  });
+
+  function fmtTimer(s: number): string {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  }
+
+  // ── Transition ────────────────────────────────────────────────
+  let slideTransition = $state('slide');
 
   const pres = $derived(store.presentations.find(p => p.id === selectedId) ?? null);
 
@@ -36,6 +70,72 @@
     serif:   { bg: '#faf7f0', fg: '#2c1810', accent: '#9b4208', muted: '#a0785a', label: 'Serif' },
     minimal: { bg: '#fefefe', fg: '#111111', accent: '#111111', muted: '#555555', label: 'Minimal' },
   };
+
+  // ── Slide layout templates ────────────────────────────────────
+  const SLIDE_TEMPLATES = [
+    {
+      name: 'Title slide',
+      html: '<h1 style="font-size:2em;font-weight:700">Presentation Title</h1><p style="font-size:1.1em;opacity:0.7">Author · Institution · Date</p>',
+    },
+    {
+      name: 'Section header',
+      html: '<h2 style="font-size:1.8em;border-bottom:3px solid currentColor;padding-bottom:0.3em">Section Title</h2>',
+    },
+    {
+      name: 'Content + bullets',
+      html: '<h2>Key Points</h2><ul><li>Finding one — with supporting data</li><li>Finding two — mechanism or implication</li><li>Finding three — clinical relevance</li></ul>',
+    },
+    {
+      name: 'Hypothesis',
+      html: '<h2>Hypothesis</h2><blockquote style="border-left:4px solid currentColor;padding-left:1em;font-style:italic">H₁: [State your hypothesis here]</blockquote><p style="font-size:0.85em"><strong>Rationale:</strong> Based on [evidence]…</p>',
+    },
+    {
+      name: 'Results',
+      html: '<h2>Results</h2><p style="font-size:0.85em"><strong>Key finding:</strong> [Describe main result]</p><div style="border:2px dashed rgba(128,128,128,0.4);border-radius:8px;padding:2em;text-align:center;margin-top:1em;font-size:0.8em;opacity:0.6">[ Figure / Table placeholder ]</div>',
+    },
+    {
+      name: 'Methods',
+      html: '<h2>Methods</h2><ol style="font-size:0.85em"><li>Sample preparation: [describe]</li><li>Assay / analysis: [describe]</li><li>Statistical analysis: [test + software]</li></ol>',
+    },
+    {
+      name: 'Two-column',
+      html: '<h2>Comparison</h2><div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5em;font-size:0.85em"><div><h3 style="font-size:1em">Condition A</h3><ul><li>Point</li></ul></div><div><h3 style="font-size:1em">Condition B</h3><ul><li>Point</li></ul></div></div>',
+    },
+    {
+      name: 'Quote / Key stat',
+      html: '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center"><p style="font-size:2.5em;font-weight:700;line-height:1.2">72%</p><p style="font-size:1em;opacity:0.8">of patients showed [outcome] after [treatment]</p><p style="font-size:0.75em;opacity:0.5;margin-top:0.5em">Source: [Citation]</p></div>',
+    },
+    {
+      name: 'Conclusions',
+      html: '<h2>Conclusions</h2><ul><li>✓ [Main conclusion]</li><li>✓ [Supporting finding]</li><li>→ [Implication / next step]</li></ul>',
+    },
+    {
+      name: 'Acknowledgements',
+      html: '<h2>Acknowledgements</h2><p style="font-size:0.85em"><strong>Funding:</strong> [Grant agency, grant number]</p><p style="font-size:0.85em"><strong>Collaborators:</strong> [Names]</p><p style="font-size:0.85em"><strong>Lab members:</strong> [Names]</p>',
+    },
+  ];
+
+  function insertTemplate(html: string) {
+    if (!pres) return;
+    // If current active slide is empty (default content), replace it
+    const current = pres.slides[activeSlideIdx];
+    const isEmptySlide = !current || current.content === '<h2>New Slide</h2>' || current.content === '<h2>New Slide</h2><ul><li>Point one</li><li>Point two</li></ul>' || current.content.trim() === '';
+    if (isEmptySlide && current) {
+      mutate(p => { p.slides[activeSlideIdx].content = html; });
+    } else {
+      mutate(p => {
+        const s: Slide = { id: nanoid(), content: html, notes: '' };
+        p.slides.splice(activeSlideIdx + 1, 0, s);
+        activeSlideIdx = activeSlideIdx + 1;
+      });
+    }
+    showTemplates = false;
+    // Scroll to the slide
+    setTimeout(() => {
+      const el = document.getElementById(`slide-${pres!.slides[activeSlideIdx]?.id ?? ''}`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 80);
+  }
 
   // ── CRUD ──────────────────────────────────────────────────────
   function newPresentation() {
@@ -94,6 +194,10 @@
     mutate(p => { if (p.slides.length > 1) p.slides.splice(idx, 1); });
   }
 
+  function duplicateSlide(i: number, slide: Slide) {
+    mutate(p => p.slides.splice(i + 1, 0, { id: nanoid(), content: slide.content, notes: slide.notes }));
+  }
+
   function updateContent(idx: number, html: string) { mutate(p => p.slides[idx].content = html); }
   function updateNotes(idx: number, val: string)    { mutate(p => p.slides[idx].notes = val); }
 
@@ -107,6 +211,31 @@
       p.slides.splice(toIdx, 0, removed);
     });
     dragIdx = null; dragOver = null;
+  }
+
+  // ── Thumbnail strip drag-to-reorder ──────────────────────────
+  let thumbDragIdx  = $state<number | null>(null);
+  let thumbDragOver = $state<number | null>(null);
+
+  function onThumbDragStart(idx: number) { thumbDragIdx = idx; }
+  function onThumbDragOver(e: DragEvent, idx: number) { e.preventDefault(); thumbDragOver = idx; }
+  function onThumbDrop(toIdx: number) {
+    if (thumbDragIdx === null || thumbDragIdx === toIdx) { thumbDragIdx = null; thumbDragOver = null; return; }
+    mutate(p => {
+      const [removed] = p.slides.splice(thumbDragIdx!, 1);
+      p.slides.splice(toIdx, 0, removed);
+    });
+    if (activeSlideIdx === thumbDragIdx) activeSlideIdx = toIdx;
+    thumbDragIdx = null; thumbDragOver = null;
+  }
+
+  function selectSlideFromThumb(i: number) {
+    activeSlideIdx = i;
+    const slideId = pres?.slides[i]?.id;
+    if (slideId) {
+      const el = document.getElementById(`slide-${slideId}`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
   }
 
   // ── Present mode ──────────────────────────────────────────────
@@ -129,6 +258,25 @@
       exitPresent();
     } else if (e.key === 's' || e.key === 'S') {
       notesVisible = !notesVisible;
+    }
+  }
+
+  // ── Enzo inline slide improvement ────────────────────────────
+  async function improveSlide(idx: number, slide: Slide) {
+    enzoLoadingIdx = idx;
+    try {
+      const result = await askEnzoInline(
+        'Rewrite this slide content to be clearer, more concise, and scientifically precise. Keep the same structure and topic. Return only the improved HTML, no explanations.',
+        slide.content
+      );
+      // Strip markdown code fences if Enzo wraps in them
+      const cleaned = result.replace(/^```(?:html)?\n?/i, '').replace(/\n?```$/, '').trim();
+      mutate(p => { p.slides[idx].content = cleaned; });
+      showToast('Slide improved by Enzo');
+    } catch (e) {
+      showToast('Enzo improvement failed: ' + (e as Error).message, 'error');
+    } finally {
+      enzoLoadingIdx = null;
     }
   }
 
@@ -192,7 +340,7 @@
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"><\/script>
-<script>Reveal.initialize({ hash: true, transition: 'slide', slideNumber: 'c/t' });<\/script>
+<script>Reveal.initialize({ hash: true, transition: '${slideTransition}', slideNumber: 'c/t' });<\/script>
 </body>
 </html>`;
     const blob = new Blob([html], { type: 'text/html' });
@@ -202,6 +350,12 @@
   }
 
   const fmtDate = (ts: number) => new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+  // ── Example presentations (display-only) ──────────────────────
+  const EXAMPLE_PRES = [
+    { title: 'HGSOC TME — Macrophage Crosstalk', slides: 8, date: 'example' },
+    { title: 'PARP Inhibitor Resistance — Lab Meeting', slides: 12, date: 'example' },
+  ];
 </script>
 
 <!-- ── Present mode overlay ─────────────────────────────────── -->
@@ -229,10 +383,27 @@
       </div>
     {/if}
 
+    <!-- Next slide preview -->
+    {#if pres.slides[presentIdx + 1]}
+      <div class="present-next-preview" style="border-color:{th.muted}44;background:{th.bg}cc">
+        <span class="present-next-label" style="color:{th.muted}">Next →</span>
+        <div class="present-next-thumb-wrap">
+          <div
+            class="present-next-thumb-inner"
+            style="--pac:{th.accent};--pmuted:{th.muted};color:{th.fg};background:{th.bg}"
+          >
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+            {@html pres.slides[presentIdx + 1].content}
+          </div>
+        </div>
+      </div>
+    {/if}
+
     <div class="present-footer" style="background:{th.bg}88;color:{th.muted}">
       <button class="present-nav-btn" style="color:{th.fg}" onclick={() => { if (presentIdx > 0) presentIdx--; }} disabled={presentIdx === 0}>←</button>
       <span class="present-counter">{presentIdx + 1} / {pres.slides.length}</span>
       <button class="present-nav-btn" style="color:{th.fg}" onclick={() => { if (presentIdx < pres.slides.length - 1) presentIdx++; }} disabled={presentIdx === pres.slides.length - 1}>→</button>
+      <span class="present-timer" style="color:{th.muted}">{fmtTimer(presentTimer)}</span>
       <span class="present-hint">S — notes &nbsp;·&nbsp; Esc — exit</span>
       <button class="present-exit" style="color:{th.muted}" onclick={exitPresent}>✕ Exit</button>
     </div>
@@ -300,6 +471,13 @@
   </div>
 {/if}
 
+<!-- ── Templates popover backdrop ────────────────────────────── -->
+{#if showTemplates}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="modal-backdrop templates-backdrop" onclick={() => showTemplates = false}></div>
+{/if}
+
 <!-- ── Main layout ────────────────────────────────────────────── -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="pres-shell" onkeydown={onPresentKey} tabindex="-1">
@@ -347,13 +525,57 @@
           </div>
         </div>
       {:else}
+        <!-- Example presentations when list is empty -->
         <div class="pres-list-empty">
           <p class="text-mu text-xs">No presentations yet.</p>
           <button class="btn btn-ghost btn-sm" onclick={newPresentation}>Create one</button>
         </div>
+        {#each EXAMPLE_PRES as ex}
+          <div class="pres-item pres-item-example">
+            <div class="pres-item-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+            </div>
+            <div class="pres-item-body">
+              <span class="pres-item-title">{ex.title}</span>
+              <span class="pres-item-meta">{ex.slides} slides · <em>example</em></span>
+            </div>
+          </div>
+        {/each}
       {/each}
     </div>
   </aside>
+
+  <!-- Thumbnail strip -->
+  {#if pres}
+    <aside class="pres-thumb-strip">
+      {#each pres.slides as slide, i (slide.id)}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="thumb-item"
+          class:active={activeSlideIdx === i}
+          class:thumb-drag-over={thumbDragOver === i}
+          draggable="true"
+          ondragstart={() => onThumbDragStart(i)}
+          ondragover={(e) => onThumbDragOver(e, i)}
+          ondrop={() => onThumbDrop(i)}
+          ondragend={() => { thumbDragIdx = null; thumbDragOver = null; }}
+          onclick={() => selectSlideFromThumb(i)}
+          title="Slide {i + 1}"
+        >
+          <div class="thumb-drag-handle" title="Drag to reorder">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="8" r="1.5"/><circle cx="9" cy="14" r="1.5"/><circle cx="15" cy="8" r="1.5"/><circle cx="15" cy="14" r="1.5"/></svg>
+          </div>
+          <div class="thumb-preview-wrap">
+            <div class="thumb-preview-inner">
+              <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+              {@html slide.content}
+            </div>
+          </div>
+          <span class="thumb-num">{i + 1}</span>
+        </div>
+      {/each}
+    </aside>
+  {/if}
 
   <!-- Main editor -->
   <div class="pres-main">
@@ -388,9 +610,35 @@
               <option value={key}>{val.label}</option>
             {/each}
           </select>
+          <!-- Transition select -->
+          <select class="transition-select" bind:value={slideTransition} title="Slide transition">
+            <option value="none">No transition</option>
+            <option value="fade">Fade</option>
+            <option value="slide">Slide</option>
+            <option value="convex">Convex</option>
+            <option value="concave">Concave</option>
+            <option value="zoom">Zoom</option>
+          </select>
           <button class="btn btn-ghost btn-sm" onclick={() => genOpen = true}>
             <span class="enzo-e">E</span> Generate
           </button>
+          <!-- Templates button -->
+          <div class="templates-wrap">
+            <button class="btn btn-ghost btn-sm" onclick={() => showTemplates = !showTemplates}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+              Templates
+            </button>
+            {#if showTemplates}
+              <div class="templates-dropdown card">
+                <p class="templates-hint text-xs text-mu">Insert layout at current slide position</p>
+                {#each SLIDE_TEMPLATES as tpl}
+                  <button class="template-item" onclick={() => insertTemplate(tpl.html)}>
+                    {tpl.name}
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
           <button class="btn btn-ghost btn-sm" onclick={exportHtml} title="Export as reveal.js HTML">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Export HTML
@@ -416,6 +664,7 @@
 
           <!-- Slide card -->
           <div
+            id="slide-{slide.id}"
             class="slide-card"
             class:drag-over={dragOver === i}
             draggable="true"
@@ -423,13 +672,35 @@
             ondragover={(e) => onDragOver(e, i)}
             ondrop={() => onDrop(i)}
             ondragend={() => { dragIdx = null; dragOver = null; }}
+            onclick={() => activeSlideIdx = i}
           >
             <div class="slide-card-header">
               <div class="slide-drag-handle" title="Drag to reorder">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="7" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="9" cy="17" r="1.5"/><circle cx="15" cy="7" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="15" cy="17" r="1.5"/></svg>
               </div>
+              <!-- Duplicate button -->
+              <button
+                class="btn-icon slide-dup"
+                onclick={(e) => { e.stopPropagation(); duplicateSlide(i, slide); }}
+                title="Duplicate slide"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+              </button>
               <span class="slide-num">Slide {i + 1}</span>
-              <button class="btn-icon slide-del" onclick={() => deleteSlide(i)} disabled={pres.slides.length <= 1} title="Delete slide">
+              <!-- Enzo improve button -->
+              <button
+                class="btn-icon slide-enzo-btn"
+                onclick={(e) => { e.stopPropagation(); improveSlide(i, slide); }}
+                disabled={enzoLoadingIdx !== null}
+                title="Improve this slide with Enzo"
+              >
+                {#if enzoLoadingIdx === i}
+                  <span class="enzo-spinner"></span>
+                {:else}
+                  <span class="enzo-e-purple">E</span>
+                {/if}
+              </button>
+              <button class="btn-icon slide-del" onclick={(e) => { e.stopPropagation(); deleteSlide(i); }} disabled={pres.slides.length <= 1} title="Delete slide">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
@@ -496,7 +767,7 @@
   }
   .section-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--mu); }
   .pres-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; padding: 6px; }
-  .pres-list-empty { padding: 24px 8px; text-align: center; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+  .pres-list-empty { padding: 16px 8px 8px; text-align: center; display: flex; flex-direction: column; gap: 8px; align-items: center; }
 
   .pres-item {
     display: flex;
@@ -522,6 +793,84 @@
   .pres-action-btn.danger:hover { color: var(--rd); background: var(--rd-bg); }
   .pres-rename-input { font-size: 0.8rem; font-weight: 500; border: 1px solid var(--ac); border-radius: 3px; padding: 1px 4px; width: 100%; background: var(--bg); color: var(--tx); }
 
+  /* Example pres items */
+  .pres-item-example {
+    opacity: 0.6;
+    cursor: default;
+    pointer-events: none;
+  }
+
+  /* ── Thumbnail strip ── */
+  .pres-thumb-strip {
+    width: 130px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--bd);
+    background: var(--sf);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 6px;
+  }
+
+  .thumb-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    padding: 4px;
+    transition: background var(--transition);
+    border: 2px solid transparent;
+    position: relative;
+  }
+  .thumb-item:hover { background: var(--sf2); }
+  .thumb-item.active { border-color: var(--ac); background: var(--ac-bg); }
+  .thumb-item.thumb-drag-over { border-color: var(--ac); border-style: dashed; }
+
+  .thumb-drag-handle {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    color: var(--mu);
+    opacity: 0;
+    cursor: grab;
+    transition: opacity var(--transition);
+  }
+  .thumb-item:hover .thumb-drag-handle { opacity: 1; }
+  .thumb-drag-handle:active { cursor: grabbing; }
+
+  .thumb-preview-wrap {
+    width: 110px;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border-radius: 3px;
+    border: 1px solid var(--bd);
+    background: #fff;
+    position: relative;
+  }
+
+  .thumb-preview-inner {
+    width: 611px; /* 110 / 0.18 = ~611px */
+    height: 344px; /* 611 * 9/16 */
+    transform: scale(0.18);
+    transform-origin: top left;
+    padding: 12px 16px;
+    font-size: 14px;
+    line-height: 1.4;
+    overflow: hidden;
+    color: #1a1a1a;
+    background: #fff;
+    pointer-events: none;
+  }
+
+  .thumb-num {
+    font-size: 0.65rem;
+    color: var(--mu);
+    font-weight: 600;
+  }
+
   /* ── Main ── */
   .pres-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   .pres-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 12px; }
@@ -537,14 +886,50 @@
     gap: 12px;
   }
   .pres-toolbar-left { flex: 1; min-width: 0; }
-  .pres-toolbar-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .pres-toolbar-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
   .pres-title { font-size: 1rem; font-weight: 700; margin: 0; cursor: text; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pres-title:hover { color: var(--ac); }
   .pres-title-input { font-size: 1rem; font-weight: 700; border: none; border-bottom: 2px solid var(--ac); background: transparent; color: var(--tx); width: 100%; padding: 0; }
   .pres-title-input:focus { outline: none; }
   .save-ind { margin-right: 4px; }
   .theme-select { font-size: 0.78rem; border-radius: var(--radius-sm); padding: 4px 8px; width: auto; flex-shrink: 0; }
+  .transition-select { font-size: 0.78rem; border-radius: var(--radius-sm); padding: 4px 8px; width: auto; flex-shrink: 0; }
   .enzo-e { font-family: var(--mono); font-weight: 700; font-size: 0.78rem; color: var(--enzo); }
+
+  /* ── Templates popover ── */
+  .templates-wrap { position: relative; }
+  .templates-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 500;
+    width: 220px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 360px;
+    overflow-y: auto;
+    box-shadow: var(--shadow);
+  }
+  .templates-hint {
+    padding: 2px 6px 6px;
+    border-bottom: 1px solid var(--bd);
+    margin-bottom: 4px;
+  }
+  .template-item {
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 0.8rem;
+    text-align: left;
+    background: transparent;
+    border: none;
+    color: var(--tx);
+    cursor: pointer;
+    transition: background var(--transition);
+  }
+  .template-item:hover { background: var(--ac-bg); color: var(--ac); }
+  .templates-backdrop { background: transparent; }
 
   /* ── Slide editor ── */
   .slides-editor { flex: 1; overflow-y: auto; padding: 20px 32px; display: flex; flex-direction: column; align-items: center; background: var(--sf2); }
@@ -565,7 +950,7 @@
   .slide-card-header {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     padding: 7px 12px;
     border-bottom: 1px solid var(--bd);
     background: var(--sf);
@@ -576,6 +961,40 @@
   .slide-del { opacity: 0.4; }
   .slide-del:hover:not(:disabled) { opacity: 1; color: var(--rd); background: var(--rd-bg); }
   .slide-del:disabled { opacity: 0.2; cursor: not-allowed; }
+
+  /* Duplicate button */
+  .slide-dup { opacity: 0.45; transition: opacity var(--transition); }
+  .slide-dup:hover { opacity: 1; color: var(--ac); background: var(--ac-bg); }
+
+  /* Enzo inline button */
+  .slide-enzo-btn {
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.7;
+    transition: opacity var(--transition), background var(--transition);
+  }
+  .slide-enzo-btn:hover:not(:disabled) { opacity: 1; background: #ede9fe; }
+  .slide-enzo-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .enzo-e-purple {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 0.78rem;
+    color: #7c3aed;
+  }
+  .enzo-spinner {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border: 2px solid #7c3aed44;
+    border-top-color: #7c3aed;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   .slide-content-wrap { border-bottom: 1px solid var(--bd); }
   :global(.slide-rich-editor) { border: none !important; border-radius: 0 !important; }
@@ -658,6 +1077,48 @@
   }
   .present-notes-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-right: 10px; opacity: 0.6; }
 
+  /* Next slide preview */
+  .present-next-preview {
+    position: absolute;
+    bottom: 60px;
+    right: 20px;
+    width: 200px;
+    border: 1px solid;
+    border-radius: var(--radius-sm, 6px);
+    overflow: hidden;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    backdrop-filter: blur(6px);
+  }
+  .present-next-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    opacity: 0.7;
+  }
+  .present-next-thumb-wrap {
+    width: 188px;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border-radius: 3px;
+    background: #fff;
+    position: relative;
+  }
+  .present-next-thumb-inner {
+    width: 1044px; /* 188 / 0.18 */
+    height: 588px;
+    transform: scale(0.18);
+    transform-origin: top left;
+    padding: 12px 16px;
+    font-size: 14px;
+    line-height: 1.4;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
   .present-footer {
     display: flex;
     align-items: center;
@@ -669,6 +1130,7 @@
   .present-nav-btn { background: none; border: none; font-size: 1.2rem; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: opacity var(--transition); }
   .present-nav-btn:disabled { opacity: 0.25; cursor: default; }
   .present-counter { font-size: 0.8rem; font-weight: 600; min-width: 60px; text-align: center; }
+  .present-timer { font-size: 0.78rem; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 44px; text-align: center; opacity: 0.75; }
   .present-hint { font-size: 0.72rem; opacity: 0.55; flex: 1; }
   .present-exit { background: none; border: none; cursor: pointer; font-size: 0.8rem; padding: 4px 8px; border-radius: 4px; transition: opacity var(--transition); }
   .present-exit:hover { opacity: 0.7; }

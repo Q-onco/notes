@@ -21,6 +21,10 @@
   import Mail from './Mail.svelte';
   import Weather from './Weather.svelte';
   import Help from './Help.svelte';
+  import CommandPalette from './CommandPalette.svelte';
+
+  // ── Command palette ──────────────────────────────────────────────
+  let paletteOpen = $state(false);
 
   // ── DNA character state ───────────────────────────────────────
   let dnaActive = $state(false);
@@ -431,7 +435,7 @@
   function onWindowKey(e: KeyboardEvent) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
       e.preventDefault();
-      openSearch();
+      paletteOpen = !paletteOpen;
       return;
     }
     if ((e.metaKey || e.ctrlKey) && e.key === 'j') {
@@ -440,6 +444,7 @@
       return;
     }
     if (e.key === 'Escape') {
+      if (paletteOpen) { paletteOpen = false; return; }
       if (captureOpen) { captureOpen = false; return; }
       if (searchOpen) { searchOpen = false; return; }
       helpOpen = false;
@@ -479,6 +484,10 @@
 </script>
 
 <svelte:window onkeydown={onWindowKey} />
+
+{#if paletteOpen}
+  <CommandPalette onClose={() => paletteOpen = false} />
+{/if}
 
 {#if helpOpen}
   <Help
@@ -811,7 +820,7 @@
         <span class="enzo-dot"></span>
         <span class="enzo-label">Enzo</span>
       </button>
-      <button class="search-trigger" onclick={openSearch} title="Search (Ctrl+K)">
+      <button class="search-trigger" onclick={() => paletteOpen = !paletteOpen} title="Search (Ctrl+K)">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <span class="search-trigger-label">Search</span>
         <kbd class="search-trigger-kbd">⌘K</kbd>
