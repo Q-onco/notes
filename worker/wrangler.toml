@@ -5,5 +5,17 @@ compatibility_date = "2024-11-01"
 [vars]
 ALLOWED_ORIGIN = "https://q-onco.github.io"
 
-# Secret (set in Cloudflare dashboard or via: wrangler secret put GROQ_API_KEY)
-# GROQ_API_KEY
+# ── R2 bucket ─────────────────────────────────────────────────────────────────
+[[r2_buckets]]
+binding     = "QONCO_FILES"
+bucket_name = "qonco-files"
+
+# ── D1 database ───────────────────────────────────────────────────────────────
+[[d1_databases]]
+binding       = "QONCO_MAIL"
+database_name = "qonco-mail"
+database_id   = "6f226e32-33b8-4618-ab49-c95e859b31d7"
+
+# Secrets (set via Cloudflare dashboard or: wrangler secret put <NAME>)
+#   GROQ_API_KEY
+#   BREVO_API_KEY
