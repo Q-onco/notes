@@ -168,6 +168,41 @@
     store.settings.ai = { ...store.aiSettings, [key]: !store.aiSettings[key] };
   }
 
+  // ── Storage stats ─────────────────────────────────────────────────────────
+  type R2TypeStats = { count: number; bytes: number };
+  type StorageStats = { totalCount: number; totalBytes: number; byType: Record<string, R2TypeStats>; fetchedAt: number } | null;
+
+  let storageStats    = $state<StorageStats>(null);
+  let storageFetching = $state(false);
+  let storageError    = $state('');
+
+  async function fetchStorageStats() {
+    storageFetching = true; storageError = '';
+    try {
+      const base = store.workerBase;
+      const res = await fetch(`${base}/storage/stats`, { signal: AbortSignal.timeout(12000) });
+      if (!res.ok) throw new Error(`Worker returned ${res.status}`);
+      storageStats = await res.json() as StorageStats;
+    } catch (e) { storageError = (e as Error).message; }
+    finally { storageFetching = false; }
+  }
+
+  function fmtBytes(b: number): string {
+    if (b >= 1073741824) return `${(b / 1073741824).toFixed(2)} GB`;
+    if (b >= 1048576)    return `${(b / 1048576).toFixed(1)} MB`;
+    if (b >= 1024)       return `${(b / 1024).toFixed(0)} KB`;
+    return `${b} B`;
+  }
+
+  const TYPE_META: Record<string, { label: string; color: string }> = {
+    pdf:   { label: 'PDF',   color: 'var(--rd)' },
+    image: { label: 'Image', color: 'var(--gn)' },
+    audio: { label: 'Audio', color: 'var(--pu)' },
+    data:  { label: 'Data',  color: 'var(--yw)' },
+    code:  { label: 'Code',  color: 'var(--ac)' },
+    other: { label: 'Other', color: 'var(--mu)' },
+  };
+
   const SYNC_STATS: { label: string; val: () => number }[] = [
     { label: 'Notes',        val: () => store.notes.length },
     { label: 'Journal',      val: () => store.journal.length },
@@ -472,6 +507,65 @@
   ══════════════════════════════════════════════════════════════════════════ -->
   {:else if activeTab === 'data'}
     <div class="tab-content">
+
+      <!-- ── R2 Storage progress ── -->
+      <div class="card settings-card">
+        <div class="storage-head">
+          <span class="section-title">Cloud storage (R2)</span>
+          <button class="btn btn-ghost btn-sm" onclick={fetchStorageStats} disabled={storageFetching}>
+            {#if storageFetching}
+              <span class="storage-spin"></span> Checking…
+            {:else}
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+              {storageStats ? 'Refresh' : 'Check usage'}
+            {/if}
+          </button>
+        </div>
+
+        {#if storageError}
+          <p class="field-hint" style="color:var(--rd)">{storageError}</p>
+        {:else if !storageStats}
+          <p class="field-hint">Click "Check usage" to query your Cloudflare R2 bucket.</p>
+        {:else}
+          {@const total = storageStats.totalBytes}
+          {@const types = Object.entries(storageStats.byType).sort((a,b) => b[1].bytes - a[1].bytes)}
+
+          <!-- Summary row -->
+          <div class="storage-summary">
+            <span class="storage-total">{fmtBytes(total)}</span>
+            <span class="text-xs text-mu">across {storageStats.totalCount} file{storageStats.totalCount !== 1 ? 's' : ''}</span>
+          </div>
+
+          <!-- Segmented progress bar -->
+          <div class="storage-bar" title="{fmtBytes(total)} used">
+            {#if total === 0}
+              <div class="storage-bar-empty"></div>
+            {:else}
+              {#each types as [t, s]}
+                {@const meta = TYPE_META[t] ?? TYPE_META.other}
+                {@const pct = (s.bytes / total) * 100}
+                <div class="storage-seg" style="width:{pct}%;background:{meta.color}" title="{meta.label}: {fmtBytes(s.bytes)}"></div>
+              {/each}
+            {/if}
+          </div>
+
+          <!-- Per-type breakdown -->
+          <div class="storage-types">
+            {#each types as [t, s]}
+              {@const meta = TYPE_META[t] ?? TYPE_META.other}
+              <div class="storage-type-row">
+                <span class="storage-type-dot" style="background:{meta.color}"></span>
+                <span class="storage-type-label">{meta.label}</span>
+                <span class="storage-type-count text-mu">{s.count} file{s.count !== 1 ? 's' : ''}</span>
+                <span class="storage-type-bytes">{fmtBytes(s.bytes)}</span>
+              </div>
+            {/each}
+          </div>
+
+          <p class="field-hint">Checked {new Date(storageStats.fetchedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</p>
+        {/if}
+      </div>
+
       <div class="card settings-card">
         <span class="section-title">Sync stats</span>
         <div class="sync-grid">
@@ -736,6 +830,29 @@
   }
   .sync-label { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--mu); }
   .sync-val { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  /* ── Storage stats ── */
+  .storage-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .storage-summary { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+  .storage-total { font-size: 1.4rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--tx); }
+  .storage-bar {
+    height: 12px; border-radius: 6px; overflow: hidden; background: var(--sf2);
+    display: flex; margin-bottom: 12px; border: 1px solid var(--bd);
+  }
+  .storage-bar-empty { width: 100%; background: var(--sf2); }
+  .storage-seg { height: 100%; transition: width 0.4s ease; }
+  .storage-types { display: flex; flex-direction: column; gap: 5px; margin-bottom: 6px; }
+  .storage-type-row { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; }
+  .storage-type-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .storage-type-label { width: 44px; font-weight: 600; color: var(--tx2); }
+  .storage-type-count { flex: 1; }
+  .storage-type-bytes { font-variant-numeric: tabular-nums; font-weight: 500; color: var(--tx); }
+  .storage-spin {
+    display: inline-block; width: 10px; height: 10px;
+    border: 1.5px solid currentColor; border-top-color: transparent;
+    border-radius: 50%; animation: storage-spin 0.7s linear infinite;
+  }
+  @keyframes storage-spin { to { transform: rotate(360deg); } }
 
   .io-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .io-item { display: flex; flex-direction: column; gap: 6px; }
