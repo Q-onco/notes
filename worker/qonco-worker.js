@@ -17,7 +17,6 @@
  *   GET  /biorxiv  — bioRxiv/medRxiv feed (?server=biorxiv&days=14)
  *   GET  /news     — Nature/Cell RSS (?sources=nature,cell)
  *   GET  /openalex — OpenAlex academic search (?q=...&max=10)
- *   GET  /jobs-rss — Job feed aggregator (Nature Careers, EMBL, EurAxess, Indeed)
  *   GET  /health   — health check
  */
 
@@ -277,113 +276,11 @@ export default {
       }
     }
 
-    // ── GET /jobs-rss  (?sources=nature-careers,embl,...) ────────
-    if (path === '/jobs-rss' && request.method === 'GET') {
-      const JOB_FEEDS = {
-        'nature-careers': { url: 'https://www.nature.com/naturecareers.rss', label: 'Nature Careers', region: 'eu' },
-        'embl':           { url: 'https://www.embl.org/careers/rss/', label: 'EMBL', region: 'eu' },
-        'euraxess':       { url: 'https://euraxess.ec.europa.eu/jobs/rss', label: 'EurAxess', region: 'eu' },
-        'indeed-de':      { url: 'https://rss.indeed.com/rss?q=oncology+bioinformatics+scientist&l=Germany&sort=date', label: 'Indeed Germany', region: 'eu' },
-        'indeed-in':      { url: 'https://rss.indeed.com/rss?q=cancer+research+scientist&l=India&sort=date', label: 'Indeed India', region: 'india' },
-        'jobs-ac':        { url: 'https://www.jobs.ac.uk/search/?keywords=cancer+bioinformatics&format=rss', label: 'jobs.ac.uk', region: 'uk' },
-      };
-      try {
-        const requested = (url.searchParams.get('sources') || 'nature-careers,embl,euraxess,indeed-de,indeed-in,jobs-ac').split(',');
-        const results = [];
-        await Promise.all(requested.map(async src => {
-          const feed = JOB_FEEDS[src.trim()];
-          if (!feed) return;
-          try {
-            const res = await fetch(feed.url, {
-              headers: { Accept: 'application/rss+xml, application/xml, text/xml, */*' },
-            });
-            if (!res.ok) return;
-            const xml = await res.text();
-            results.push(...parseJobItems(xml, feed.label, feed.region));
-          } catch {
-            // skip failed feed silently
-          }
-        }));
-        return json(results, 200, origin);
-      } catch (e) {
-        return err(e.message, 500, origin);
-      }
-    }
-
     return new Response('Not found', { status: 404 });
   },
 };
 
-// ── Job RSS parser ────────────────────────────────────────────────────────────
-
-function parseJobItems(xml, source, region) {
-  const items = [];
-  const itemRe = /<item>([\s\S]*?)<\/item>/g;
-  let m;
-  while ((m = itemRe.exec(xml)) !== null && items.length < 12) {
-    const chunk = m[1];
-    const get = tag => {
-      const r = new RegExp(`<${tag}[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${tag}>`);
-      return (chunk.match(r)?.[1] || '').trim();
-    };
-    const rawTitle = get('title');
-    const link = get('link') || get('guid');
-    const desc = get('description').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').trim();
-    const pubDate = get('pubDate');
-    const locationRaw = get('location') || '';
-    if (!rawTitle || !link) continue;
-
-    let title = rawTitle;
-    let company = source;
-    let location = locationRaw;
-    const dashParts = rawTitle.split(' - ');
-    if (source.startsWith('Indeed') && dashParts.length >= 2) {
-      title = dashParts[0].trim();
-      company = dashParts[1]?.trim() || source;
-      if (dashParts.length >= 3) location = dashParts.slice(2).join(' - ').trim();
-    }
-
-    const combined = (title + ' ' + desc).toLowerCase();
-    let type = 'industry';
-    if (/postdoc|post-doc|fellowship|phd student|graduate/i.test(combined)) type = 'academic';
-    else if (/group leader|professor|faculty|lecturer/i.test(combined)) type = 'academic';
-    else if (/contract|freelance|consultant/i.test(combined)) type = 'contract';
-    else if (/startup|early.stage|series [ab]/i.test(combined)) type = 'startup';
-
-    const tags = [];
-    const tagMap = {
-      'scRNA-seq': /scrna.seq|single.cell rna/i,
-      'spatial': /spatial transcriptom|visium|xenium|merfish/i,
-      'bioinformatics': /bioinformatics|computational biology/i,
-      'PARP inhibitors': /parp inhibitor|olaparib|niraparib|rucaparib/i,
-      'immuno-oncology': /immuno.oncology|checkpoint|immunotherapy/i,
-      'ovarian cancer': /ovarian cancer|hgsoc|gynaecolog/i,
-      'genomics': /genomics|next.generation sequencing|ngs/i,
-      'proteomics': /proteomics|mass spectrometry/i,
-    };
-    for (const [tag, re] of Object.entries(tagMap)) {
-      if (re.test(combined)) tags.push(tag);
-    }
-
-    items.push({
-      id: link,
-      title,
-      company,
-      location: location || (region === 'eu' ? 'Europe' : region === 'india' ? 'India' : 'UK'),
-      region,
-      type,
-      description: desc.slice(0, 400),
-      url: link,
-      source,
-      postedAt: pubDate ? new Date(pubDate).getTime() : null,
-      deadline: null,
-      tags,
-    });
-  }
-  return items;
-}
-
-// ── News RSS parser ────────────────────────────────────────────────────────────
+// ── RSS parser ────────────────────────────────────────────────────────────────
 
 function parseRSS(xml, source) {
   const items = [];

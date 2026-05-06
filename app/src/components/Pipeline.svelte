@@ -2020,4 +2020,9 @@
     .run-meta-grid { grid-template-columns: 1fr; }
     .qc-header, .qc-row { grid-template-columns: 1fr 1fr 80px 26px; }
   }
+  @media (max-width: 360px) {
+    .stats-grid { grid-template-columns: 1fr; }
+    .qc-header, .qc-row { grid-template-columns: 1fr 60px 24px; }
+    .qc-header span:nth-child(2), .qc-row span:nth-child(2) { display: none; }
+  }
 </style>

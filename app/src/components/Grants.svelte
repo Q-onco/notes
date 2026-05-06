@@ -689,4 +689,8 @@
     .form-2col { grid-template-columns: 1fr; }
     .tracker-header { flex-wrap: wrap; }
   }
+  @media (max-width: 540px) {
+    .modal-card { width: calc(100vw - 24px) !important; max-height: 90vh; overflow-y: auto; }
+    .modal-card.wide { width: calc(100vw - 24px) !important; }
+  }
 </style>

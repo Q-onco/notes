@@ -626,4 +626,12 @@
     font-family: var(--font);
   }
   .btn-link:hover { background: var(--ac); color: #fff; }
+
+  @media (max-width: 540px) {
+    .journal-header { flex-direction: column; gap: 10px; }
+    .header-actions { flex-wrap: wrap; }
+    .search { width: 100%; }
+    .chip-group { gap: 4px; }
+    .chip { font-size: 0.72rem; padding: 3px 8px; }
+  }
 </style>

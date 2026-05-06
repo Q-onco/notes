@@ -923,12 +923,12 @@
 
   /* ── Detail panel ── */
   .file-detail {
-    width: 360px; flex-shrink: 0;
+    width: min(360px, 100vw); flex-shrink: 0;
     border-left: 1px solid var(--bd);
     display: flex; flex-direction: column; overflow: hidden; background: var(--bg);
     transition: width var(--transition);
   }
-  .file-detail.viewer-expanded { width: 600px; }
+  .file-detail.viewer-expanded { width: min(600px, 100vw); }
 
   .file-detail-head {
     display: flex; align-items: flex-start; justify-content: space-between;
@@ -1042,4 +1042,15 @@
     cursor: pointer;
   }
   .share-exp-note { text-align: center; }
+
+  @media (max-width: 540px) {
+    .file-detail {
+      position: fixed;
+      inset: 0;
+      width: 100% !important;
+      z-index: 80;
+      border-left: none;
+    }
+    .file-action { width: 36px; height: 36px; }
+  }
 </style>

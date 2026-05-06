@@ -1,5 +1,5 @@
-const CACHE_APP = 'qonco-app-v2';
-const CACHE_CDN = 'qonco-cdn-v2';
+const CACHE_APP = 'qonco-app-v1';
+const CACHE_CDN = 'qonco-cdn-v1';
 
 const CDN_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
 const BYPASS_HOSTS = [
@@ -7,9 +7,7 @@ const BYPASS_HOSTS = [
   'api.groq.com',
   'eutils.ncbi.nlm.nih.gov',
   'api.biorxiv.org',
-  'api.open-meteo.com',
-  'workers.dev',         // Cloudflare Worker (R2 streams, LLM, mail)
-  'brevo.com',
+  'api.open-meteo.com'
 ];
 
 self.addEventListener('install', (e) => {
@@ -31,11 +29,13 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
 
-  // Bypass all external APIs and non-GET requests
+  // Always bypass external APIs
   if (BYPASS_HOSTS.some(h => url.hostname.includes(h))) return;
+
+  // Worker URL bypass
   if (e.request.method !== 'GET') return;
 
-  // CDN fonts: cache-first
+  // CDN: cache-first
   if (CDN_HOSTS.some(h => url.hostname.includes(h))) {
     e.respondWith(
       caches.open(CACHE_CDN).then(cache =>
@@ -51,7 +51,7 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // App shell: network-first, fallback to cache for offline
+  // App shell: network-first, fallback to cache
   e.respondWith(
     fetch(e.request)
       .then(res => {

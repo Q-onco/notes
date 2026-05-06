@@ -612,4 +612,10 @@
   .contact-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 
   .empty-state { padding: 40px; text-align: center; }
+
+  @media (max-width: 540px) {
+    .compose-actions { flex-wrap: wrap; justify-content: stretch; }
+    .compose-actions .btn { flex: 1; justify-content: center; }
+    .mail-body { min-height: 140px; }
+  }
 </style>
