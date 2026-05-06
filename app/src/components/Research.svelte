@@ -556,6 +556,44 @@ Format your response as:
     showToast('Removed from reading list');
   }
 
+  async function createPaperReviewNote(paper: PaperResult) {
+    const authorsStr = paper.authors.join(', ');
+    const body = `# Paper Review: ${paper.title}
+
+**Authors:** ${authorsStr}
+**Journal:** ${paper.journal} (${paper.year})
+**DOI:** ${paper.doi ?? ''}
+
+## Key claims
+
+## Methods
+
+## Strengths
+
+## Limitations
+
+## HGSOC relevance
+
+## Questions raised
+- [ ] `;
+    const note: Note = {
+      id: nanoid(),
+      title: `Paper Review: ${paper.title.slice(0, 60)}`,
+      body,
+      tags: ['paper-review', 'paper', paper.source],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      pinned: false,
+      archived: false,
+      audioIds: [],
+    };
+    store.notes = [note, ...store.notes];
+    store.currentNoteId = note.id;
+    store.view = 'notes';
+    await store.saveNotes();
+    showToast('Note created');
+  }
+
   async function setReadingPriority(id: string, priority: 'high' | 'medium' | 'low') {
     store.readingList = store.readingList.map(r =>
       r.id === id ? { ...r, priority } : r
@@ -1114,6 +1152,14 @@ Format your response as:
                       <button class="btn-icon cite-btn" onclick={() => copyCitation(item.paper, 'apa')} title="Copy APA">APA</button>
                       <button class="btn-icon cite-btn" onclick={() => copyCitation(item.paper, 'vancouver')} title="Copy Vancouver">VAN</button>
                       <button class="btn-icon cite-btn" onclick={() => copyCitation(item.paper, 'bibtex')} title="Copy BibTeX">BIB</button>
+                      <button class="btn-icon create-note-btn" onclick={() => createPaperReviewNote(item.paper)} title="Create paper review note">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                          <polyline points="14 2 14 8 20 8"/>
+                          <line x1="12" y1="18" x2="12" y2="12"/>
+                          <line x1="9" y1="15" x2="15" y2="15"/>
+                        </svg>
+                      </button>
                       <button class="btn-icon" onclick={() => removeReadingItem(item.id)} title="Remove">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                           <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -1572,6 +1618,9 @@ Format your response as:
     text-decoration: line-through;
     color: var(--mu);
   }
+
+  .create-note-btn { color: var(--mu); }
+  .create-note-btn:hover { color: var(--gn); background: var(--gn-bg); }
 
   /* DOI resolver */
   .doi-wrap { position: relative; }

@@ -37,15 +37,31 @@
   const ms = $derived(store.manuscripts.find(m => m.id === selectedId) ?? null);
   const sec = $derived(ms?.sections.find(s => s.id === selectedSecId) ?? null);
 
+  function stripHtml(html: string): string {
+    return html.replace(/<[^>]*>/g, ' ');
+  }
+
   const wordCount = $derived((() => {
     if (!sec) return 0;
-    return sec.content.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean).length;
+    return stripHtml(sec.content).trim().split(/\s+/).filter(Boolean).length;
+  })());
+
+  const wcProgressPct = $derived((() => {
+    if (!sec || sec.wordTarget <= 0) return 0;
+    return Math.min(100, Math.round((wordCount / sec.wordTarget) * 100));
+  })());
+
+  const wcColor = $derived((() => {
+    if (!sec || sec.wordTarget <= 0) return 'var(--mu)';
+    if (wordCount > sec.wordTarget) return 'var(--rd, #ef4444)';
+    if (wordCount > sec.wordTarget * 0.9) return 'var(--yw)';
+    return 'var(--gn)';
   })());
 
   const totalWords = $derived((() => {
     if (!ms) return 0;
     return ms.sections.reduce((acc, s) => {
-      return acc + s.content.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean).length;
+      return acc + stripHtml(s.content).trim().split(/\s+/).filter(Boolean).length;
     }, 0);
   })());
 
@@ -421,6 +437,21 @@
               onchange={(v) => updateSec({ content: v })}
               placeholder={`Write your ${sec.label.toLowerCase()} here…`}
             />
+            <div class="wc-bar">
+              {#if sec.wordTarget > 0}
+                <span class="wc-bar-count" style="color:{wcColor}">
+                  {wordCount} / {sec.wordTarget} words
+                </span>
+                <div class="wc-progress-track">
+                  <div
+                    class="wc-progress-fill"
+                    style="width:{wcProgressPct}%; background:{wcColor};"
+                  ></div>
+                </div>
+              {:else}
+                <span class="wc-bar-count">{wordCount} words</span>
+              {/if}
+            </div>
           </div>
 
           {#if enzoOpen}
@@ -760,6 +791,35 @@
     flex-direction: column;
     overflow: hidden;
     min-width: 0;
+  }
+
+  /* Word count bar */
+  .wc-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 14px;
+    border-top: 1px solid var(--bd);
+    flex-shrink: 0;
+    background: var(--sf);
+  }
+  .wc-bar-count {
+    font-size: 0.72rem;
+    color: var(--mu);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .wc-progress-track {
+    flex: 1;
+    height: 4px;
+    background: var(--sf2);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .wc-progress-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.3s ease, background 0.3s ease;
   }
 
   /* ── Enzo assist panel ───────────────────────────────────────── */

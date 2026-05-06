@@ -16,6 +16,7 @@
   let hypRationale = $state('');
   let hypStatus = $state<Hypothesis['status']>('active');
   let hypResult = $state('');
+  let hypLinkedRunIds = $state<string[]>([]);
 
   // ── Devil's Advocate state ────────────────────────────────────
   let daHypId = $state<string | null>(null);
@@ -38,23 +39,23 @@
   }
 
   function startNewHyp() {
-    editHypId = null; hypText = ''; hypRationale = ''; hypStatus = 'active'; hypResult = '';
+    editHypId = null; hypText = ''; hypRationale = ''; hypStatus = 'active'; hypResult = ''; hypLinkedRunIds = [];
     showHypForm = true;
   }
 
   function startEditHyp(h: Hypothesis) {
     editHypId = h.id; hypText = h.text; hypRationale = h.rationale;
-    hypStatus = h.status; hypResult = h.result; showHypForm = true;
+    hypStatus = h.status; hypResult = h.result; hypLinkedRunIds = [...(h.linkedRunIds ?? [])]; showHypForm = true;
   }
 
   async function saveHyp() {
     if (!hypText.trim()) return;
     if (editHypId) {
       store.hypotheses = store.hypotheses.map(h =>
-        h.id === editHypId ? { ...h, text: hypText, rationale: hypRationale, status: hypStatus, result: hypResult, updatedAt: Date.now() } : h
+        h.id === editHypId ? { ...h, text: hypText, rationale: hypRationale, status: hypStatus, result: hypResult, linkedRunIds: hypLinkedRunIds, updatedAt: Date.now() } : h
       );
     } else {
-      store.hypotheses = [{ id: nanoid(), text: hypText, rationale: hypRationale, status: hypStatus, result: hypResult, linkedNotes: [], createdAt: Date.now(), updatedAt: Date.now() }, ...store.hypotheses];
+      store.hypotheses = [{ id: nanoid(), text: hypText, rationale: hypRationale, status: hypStatus, result: hypResult, linkedNotes: [], linkedRunIds: hypLinkedRunIds, createdAt: Date.now(), updatedAt: Date.now() }, ...store.hypotheses];
     }
     await store.savePipelines();
     showHypForm = false;
@@ -451,6 +452,26 @@
     return new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   }
 
+  function formatShortDate(ts: number): string {
+    return new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  }
+
+  function toggleLinkedRun(runId: string) {
+    if (hypLinkedRunIds.includes(runId)) {
+      hypLinkedRunIds = hypLinkedRunIds.filter(id => id !== runId);
+    } else {
+      hypLinkedRunIds = [...hypLinkedRunIds, runId];
+    }
+  }
+
+  function scrollToHyp(hypId: string) {
+    panelTab = 'hypotheses';
+    setTimeout(() => {
+      const el = document.querySelector(`.hyp-card[data-hyp-id="${hypId}"]`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 80);
+  }
+
   const stats = $derived({
     total: store.pipelineRuns.length,
     active: activeRuns.length,
@@ -468,6 +489,19 @@
     { id: '_ep1', title: 'HGSOC TME scRNA-seq — cohort batch 3', pipelineType: 'scrna-seq', sampleId: 'AMR-23-BT3', status: 'qc-review', updatedAt: Date.now() - 86400000 },
     { id: '_ep2', title: 'Visium spatial — pre/post PARPi paired', pipelineType: 'spatial',   sampleId: 'AMR-24-SP1', status: 'running',   updatedAt: Date.now() - 3600000  },
   ] as const;
+
+  // Example hypotheses displayed when no real hypotheses exist
+  const EXAMPLE_HYPS = [
+    { id: '_eh1', text: 'FOLR1⁺ tumour-associated macrophages suppress CD8⁺ T cell infiltration via TGF-β secretion in HGSOC', status: 'active' as const, rationale: 'scRNA-seq shows FOLR1 expression co-localises with TAM markers and inversely correlates with T cell exhaustion score', result: '', linkedNotes: [], linkedRunIds: [], createdAt: Date.now() - 172800000, updatedAt: Date.now() - 172800000 },
+    { id: '_eh2', text: 'PARP inhibitor resistance in BRCA1-mutant HGSOC is mediated by RAD51 paralog upregulation in recurrent disease', status: 'inconclusive' as const, rationale: 'Observed in 3/6 patient samples; needs validation cohort', result: '', linkedNotes: [], linkedRunIds: [], createdAt: Date.now() - 86400000, updatedAt: Date.now() - 86400000 },
+  ];
+
+  // Hypotheses linked to the current run
+  const linkedHyps = $derived(
+    selectedRunId
+      ? store.hypotheses.filter(h => (h.linkedRunIds ?? []).includes(selectedRunId!))
+      : []
+  );
 </script>
 
 {#if !enabled}
@@ -672,10 +706,27 @@
                 {#if hypStatus !== 'active'}
                   <RichEditor bind:value={hypResult} placeholder="Result / conclusion…" minHeight="60px" />
                 {/if}
+                {#if store.pipelineRuns.length > 0}
+                  <div class="hyp-runs-field">
+                    <span class="form-label">Testing in runs:</span>
+                    <div class="hyp-runs-checklist">
+                      {#each store.pipelineRuns as run (run.id)}
+                        <label class="hyp-run-check">
+                          <input
+                            type="checkbox"
+                            checked={hypLinkedRunIds.includes(run.id)}
+                            onchange={() => toggleLinkedRun(run.id)}
+                          />
+                          <span class="hyp-run-check-label">{run.title}</span>
+                        </label>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
               </div>
             {/if}
             {#each store.hypotheses as h (h.id)}
-              <div class="hyp-card card">
+              <div class="hyp-card card" data-hyp-id={h.id}>
                 <div class="hyp-card-head">
                   <span class="hyp-status-badge {HYP_STATUS_CLS[h.status]}">{HYP_STATUS_LABELS[h.status]}</span>
                   <div class="hyp-actions">
@@ -722,11 +773,40 @@
                     <div class="da-body text-xs" style="white-space:pre-wrap">{daText}</div>
                   </div>
                 {/if}
+                {#if (h.linkedRunIds ?? []).length > 0}
+                  {@const linkedRuns = store.pipelineRuns.filter(r => (h.linkedRunIds ?? []).includes(r.id))}
+                  {#if linkedRuns.length > 0}
+                    <div class="hyp-linked-runs">
+                      <span class="meta-label">Runs</span>
+                      <div class="hyp-run-pills">
+                        {#each linkedRuns as run (run.id)}
+                          <button
+                            class="hyp-run-pill"
+                            onclick={() => { selectedRunId = run.id; selectedProtocolId = null; panelTab = 'runs'; }}
+                            title="Go to run: {run.title}"
+                          >{run.title}</button>
+                        {/each}
+                      </div>
+                    </div>
+                  {/if}
+                {/if}
                 <p class="hyp-date text-xs text-mu">{new Date(h.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
               </div>
             {:else}
               {#if !showHypForm}
                 <p class="text-mu text-sm" style="padding:12px 0">No hypotheses yet. Add your first.</p>
+                {#each EXAMPLE_HYPS as ex (ex.id)}
+                  <div class="hyp-card card" style="opacity:0.65">
+                    <div class="hyp-card-head">
+                      <span class="hyp-status-badge {HYP_STATUS_CLS[ex.status]}">{HYP_STATUS_LABELS[ex.status]}</span>
+                      <span class="text-xs text-mu" style="font-size:0.62rem">example</span>
+                    </div>
+                    <p class="hyp-text">{ex.text}</p>
+                    {#if ex.rationale}
+                      <p class="hyp-rationale text-xs text-mu">{ex.rationale}</p>
+                    {/if}
+                  </div>
+                {/each}
               {/if}
             {/each}
           </div>
@@ -924,6 +1004,21 @@
               {/each}
             </div>
           {/if}
+
+          {#if linkedHyps.length > 0}
+            <div class="run-linked-hyps">
+              <span class="meta-label">Hypotheses</span>
+              <div class="run-hyp-badges">
+                {#each linkedHyps as hyp (hyp.id)}
+                  <button
+                    class="run-hyp-badge {HYP_STATUS_CLS[hyp.status]}"
+                    onclick={() => scrollToHyp(hyp.id)}
+                    title={hyp.text}
+                  >{hyp.text.replace(/<[^>]*>/g, '').slice(0, 60)}{hyp.text.replace(/<[^>]*>/g, '').length > 60 ? '…' : ''}</button>
+                {/each}
+              </div>
+            </div>
+          {/if}
         </div>
 
         <!-- Pipeline steps -->
@@ -935,7 +1030,7 @@
 
           <div class="steps-list">
             {#each run.steps as step, idx (step.id)}
-              <div class="step-row" class:step-expanded={expandedSteps.has(step.id)}>
+              <div class="step-row" class:step-expanded={expandedSteps.has(step.id)} data-step-id={step.id}>
                 <div class="step-main">
                   <span class="step-num text-xs text-mu">{idx + 1}</span>
                   <button
@@ -1020,6 +1115,32 @@
             {/each}
           </div>
         </section>
+
+        <!-- Step Gantt Timeline -->
+        {#if run.steps.length > 0}
+          <section class="pipeline-section">
+            <h3 class="section-title">Timeline</h3>
+            <div class="gantt-grid">
+              {#each run.steps as step (step.id)}
+                <div class="gantt-label" title={step.name}>{step.name}</div>
+                <div class="gantt-bar-cell">
+                  <button
+                    class="gantt-bar gantt-bar-{step.status}"
+                    class:gantt-bar-running={step.status === 'running'}
+                    onclick={() => {
+                      const el = document.querySelector(`.step-row[data-step-id="${step.id}"]`);
+                      el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }}
+                    title="Go to step: {step.name}"
+                  ></button>
+                  {#if step.completedAt}
+                    <span class="gantt-date text-xs text-mu">{formatShortDate(step.completedAt)}</span>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          </section>
+        {/if}
 
         <!-- QC Metrics -->
         <section class="pipeline-section">
@@ -1868,6 +1989,105 @@
     resize: vertical;
   }
   .autosave-hint { margin-top: 4px; }
+
+  /* Gantt timeline */
+  .gantt-grid {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 3px 8px;
+    align-items: start;
+  }
+  .gantt-label {
+    font-size: 0.73rem;
+    color: var(--tx2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 4px 0;
+    align-self: center;
+  }
+  .gantt-bar-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .gantt-bar {
+    display: block;
+    width: 100%;
+    height: 18px;
+    border-radius: 3px;
+    border: none;
+    cursor: pointer;
+    transition: opacity var(--transition), filter var(--transition);
+  }
+  .gantt-bar:hover { opacity: 0.8; filter: brightness(1.1); }
+  .gantt-bar-pending  { background: var(--bd2); }
+  .gantt-bar-running  { background: var(--ac); animation: pulse 1.5s ease-in-out infinite; }
+  .gantt-bar-done     { background: var(--gn); }
+  .gantt-bar-failed   { background: var(--rd); }
+  .gantt-bar-skipped  { background: var(--mu); opacity: 0.4; }
+  .gantt-date { font-size: 0.65rem; }
+
+  /* Linked hypotheses in run header */
+  .run-linked-hyps { display: flex; flex-direction: column; gap: 5px; }
+  .run-hyp-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+  .run-hyp-badge {
+    font-size: 0.68rem;
+    font-weight: 500;
+    padding: 3px 8px;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    text-align: left;
+    line-height: 1.4;
+    font-family: var(--font);
+    transition: opacity var(--transition);
+  }
+  .run-hyp-badge:hover { opacity: 0.8; }
+
+  /* Hyp form run linkage */
+  .hyp-runs-field { display: flex; flex-direction: column; gap: 5px; }
+  .hyp-runs-checklist {
+    max-height: 120px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    border: 1px solid var(--bd);
+    border-radius: var(--radius-sm);
+    padding: 5px 8px;
+    background: var(--sf2);
+  }
+  .hyp-run-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 0.78rem;
+  }
+  .hyp-run-check input[type="checkbox"] { margin-top: 2px; flex-shrink: 0; }
+  .hyp-run-check-label { color: var(--tx); line-height: 1.4; }
+
+  /* Hyp card linked runs row */
+  .hyp-linked-runs { display: flex; flex-direction: column; gap: 4px; }
+  .hyp-run-pills { display: flex; flex-wrap: wrap; gap: 3px; }
+  .hyp-run-pill {
+    font-size: 0.65rem;
+    font-weight: 500;
+    padding: 2px 7px;
+    border-radius: 10px;
+    border: 1px solid var(--bd2);
+    background: var(--sf2);
+    color: var(--tx2);
+    cursor: pointer;
+    font-family: var(--font);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 180px;
+    transition: all var(--transition);
+  }
+  .hyp-run-pill:hover { border-color: var(--ac); color: var(--ac); background: var(--ac-bg); }
 
   /* Danger icon */
   .danger-icon { color: var(--mu); }

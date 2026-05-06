@@ -546,6 +546,7 @@ export interface Hypothesis {
   status: 'active' | 'supported' | 'refuted' | 'inconclusive';
   result: string;
   linkedNotes: string[];
+  linkedRunIds?: string[];
   createdAt: number;
   updatedAt: number;
 }

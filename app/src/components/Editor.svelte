@@ -42,6 +42,14 @@
   // Backlinks
   let showBacklinks = $state(false);
 
+  // Note links ([[…]] picker)
+  let nlVisible = $state(false);
+  let nlQuery   = $state('');
+  let nlX       = $state(0);
+  let nlY       = $state(0);
+  let nlFrom    = $state(0);
+  let nlTo      = $state(0);
+
   const NOTE_COLORS = [
     { id: 'ac'   as const, label: 'Blue',   css: 'var(--ac)' },
     { id: 'gn'   as const, label: 'Green',  css: 'var(--gn)' },
@@ -81,7 +89,14 @@
   const backlinkTasks       = $derived(note ? store.tasks.filter(t => t.noteId === note.id) : []);
   const backlinkAudio       = $derived(note ? store.audioRecords.filter(a => a.noteId === note.id) : []);
   const backlinkManuscripts = $derived(note ? store.manuscripts.filter(m => m.linkedNoteIds.includes(note.id)) : []);
-  const hasBacklinks        = $derived(backlinkTasks.length + backlinkAudio.length + backlinkManuscripts.length > 0);
+  const backlinkNotes       = $derived(note ? store.notes.filter(n => n.id !== note!.id && n.body.includes(`note:${note!.id}`)) : []);
+  const hasBacklinks        = $derived(backlinkTasks.length + backlinkAudio.length + backlinkManuscripts.length + backlinkNotes.length > 0);
+
+  const nlFiltered = $derived(
+    store.notes.filter(n => !n.archived && n.id !== (note?.id ?? ''))
+      .filter(n => !nlQuery.trim() || n.title.toLowerCase().includes(nlQuery.toLowerCase()))
+      .slice(0, 8)
+  );
 
   const tocItems = $derived(
     showToc && note
@@ -104,6 +119,7 @@
       showColorPicker = false;
       showBacklinks = false;
       slashVisible = false;
+      nlVisible = false;
     }
   });
 
@@ -269,6 +285,31 @@
   }
 
   function onSlashClose() { slashVisible = false; }
+
+  function onNoteLinkQuery(query: string, x: number, y: number, from: number, to: number) {
+    nlQuery = query; nlX = x; nlY = y; nlFrom = from; nlTo = to;
+    nlVisible = true;
+  }
+
+  function onNoteLinkClose() { nlVisible = false; }
+
+  function selectNoteLink(targetNote: { id: string; title: string }) {
+    editorRef?.insertNoteLink(targetNote.id, targetNote.title, nlFrom, nlTo);
+    nlVisible = false;
+  }
+
+  function handleContentClick(e: MouseEvent) {
+    const target = e.target as HTMLElement;
+    const anchor = target.closest('a') as HTMLAnchorElement | null;
+    if (!anchor) return;
+    const href = anchor.getAttribute('href') ?? '';
+    if (href.startsWith('note:')) {
+      e.preventDefault();
+      const targetId = href.slice(5);
+      const target = store.notes.find(n => n.id === targetId);
+      if (target) { store.currentNoteId = targetId; }
+    }
+  }
 
   function onEditorKey(e: KeyboardEvent) {
     if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'F') { e.preventDefault(); focusMode = !focusMode; }
@@ -484,15 +525,18 @@
       {/if}
 
       <!-- Rich editor -->
-      <div class="content-area">
+      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+      <div class="content-area" onclick={handleContentClick}>
         <RichEditor
           bind:value={note.body}
           onchange={onBodyChange}
-          placeholder="Start writing… type / for commands"
+          placeholder="Start writing… type / for commands, [[ to link a note"
           minHeight="100%"
           class="note-body-editor"
           {onSlashQuery}
           {onSlashClose}
+          {onNoteLinkQuery}
+          {onNoteLinkClose}
           bind:slashRef={editorRef}
         />
       </div>
@@ -505,7 +549,7 @@
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
           </svg>
-          <span>Linked items ({backlinkTasks.length + backlinkAudio.length + backlinkManuscripts.length})</span>
+          <span>Linked items ({backlinkTasks.length + backlinkAudio.length + backlinkManuscripts.length + backlinkNotes.length})</span>
           <svg class="chevron" class:open={showBacklinks} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
         {#if showBacklinks}
@@ -543,6 +587,17 @@
                 {/each}
               </div>
             {/if}
+            {#if backlinkNotes.length > 0}
+              <div class="bl-section">
+                <span class="bl-label">Linked from</span>
+                {#each backlinkNotes as n}
+                  <button class="bl-item" onclick={() => { store.currentNoteId = n.id; }}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    <span>{n.title || 'Untitled'}</span>
+                  </button>
+                {/each}
+              </div>
+            {/if}
           </div>
         {/if}
       </div>
@@ -562,6 +617,24 @@
     </div>
   {/if}
 </div>
+
+<!-- Note link picker — fixed position portal -->
+{#if nlVisible}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="nl-backdrop" onclick={onNoteLinkClose}></div>
+  <div class="nl-picker" style="left:{nlX}px; top:{nlY + 6}px;">
+    {#if nlFiltered.length === 0}
+      <div class="nl-empty text-xs text-mu">No notes match "{nlQuery}"</div>
+    {:else}
+      {#each nlFiltered as n (n.id)}
+        <button class="nl-item" onclick={() => selectNoteLink(n)}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          <span class="nl-title">{n.title || 'Untitled'}</span>
+        </button>
+      {/each}
+    {/if}
+  </div>
+{/if}
 
 <!-- Slash command menu — fixed position portal -->
 {#if slashVisible && note}
@@ -769,4 +842,23 @@
     position: fixed; inset: 0; z-index: 300;
     background: var(--bg); display: flex; flex-direction: column; overflow: hidden;
   }
+
+  /* ── Note link picker (fixed portal) ── */
+  .nl-backdrop { position: fixed; inset: 0; z-index: 199; }
+  .nl-picker {
+    position: fixed; z-index: 200;
+    background: var(--sf); border: 1px solid var(--bd);
+    border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+    min-width: 230px; max-width: 340px; max-height: 220px;
+    overflow-y: auto; padding: 4px 0;
+  }
+  .nl-item {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 6px 12px; background: transparent; border: none;
+    font-size: 0.82rem; color: var(--tx2); cursor: pointer;
+    text-align: left; font-family: var(--font);
+  }
+  .nl-item:hover { background: var(--ac-bg); color: var(--ac); }
+  .nl-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nl-empty { padding: 10px 14px; }
 </style>
