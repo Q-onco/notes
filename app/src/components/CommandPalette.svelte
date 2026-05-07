@@ -257,6 +257,7 @@
 <div
   class="cp-panel"
   role="dialog"
+  tabindex="-1"
   aria-label="Command palette"
   aria-modal="true"
   onkeydown={onKeydown}

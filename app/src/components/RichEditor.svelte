@@ -46,7 +46,7 @@
   } = $props();
 
   let editorEl: HTMLElement;
-  let editor: Editor | null = null;
+  let editor = $state<Editor | null>(null);
   let mounted = $state(false);
 
   function htmlFromValue(v: string): string {
