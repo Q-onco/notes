@@ -40,7 +40,7 @@
   ];
 
   const MODEL_ROWS: { key: ModelKey; label: string; note: string }[] = [
-    { key: 'enzo',     label: 'Enzo chat',            note: '70B · always' },
+    { key: 'enzo',     label: 'Enzo chat',            note: '120B · always' },
     { key: 'research', label: 'Research & summaries',  note: '120B · on click' },
     { key: 'quick',    label: 'Light tasks',           note: '8B · on click' },
     { key: 'whisper',  label: 'Transcription',         note: 'audio · see Audio tab' },

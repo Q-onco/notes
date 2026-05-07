@@ -205,6 +205,17 @@ textarea { resize: vertical; line-height: 1.6; }
 .tag-pu { background: var(--pu-bg); color: var(--pu); }
 .tag-yw { background: var(--yw-bg); color: var(--yw); }
 
+/* ── Model pill — shown next to AI buttons to surface the model used ── */
+.model-pill {
+  font-size: 0.58rem;
+  font-family: var(--mono);
+  opacity: 0.5;
+  letter-spacing: 0.03em;
+  margin-left: 4px;
+  font-weight: 500;
+  vertical-align: middle;
+}
+
 /* ── Toast notifications ── */
 .toast {
   position: fixed;

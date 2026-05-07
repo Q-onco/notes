@@ -855,7 +855,7 @@
                               <span class="spinner-xs-inline"></span> Thinking…
                             {:else}
                               <span class="enzo-dot-tiny"></span>
-                              Ask Enzo
+                              Ask Enzo<span class="model-pill">[120B]</span>
                             {/if}
                           </button>
                         </div>
@@ -1057,7 +1057,7 @@
                           {#if writerImproving && writerExpId === exp.id}
                             <span class="spinner-xs-inline"></span> Writing…
                           {:else}
-                            <span class="writer-w-badge">W</span> Improve with WRITER
+                            <span class="writer-w-badge">W</span> Improve with WRITER<span class="model-pill">[120B]</span>
                           {/if}
                         </button>
                         {/if}
@@ -1316,7 +1316,7 @@
                   <p class="text-xs text-mu">Enable "Cover letter generator" in <button class="text-link" onclick={() => store.view = 'settings'}>Settings → AI features</button>.</p>
                 {/if}
                 <button class="btn btn-primary" onclick={generateLetter} disabled={clGenerating || !clJobTitle || !clCompany || !store.aiSettings.coverLetter}>
-                  {clGenerating ? 'Writing…' : 'Generate cover letter'}
+                  {#if clGenerating}Writing…{:else}Generate cover letter<span class="model-pill">[120B]</span>{/if}
                 </button>
                 {#if clGenerating}
                   <button class="btn btn-ghost btn-sm" onclick={() => clAbort?.abort()}>Stop</button>
