@@ -39,23 +39,23 @@
     { id: 'data',          label: 'Data' },
   ];
 
-  const MODEL_ROWS: { key: ModelKey; label: string; note: string }[] = [
-    { key: 'enzo',     label: 'Enzo chat',            note: '70B · always' },
-    { key: 'research', label: 'Research & summaries',  note: '120B · on click' },
-    { key: 'quick',    label: 'Light tasks',           note: '8B · on click' },
-    { key: 'whisper',  label: 'Transcription',         note: 'audio · see Audio tab' },
+  const MODEL_ROWS: { key: ModelKey; label: string; note: string; covers: string }[] = [
+    { key: 'enzo',     label: 'Enzo',          note: '70B · always on',   covers: 'Chat · Weekly digest · PI report · Paper critique · Deep Read · Reading note · Slides · Devil\'s advocate · Manuscript assist · Figure legend · Grant critique · Radar synthesis · Marker lookup · Voice → Protocol · Review synthesis' },
+    { key: 'research', label: 'WRITER',         note: '120B · on click',   covers: 'Cover letter · CV bullet improver · Inline paper summary (search tab)' },
+    { key: 'quick',    label: 'Quick',          note: '8B · on click',     covers: 'Transcript event extraction (Audio)' },
+    { key: 'whisper',  label: 'Whisper',        note: 'audio only',        covers: 'Real-time transcription — chunked 15s, tracked separately in Audio tab' },
   ];
 
   const AI_TOGGLES: { key: keyof typeof store.aiSettings; label: string; desc: string }[] = [
-    { key: 'coverLetter',    label: 'Cover letter generator',   desc: 'WRITER — job-application cover letters. Enable during job-search sessions.' },
-    { key: 'writerBullets',  label: 'WRITER bullet improver',   desc: 'CAR-format CV bullet rewrites. Enable during CV editing.' },
-    { key: 'weeklyDigest',   label: 'Weekly digest',            desc: 'Enzo compiles a research week summary. Enable on Mondays.' },
-    { key: 'deepRead',       label: 'Deep Read (Socratic)',      desc: '5 critical questions per paper. Enable during focused reading.' },
-    { key: 'readingNote',    label: 'AI reading note',          desc: 'Structured note (Claims · Methods · Limits · Relevance) from abstract.' },
-    { key: 'critique',       label: 'Paper critique',           desc: 'Enzo critiques methodology and assumptions. Enable during literature review.' },
-    { key: 'devilsAdvocate', label: "Devil's advocate",         desc: 'Challenges hypotheses with counter-evidence. Enable during hypothesis work.' },
-    { key: 'interviewPrep',  label: 'Interview prep',           desc: 'Generates interview questions from job description + your CV.' },
-    { key: 'manuscriptEnzo', label: 'Manuscript Enzo assist',   desc: 'Enzo drafts and improves manuscript sections. Enable during writing.' },
+    { key: 'coverLetter',    label: 'Cover letter generator',   desc: 'WRITER [120B] — tailored cover letters from job description + your CV. Enable during job-search sessions.' },
+    { key: 'writerBullets',  label: 'WRITER bullet improver',   desc: 'WRITER [120B] — CAR-format CV bullet rewrites. Enable during CV editing.' },
+    { key: 'weeklyDigest',   label: 'Weekly digest',            desc: 'Enzo [70B] — weekly research summary from notes, tasks, and journal. Enable on Mondays.' },
+    { key: 'deepRead',       label: 'Deep Read (Socratic)',      desc: 'Enzo [70B] — 5 critical questions per paper to challenge assumptions. Enable during focused reading.' },
+    { key: 'readingNote',    label: 'AI reading note',          desc: 'Enzo [70B] — structured note (Claims · Methods · Limits · Relevance) from abstract. Enable during reading.' },
+    { key: 'critique',       label: 'Paper critique',           desc: 'Enzo [70B] — peer-review-style methodology critique. Enable during literature review.' },
+    { key: 'devilsAdvocate', label: "Devil's advocate",         desc: "Enzo [70B] — argues against your hypothesis with evidence and methodological challenges. Enable during hypothesis work." },
+    { key: 'interviewPrep',  label: 'Interview prep',           desc: 'Enzo [70B] — generates targeted interview questions from job description + your CV. Enable before applications.' },
+    { key: 'manuscriptEnzo', label: 'Manuscript Enzo assist',   desc: 'Enzo [70B] — section-specific writing guidance and critique. Enable during manuscript writing.' },
   ];
 
   const SHORTCUTS = [
@@ -387,6 +387,7 @@
               <div class="model-left">
                 <span class="model-fn">{row.label}</span>
                 <code class="model-id">{MODELS[row.key]}</code>
+                <span class="model-covers text-mu">{row.covers}</span>
               </div>
               <div class="model-right">
                 <div class="model-stats">
@@ -768,9 +769,10 @@
   }
   .model-row:last-child { border-bottom: none; }
   .model-row:nth-child(even) { background: var(--sf2); }
-  .model-left { display: flex; flex-direction: column; gap: 2px; width: 160px; flex-shrink: 0; }
+  .model-left { display: flex; flex-direction: column; gap: 2px; width: 180px; flex-shrink: 0; }
   .model-fn { font-size: 0.82rem; font-weight: 500; }
   .model-id { font-size: 0.68rem; color: var(--ac); background: transparent; padding: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .model-covers { font-size: 0.6rem; color: var(--mu); line-height: 1.4; }
   .model-right { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; padding-top: 1px; }
   .model-stats { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
   .model-note { font-size: 0.72rem; color: var(--mu); }
