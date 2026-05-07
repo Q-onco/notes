@@ -371,9 +371,9 @@
         </div>
 
         <!-- Enzo analyse -->
-        <button class="tab-btn enzo-tab" class:enzo-tab-active={showAnalysis && analyseMode === 'summarise'} onclick={() => runAnalysis('summarise')} title="Enzo: summarise this note">Summarise</button>
-        <button class="tab-btn enzo-tab" class:enzo-tab-active={showAnalysis && analyseMode === 'findings'}  onclick={() => runAnalysis('findings')}  title="Enzo: extract key findings">Key findings</button>
-        <button class="tab-btn enzo-tab" class:enzo-tab-active={showAnalysis && analyseMode === 'devil'}     onclick={() => runAnalysis('devil')}     title="Enzo: devil's advocate">Devil's advocate</button>
+        <button class="tab-btn enzo-tab" class:enzo-tab-active={showAnalysis && analyseMode === 'summarise'} onclick={() => runAnalysis('summarise')} title="Enzo: summarise this note [GPT-OSS 120B]">Summarise<span class="model-pill">[120B]</span></button>
+        <button class="tab-btn enzo-tab" class:enzo-tab-active={showAnalysis && analyseMode === 'findings'}  onclick={() => runAnalysis('findings')}  title="Enzo: extract key findings [GPT-OSS 120B]">Key findings<span class="model-pill">[120B]</span></button>
+        <button class="tab-btn enzo-tab" class:enzo-tab-active={showAnalysis && analyseMode === 'devil'}     onclick={() => runAnalysis('devil')}     title="Enzo: devil's advocate [GPT-OSS 120B]">Devil's advocate<span class="model-pill">[120B]</span></button>
 
       </div>
 

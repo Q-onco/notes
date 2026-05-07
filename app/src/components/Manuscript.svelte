@@ -638,7 +638,7 @@
             </button>
             <button class="btn btn-sm btn-enzo" onclick={runEnzo} disabled={enzoLoading}>
               <span class="enzo-dot-sm"></span>
-              {enzoLoading ? 'Thinking…' : 'Ask Enzo'}
+              {enzoLoading ? 'Thinking…' : 'Ask Enzo'}{#if !enzoLoading}<span class="model-pill">[120B]</span>{/if}
             </button>
             {#if enzoOpen}
               <button class="btn btn-sm btn-ghost" onclick={() => { enzoOpen = false; enzoAbort?.abort(); }}>
@@ -783,7 +783,7 @@
           <input class="field-input-ms" bind:value={legendJournal} placeholder={ms?.targetJournal || 'e.g. Nature Cancer'} />
         </div>
         <button class="btn btn-primary btn-sm" onclick={runLegendGen} disabled={legendStreaming || !legendFigDesc.trim()}>
-          {#if legendStreaming}<span class="ms-spinner-xs"></span> Generating…{:else}Generate Legend{/if}
+          {#if legendStreaming}<span class="ms-spinner-xs"></span> Generating…{:else}Generate Legend<span class="model-pill">[120B]</span>{/if}
         </button>
 
         {#if legendText || legendStreaming}
