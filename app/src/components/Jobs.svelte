@@ -104,7 +104,7 @@
     [...new Set([...EU_COMPANIES, ...INDIA_COMPANIES].flatMap(co => co.focus))].sort()
   );
 
-  function filterCompanies(cos: typeof EU_COMPANIES) {
+  function filterCompanies(cos: ReadonlyArray<{ name: string; location: string; focus: ReadonlyArray<string>; url: string; tier: string }>) {
     if (!companyTagFilter) return cos;
     return cos.filter(co => co.focus.some(f => f.toLowerCase() === companyTagFilter.toLowerCase()));
   }
@@ -127,10 +127,10 @@
     prepText = '';
     prepStreaming = true;
     const cvSummary = [
-      store.researcherProfile.currentRole,
-      store.researcherProfile.institution,
-      'Specializations: ' + store.researcherProfile.specializations.join(', '),
-      store.researcherProfile.cvHighlights.slice(0, 5).join('; '),
+      store.profile.currentRole,
+      store.profile.institution,
+      'Specializations: ' + store.profile.specializations.join(', '),
+      store.profile.cvHighlights.slice(0, 5).join('; '),
     ].filter(Boolean).join('\n');
     try {
       await generateInterviewQuestions(
@@ -371,8 +371,8 @@
       ).join('\n'));
     }
     if (cv.education.length) {
-      parts.push('\nEducation:\n' + cv.education.map((e: { degree: string; institution: string; endDate: string }) =>
-        `- ${e.degree}, ${e.institution} (${e.endDate})`
+      parts.push('\nEducation:\n' + cv.education.map((e: { degree: string; institution: string; year: string }) =>
+        `- ${e.degree}, ${e.institution} (${e.year})`
       ).join('\n'));
     }
     if (cv.publications.length) {
@@ -928,7 +928,7 @@
           </div>
 
           {#each [['EU / UK / Switzerland', EU_COMPANIES], ['India', INDIA_COMPANIES]] as [label, cos]}
-            {@const filtered = filterCompanies(cos as typeof EU_COMPANIES)}
+            {@const filtered = filterCompanies(cos as ReadonlyArray<{ name: string; location: string; focus: ReadonlyArray<string>; url: string; tier: string }>)}
             {#if filtered.length > 0}
               <div class="company-region">
                 <h3 class="region-heading">{label} <span class="co-count text-mu">({filtered.length})</span></h3>

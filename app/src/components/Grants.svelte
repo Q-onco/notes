@@ -197,7 +197,7 @@
         const list = store.grants.map(g => `• ${g.title} — ${g.agency} (${g.status}) — ${g.currency}${g.amount.toLocaleString()}`).join('\n');
         store.openCompose({ subject: 'Grant pipeline summary', body: `Grant applications:\n\n${list}` });
       } else if (tab === 'conferences' && store.conferences.length > 0) {
-        const list = store.conferences.map(c => `• ${c.conference} (${c.status})${c.deadline ? ' — deadline: ' + new Date(c.deadline).toLocaleDateString('en-GB') : ''}`).join('\n');
+        const list = store.conferences.map(c => `• ${c.conference} (${c.status})${c.submissionDeadline ? ' — deadline: ' + new Date(c.submissionDeadline).toLocaleDateString('en-GB') : ''}`).join('\n');
         store.openCompose({ subject: 'Conference abstract status', body: `Conference submissions:\n\n${list}` });
       }
     }}>

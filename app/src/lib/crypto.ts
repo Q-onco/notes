@@ -3,8 +3,8 @@ import type { EncryptedBlob } from './types';
 const b64e = (buf: ArrayBuffer): string =>
   btoa(String.fromCharCode(...new Uint8Array(buf)));
 
-const b64d = (s: string): Uint8Array =>
-  Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const b64d = (s: string): Uint8Array<ArrayBuffer> =>
+  Uint8Array.from(atob(s), c => c.charCodeAt(0)) as Uint8Array<ArrayBuffer>;
 
 export async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
   const raw = await crypto.subtle.importKey(
@@ -15,7 +15,7 @@ export async function deriveKey(passphrase: string, salt: Uint8Array): Promise<C
     ['deriveKey']
   );
   return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: 600000, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt: salt as unknown as ArrayBuffer, iterations: 600000, hash: 'SHA-256' },
     raw,
     { name: 'AES-GCM', length: 256 },
     false,
