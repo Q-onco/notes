@@ -855,7 +855,7 @@
                               <span class="spinner-xs-inline"></span> Thinking…
                             {:else}
                               <span class="enzo-dot-tiny"></span>
-                              Ask Enzo<span class="model-pill">[120B]</span>
+                              Ask Enzo<span class="model-pill">[70B]</span>
                             {/if}
                           </button>
                         </div>

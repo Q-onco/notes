@@ -1168,14 +1168,14 @@ Format your response as:
                   <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>
                 </svg>
               </button>
-              <button class="btn-icon" onclick={() => sendToEnzo(paper)} title="Ask Enzo about this [GPT-OSS 120B]">
+              <button class="btn-icon" onclick={() => sendToEnzo(paper)} title="Ask Enzo about this [Llama 70B]">
                 <span class="text-enzo text-xs" style="font-family:var(--mono);font-weight:700">E</span>
               </button>
               <button
                 class="btn-icon critique-btn"
                 class:critique-active={critiqueId === paper.id}
                 onclick={() => doCritique(paper)}
-                title="Enzo peer critique [GPT-OSS 120B]"
+                title="Enzo peer critique [Llama 70B]"
               >
                 {#if critiqueStreaming && critiqueId === paper.id}
                   <span class="spinner-xs"></span>
@@ -1196,7 +1196,7 @@ Format your response as:
                   class="btn-icon deep-read-btn"
                   class:deep-read-active={deepReadId === paper.id}
                   onclick={() => doDeepRead(paper)}
-                  title="Deep Read — Enzo asks 5 critical questions [GPT-OSS 120B]"
+                  title="Deep Read — Enzo asks 5 critical questions [Llama 70B]"
                 >
                   {#if deepReadStreaming && deepReadId === paper.id}
                     <span class="spinner-xs"></span>
@@ -1210,7 +1210,7 @@ Format your response as:
                   class="btn-icon reading-note-btn"
                   onclick={() => doReadingNote(paper)}
                   disabled={readingNoteStreaming && readingNoteId === paper.id}
-                  title="Generate AI reading note [GPT-OSS 120B]"
+                  title="Generate AI reading note [Llama 70B]"
                 >
                   {#if readingNoteStreaming && readingNoteId === paper.id}
                     <span class="spinner-xs"></span>
@@ -1535,7 +1535,7 @@ Format your response as:
                 onclick={radarSummarise}
                 disabled={radarDigestStreaming}
               >
-                {#if radarDigestStreaming}<span class="spinner-xs"></span> Summarising…{:else}Summarise new papers<span class="model-pill">[120B]</span>{/if}
+                {#if radarDigestStreaming}<span class="spinner-xs"></span> Summarising…{:else}Summarise new papers<span class="model-pill">[70B]</span>{/if}
               </button>
               {#if radarDigest && !radarDigestStreaming}
                 <button class="btn btn-ghost btn-sm" onclick={() => navigator.clipboard.writeText(radarDigest).then(() => showToast('Copied'))}>Copy</button>
@@ -1566,7 +1566,7 @@ Format your response as:
           onclick={() => askMarkerEnzo(markerQuery.trim())}
           disabled={!markerQuery.trim() || markerEnzoStreaming}
         >
-          {#if markerEnzoStreaming}<span class="spinner-xs"></span>{:else}Ask Enzo<span class="model-pill">[120B]</span>{/if}
+          {#if markerEnzoStreaming}<span class="spinner-xs"></span>{:else}Ask Enzo<span class="model-pill">[70B]</span>{/if}
         </button>
       </div>
 

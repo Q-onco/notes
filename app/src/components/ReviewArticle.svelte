@@ -635,7 +635,7 @@
               class="btn btn-enzo btn-sm"
               onclick={doSynthesize}
             >
-              {#if synthStreaming}Stop{:else}{synthText ? 'Re-synthesize' : 'Synthesize theme'}<span class="model-pill">[120B]</span>{/if}
+              {#if synthStreaming}Stop{:else}{synthText ? 'Re-synthesize' : 'Synthesize theme'}<span class="model-pill">[70B]</span>{/if}
             </button>
           </div>
           {#if synthText || synthStreaming}

@@ -462,7 +462,7 @@
         onclick={runGenerate}
         disabled={generating || (genFrom === 'prompt' && !genTopic.trim()) || (genFrom === 'note' && !genNoteId) || (genFrom === 'paper' && !genPaperId)}
       >
-        {#if generating}Generating…{:else}Generate<span class="model-pill">[120B]</span>{/if}
+        {#if generating}Generating…{:else}Generate<span class="model-pill">[70B]</span>{/if}
       </button>
     </div>
     {#if generating}
@@ -620,7 +620,7 @@
             <option value="zoom">Zoom</option>
           </select>
           <button class="btn btn-ghost btn-sm" onclick={() => genOpen = true}>
-            <span class="enzo-e">E</span> Generate<span class="model-pill">[120B]</span>
+            <span class="enzo-e">E</span> Generate<span class="model-pill">[70B]</span>
           </button>
           <!-- Templates button -->
           <div class="templates-wrap">
