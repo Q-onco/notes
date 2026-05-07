@@ -72,6 +72,36 @@ tr:nth-child(even) td{background:rgba(255,255,255,.01)}
 .fml{background:#010409;border:1px solid var(--border);border-radius:6px;padding:11px 15px;font-family:var(--mono);font-size:.77rem;color:#d2a8ff;margin:9px 0;line-height:1.65}
 hr{border:none;border-top:1px solid var(--border);margin:26px 0}
 ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+/* ---- Comment System ---- */
+.czone{margin-top:40px;border-top:1px solid #1e3347;padding-top:20px}
+.czone-hdr{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;color:#5899cc;font-size:0.78rem;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;padding:6px 0}
+.czone-hdr:hover{color:#7abae8}
+.czone-arrow{font-style:normal;transition:transform 0.2s;display:inline-block;font-size:0.7rem}
+.czone.open .czone-arrow{transform:rotate(90deg)}
+.czone-body{display:none;margin-top:14px}
+.czone.open .czone-body{display:block}
+.clist{margin-bottom:14px}
+.ci{background:#071520;border:1px solid #1a3347;border-left:3px solid #2060a0;border-radius:5px;padding:11px 14px;margin-bottom:9px;position:relative}
+.ci-meta{display:flex;align-items:center;gap:10px;margin-bottom:5px}
+.ci-author{font-weight:700;color:#5899cc;font-size:0.82rem}
+.ci-date{color:#3a6a8a;font-size:0.72rem}
+.ci-text{color:#b8d0e4;font-size:0.88rem;line-height:1.65;white-space:pre-wrap}
+.ci-del{position:absolute;top:8px;right:10px;background:none;border:none;color:#2a5070;cursor:pointer;font-size:0.72rem;padding:2px 6px;border-radius:3px}
+.ci-del:hover{color:#d04040;background:#1a0808}
+.cform{background:#070f18;border:1px solid #1a3347;border-radius:7px;padding:14px}
+.cform-title{color:#5899cc;font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px}
+.cinput,.ctextarea{width:100%;box-sizing:border-box;background:#071520;border:1px solid #1a3347;border-radius:4px;color:#b8d0e4;padding:7px 11px;font-size:0.87rem;margin-bottom:7px;font-family:inherit}
+.cinput:focus,.ctextarea:focus{outline:none;border-color:#2060a0;box-shadow:0 0 0 2px rgba(32,96,160,0.18)}
+.ctextarea{min-height:72px;resize:vertical}
+.csubmit{background:#1a508a;color:#c0d8f0;border:none;border-radius:4px;padding:7px 18px;font-size:0.82rem;cursor:pointer;font-family:inherit;font-weight:700;letter-spacing:0.03em;transition:background 0.15s}
+.csubmit:hover{background:#2060a0}
+.no-ci{color:#2a5a7a;font-size:0.82rem;font-style:italic;margin-bottom:10px}
+.ccount{color:#3a6a8a;font-weight:400;margin-left:4px}
+/* ---- Reference hyperlinks ---- */
+a.rl{color:#5899cc;text-decoration:none;border-bottom:1px dotted #2060a0;transition:color 0.15s,border-color 0.15s}
+a.rl:hover{color:#7abae8;border-bottom-color:#5899cc}
+
 </style>
 </head>
 <body>
@@ -79,7 +109,7 @@ hr{border:none;border-top:1px solid var(--border);margin:26px 0}
   <div class="sb-logo">
     <div class="sb-brand">Q-onco Platform</div>
     <div class="sb-title">Biotools Research Report</div>
-    <div class="sb-sub">May 2026 · Internal · HGSOC Focus</div>
+    <div class="sb-sub">May 2026 · Internal · <a href="https://en.wikipedia.org/wiki/Ovarian_cancer#Epithelial_ovarian_cancer" target="_blank" title="High-grade serous ovarian carcinoma — Wikipedia" class="rl">HGSOC</a> Focus</div>
   </div>
   <div class="grp">Overview</div>
   <div class="si on" onclick="go('cover')"><span class="n">00</span>Cover &amp; Scope</div>
@@ -92,7 +122,7 @@ hr{border:none;border-top:1px solid var(--border);margin:26px 0}
   <div class="si" onclick="go('genomics')"><span class="n">05</span>Genomics Browser</div>
   <div class="grp">Architecture</div>
   <div class="si" onclick="go('arch')"><span class="n">06</span>Why Tools Are Built This Way</div>
-  <div class="si" onclick="go('stack')"><span class="n">06b</span>WebGL2 · WASM · ONNX Internals</div>
+  <div class="si" onclick="go('stack')"><span class="n">06b</span><a href="https://developer.mozilla.org/en-US/docs/Web/API/WebGL2RenderingContext" target="_blank" title="WebGL2 — MDN Web Docs" class="rl">WebGL2</a> · <a href="https://developer.mozilla.org/en-US/docs/WebAssembly" target="_blank" title="WebAssembly (WASM) — MDN Web Docs" class="rl">WASM</a> · ONNX Internals</div>
   <div class="grp">Build Plan</div>
   <div class="si" onclick="go('plan')"><span class="n">07</span>The Roadmap &amp; Technical Decisions</div>
   <div class="si" onclick="go('pain')"><span class="n">08</span>Researcher Pain Points</div>
@@ -113,47 +143,64 @@ hr{border:none;border-top:1px solid var(--border);margin:26px 0}
 <div class="body">
 <p>This report covers everything needed to make informed decisions about building a browser-native biotools platform for HGSOC research. It is organized as follows: first, a deep dive into the relevant HGSOC biology so the tool choices are grounded in actual research needs. Then a genuine teardown of each tool category — not a surface-level feature comparison but an explanation of why each library is architectured the way it is, what tradeoffs the original authors made, where those tradeoffs hurt us, and where we can do better. Then architecture patterns that cut across all the tools, a realistic phase-by-phase build plan with specific technical decisions, and a reference appendix.</p>
 
-<p>The organizing thesis is that browser-native biotools for HGSOC are now achievable — not in principle but in practice, with specific libraries, specific APIs, and a defined implementation path. The compute primitives (WebGL2 for GPU rendering, WebAssembly for near-native compute, ONNX Runtime Web with WebGL Execution Provider for ML inference) are all production-ready in 2026. The gap that remains is the integration layer — which is exactly what Q-onco is positioned to build.</p>
+<p>The organizing thesis is that browser-native biotools for HGSOC are now achievable — not in principle but in practice, with specific libraries, specific APIs, and a defined implementation path. The compute primitives (WebGL2 for GPU rendering, <a href="https://developer.mozilla.org/en-US/docs/WebAssembly" target="_blank" title="WebAssembly — MDN Web Docs" class="rl">WebAssembly</a> for near-native compute, <a href="https://onnxruntime.ai" target="_blank" title="ONNX Runtime Web — ML inference in browsers" class="rl">ONNX Runtime Web</a> with WebGL Execution Provider for ML inference) are all production-ready in 2026. The gap that remains is the integration layer — which is exactly what Q-onco is positioned to build.</p>
 
 <h2>What Is Covered</h2>
 <div class="tbl"><table>
 <thead><tr><th>Section</th><th>Coverage</th><th>Tools / Topics</th></tr></thead>
 <tbody>
 <tr><td>01</td><td>HGSOC Biology</td><td>HR pathway, PARP inhibitors, TME, genomic landscape, imaging data types used in labs</td></tr>
-<tr><td>02</td><td>Molecular Visualization</td><td>Mol*, NGL, 3Dmol.js, Speck — rendering pipelines, plugin architectures, state serialization, performance analysis</td></tr>
-<tr><td>03</td><td>Microscopy</td><td>Napari, QuPath, CellProfiler, Cellpose, StarDist, ilastik — algorithm deep dives, TIFF format, H-score computation, ONNX browser viability</td></tr>
-<tr><td>04</td><td>AI/ML Predictions</td><td>AlphaFold2 architecture, ESM-2 variant scoring, Vina WASM docking, DiffDock, PLIP interaction profiling</td></tr>
-<tr><td>05</td><td>Genomics Browser</td><td>IGV.js, BAM/BGZF format, tabix, HTTP range requests, HGSOC-specific genomic tracks</td></tr>
-<tr><td>06/06b</td><td>Architecture Patterns</td><td>WebGL2 pipeline, WASM memory model, ONNX runtime internals, Web Worker patterns, state serialization</td></tr>
+<tr><td>02</td><td>Molecular Visualization</td><td>Mol*, <a href="https://nglviewer.org" target="_blank" title="NGL Viewer" class="rl">NGL</a>, <a href="https://3dmol.org" target="_blank" title="3Dmol.js — molecular viewer for the web" class="rl">3Dmol.js</a>, <a href="https://github.com/wwwtyro/speck" target="_blank" title="Speck — AO sphere renderer (GitHub)" class="rl">Speck</a> — rendering pipelines, plugin architectures, state serialization, performance analysis</td></tr>
+<tr><td>03</td><td>Microscopy</td><td><a href="https://napari.org" target="_blank" title="Napari — n-dimensional image viewer" class="rl">Napari</a>, <a href="https://qupath.github.io" target="_blank" title="QuPath — open-source digital pathology" class="rl">QuPath</a>, <a href="https://cellprofiler.org" target="_blank" title="CellProfiler — cell image analysis" class="rl">CellProfiler</a>, <a href="https://github.com/MouseLand/cellpose" target="_blank" title="Cellpose — generalist cell segmentation (GitHub)" class="rl">Cellpose</a>, <a href="https://github.com/stardist/stardist" target="_blank" title="StarDist — star-convex object detection (GitHub)" class="rl">StarDist</a>, <a href="https://www.ilastik.org" target="_blank" title="ilastik — interactive machine learning for image analysis" class="rl">ilastik</a> — algorithm deep dives, TIFF format, H-score computation, ONNX browser viability</td></tr>
+<tr><td>04</td><td>AI/ML Predictions</td><td><a href="https://github.com/google-deepmind/alphafold" target="_blank" title="AlphaFold2 — DeepMind protein structure prediction (GitHub)" class="rl">AlphaFold2</a> architecture, <a href="https://github.com/facebookresearch/esm" target="_blank" title="ESM-2 — Meta AI protein language model (GitHub)" class="rl">ESM-2</a> variant scoring, Vina WASM docking, <a href="https://github.com/gcorso/DiffDock" target="_blank" title="DiffDock — diffusion-based docking (GitHub)" class="rl">DiffDock</a>, <a href="https://plip-tool.biotec.tu-dresden.de" target="_blank" title="PLIP — Protein-Ligand Interaction Profiler" class="rl">PLIP</a> interaction profiling</td></tr>
+<tr><td>05</td><td>Genomics Browser</td><td><a href="https://github.com/igvteam/igv.js" target="_blank" title="IGV.js — Integrative Genomics Viewer (GitHub)" class="rl">IGV.js</a>, BAM/<a href="https://samtools.github.io/hts-specs/SAMv1.pdf" target="_blank" title="BGZF — blocked gzip format, SAM spec §4.1" class="rl">BGZF</a> format, tabix, HTTP range requests, HGSOC-specific genomic tracks</td></tr>
+<tr><td>06/06b</td><td>Architecture Patterns</td><td>WebGL2 pipeline, WASM memory model, <a href="https://onnxruntime.ai" target="_blank" title="ONNX Runtime — cross-platform ML inference" class="rl">ONNX Runtime</a> internals, Web Worker patterns, state serialization</td></tr>
 <tr><td>07</td><td>Build Roadmap</td><td>Three phases, specific technical decisions, effort estimates, dependency map</td></tr>
 <tr><td>08</td><td>Pain Points</td><td>Four researcher workflow scenarios with before/after timelines</td></tr>
 <tr><td>09</td><td>Build vs Embed</td><td>Tool-by-tool decisions with reasoning</td></tr>
-<tr><td>10</td><td>Appendix</td><td>npm packages, UniProt IDs, genomic coordinates, file format specs, browser API matrix</td></tr>
+<tr><td>10</td><td>Appendix</td><td>npm packages, <a href="https://www.uniprot.org" target="_blank" title="UniProt — protein sequence and function database" class="rl">UniProt</a> IDs, genomic coordinates, file format specs, browser API matrix</td></tr>
 </tbody>
 </table></div>
 </div>
 </div>
 
 <!-- ═══ 01 HGSOC BIOLOGY ═══ -->
+
+<div id="czone_cover" class="czone">
+  <div class="czone-hdr" onclick="toggleC('cover')">
+    <i class="czone-arrow">&#9654;</i>
+    <span>Annotations &amp; Comments</span>
+    <span class="ccount" id="ccount_cover"></span>
+  </div>
+  <div class="czone-body">
+    <div class="clist" id="clist_cover"></div>
+    <div class="cform">
+      <div class="cform-title">Add your annotation</div>
+      <input class="cinput" id="cname_cover" type="text" placeholder="Your name or initials" autocomplete="name">
+      <textarea class="ctextarea" id="ctext_cover" placeholder="Observation, question, or note about this section…"></textarea>
+      <button class="csubmit" onclick="addC('cover')">Save Annotation</button>
+    </div>
+  </div>
+</div>
 <div id="pg-bio" class="page">
 <div class="ph">
   <div class="pn">Section 01</div>
   <h1>HGSOC Biology Deep Dive</h1>
-  <div class="desc">Homologous recombination, PARP inhibitors, the TME, genomic landscape, and the imaging data types that define the lab workflow. Understanding this biology is what separates our platform from a generic bioinformatics tool.</div>
+  <div class="desc"><a href="https://en.wikipedia.org/wiki/Homologous_recombination" target="_blank" title="Homologous recombination — Wikipedia" class="rl">homologous recombination</a>, PARP inhibitors, the TME, genomic landscape, and the imaging data types that define the lab workflow. Understanding this biology is what separates our platform from a generic bioinformatics tool.</div>
 </div>
 <div class="body">
 
 <h2>Homologous Recombination and Why It Matters for Treatment</h2>
-<p>High-grade serous ovarian cancer is defined, more than any other cancer type, by its relationship to DNA double-strand break (DSB) repair. The homologous recombination (HR) pathway is the cell's high-fidelity mechanism for repairing DSBs — it uses the sister chromatid as a repair template, preserving sequence integrity. In HGSOC, this pathway is defective in approximately 50% of tumors, and that deficiency is the primary basis for PARP inhibitor sensitivity.</p>
-<p>The HR pathway works in a defined sequence. When a DSB occurs, the MRN complex (MRE11-RAD50-NBS1) senses the break and recruits ATM kinase. ATM phosphorylates H2AX (γH2AX) across a megabase flanking the break, creating a chromatin mark visible by immunofluorescence as a distinct nuclear focus — this is why γH2AX foci are a standard assay for DSBs. ATM then phosphorylates CHK2, which propagates the checkpoint signal to stop cell cycle progression. BRCA1 is phosphorylated by ATM/CHK2 and localizes to the break site via its RING domain (which forms a heterodimer with BARD1) and its BRCT domain (which recognizes phospho-peptides on CtIP and other resection factors).</p>
+<p>High-grade serous ovarian cancer is defined, more than any other cancer type, by its relationship to DNA double-strand break (DSB) repair. The homologous recombination (HR) pathway is the cell's high-fidelity mechanism for repairing DSBs — it uses the sister chromatid as a repair template, preserving sequence integrity. In HGSOC, this pathway is defective in approximately 50% of tumors, and that deficiency is the primary basis for <a href="https://en.wikipedia.org/wiki/PARP_inhibitor" target="_blank" title="PARP inhibitor — Wikipedia" class="rl">PARP inhibitor</a> sensitivity.</p>
+<p>The HR pathway works in a defined sequence. When a DSB occurs, the MRN complex (MRE11-RAD50-NBS1) senses the break and recruits ATM kinase. ATM phosphorylates H2AX (γH2AX) across a megabase flanking the break, creating a chromatin mark visible by immunofluorescence as a distinct nuclear focus — this is why γH2AX foci are a standard assay for DSBs. ATM then phosphorylates CHK2, which propagates the checkpoint signal to stop cell cycle progression. <a href="https://www.ncbi.nlm.nih.gov/gene/672" target="_blank" title="BRCA1 — NCBI Gene" class="rl">BRCA1</a> is phosphorylated by ATM/CHK2 and localizes to the break site via its RING domain (which forms a heterodimer with BARD1) and its BRCT domain (which recognizes phospho-peptides on CtIP and other resection factors).</p>
 <p>End resection — converting the blunt DSB ends to 3′ single-stranded overhangs — requires CtIP (activated by CDK2 phosphorylation), the MRN complex, and EXO1 or DNA2/BLM helicase. BRCA1-BARD1 promotes this resection step; 53BP1, which competes with BRCA1 at break sites, inhibits resection. The balance between BRCA1 and 53BP1 determines whether a break is repaired by HR (high fidelity, uses sister chromatid) or non-homologous end joining (NHEJ, error-prone).</p>
-<p>Once ssDNA overhangs are generated, RPA coats them, and then BRCA2 loads RAD51 onto the ssDNA, displacing RPA. BRCA2's BRC repeats (there are 8 of them, encoded in the massive exon 11) each bind one RAD51 monomer and mediate loading onto ssDNA. Once loaded, RAD51 forms a helical nucleoprotein filament that invades the intact sister chromatid, searching for homology. This is the central catalytic step of HR. PALB2 is the bridging protein that physically connects BRCA1 (via coiled-coil interactions) to BRCA2 (via its C-terminal WD40 domain), making PALB2 loss functionally equivalent to BRCA1 or BRCA2 loss for HR purposes.</p>
+<p>Once ssDNA overhangs are generated, RPA coats them, and then <a href="https://www.ncbi.nlm.nih.gov/gene/675" target="_blank" title="BRCA2 — NCBI Gene" class="rl">BRCA2</a> loads RAD51 onto the ssDNA, displacing RPA. BRCA2's BRC repeats (there are 8 of them, encoded in the massive exon 11) each bind one RAD51 monomer and mediate loading onto ssDNA. Once loaded, RAD51 forms a helical nucleoprotein filament that invades the intact sister chromatid, searching for homology. This is the central catalytic step of HR. <a href="https://www.ncbi.nlm.nih.gov/gene/79728" target="_blank" title="PALB2 — NCBI Gene" class="rl">PALB2</a> is the bridging protein that physically connects BRCA1 (via coiled-coil interactions) to BRCA2 (via its C-terminal WD40 domain), making PALB2 loss functionally equivalent to BRCA1 or BRCA2 loss for HR purposes.</p>
 <p>RAD51 paralogs (RAD51B, RAD51C, RAD51D, XRCC2, XRCC3) stabilize the RAD51 filament and are required for efficient HR. RAD51C and RAD51D mutations occur in ~4-5% of HGSOC and confer PARP inhibitor sensitivity. BARD1 (BRCA1-associated RING domain protein) forms the obligate heterodimer with BRCA1's RING domain — most BRCA1 missense mutations affecting the RING domain disrupt this interaction.</p>
 
 <h3>PARP Inhibitor Mechanism: Trapping vs. Catalytic Inhibition</h3>
 <p>PARP1 (poly-ADP-ribose polymerase 1) is the primary single-strand break (SSB) repair enzyme. When a SSB occurs, PARP1 binds to the break via its two zinc finger domains, activates, and adds ADP-ribose polymers (PAR chains) to itself and nearby histones, recruiting other repair factors. After repair, PARP1 releases from the repaired DNA through auto-PARylation.</p>
 <p>PARP inhibitors (PARPi) were originally thought to work purely by blocking PARP1's catalytic activity, causing SSBs to accumulate, collapse replication forks into DSBs, and overwhelm the HR-deficient cell's ability to repair them — synthetic lethality. However, the key mechanism is actually <strong>PARP trapping</strong>: PARPi lock PARP1 onto damaged DNA. Trapped PARP1-DNA complexes are more cytotoxic than simple SSBs because they physically block replication forks and are extremely difficult to resolve — requiring specialized helicases (FANCJ, HELQ) and nucleases (FAN1) just to dislodge the trapped complex.</p>
-<p>This distinction matters enormously for the four clinical PARPi: <strong>talazoparib</strong> is the most potent PARP trapper (~100× more potent than olaparib in PARP trapping assays), followed by niraparib, then olaparib and rucaparib (roughly equivalent), then veliparib (weakest trapper, essentially catalytic inhibitor only). In clinical practice, talazoparib is used for BRCA1/2-mutant breast cancer; olaparib and niraparib are the primary HGSOC drugs. The trapping potency difference explains why talazoparib can achieve clinical responses at much lower doses but also causes more hematologic toxicity.</p>
+<p>This distinction matters enormously for the four clinical PARPi: <strong><a href="https://en.wikipedia.org/wiki/Talazoparib" target="_blank" title="Talazoparib — Wikipedia" class="rl">talazoparib</a></strong> is the most potent PARP trapper (~100× more potent than <a href="https://en.wikipedia.org/wiki/Olaparib" target="_blank" title="Olaparib — Wikipedia" class="rl">olaparib</a> in PARP trapping assays), followed by <a href="https://en.wikipedia.org/wiki/Niraparib" target="_blank" title="Niraparib — Wikipedia" class="rl">niraparib</a>, then olaparib and <a href="https://en.wikipedia.org/wiki/Rucaparib" target="_blank" title="Rucaparib — Wikipedia" class="rl">rucaparib</a> (roughly equivalent), then <a href="https://en.wikipedia.org/wiki/Veliparib" target="_blank" title="Veliparib — Wikipedia" class="rl">veliparib</a> (weakest trapper, essentially catalytic inhibitor only). In clinical practice, talazoparib is used for BRCA1/2-mutant breast cancer; olaparib and niraparib are the primary HGSOC drugs. The trapping potency difference explains why talazoparib can achieve clinical responses at much lower doses but also causes more hematologic toxicity.</p>
 <p>For structural biology: the PARP1 catalytic domain (WGR + HD + ART domains) is the drug binding site. Olaparib, niraparib, rucaparib, and veliparib all bind in the NAD+ binding pocket of the ART (ADP-ribosyl transferase) domain. The nicotinamide mimic moiety of each drug occupies the donor site. PDB entries of interest: PARP1 + olaparib (4ZZZ), PARP1 + niraparib (4R6E), PARP1 + rucaparib (5LXE). These are all appropriate structures for docking validation.</p>
 
 <h3>PARP Inhibitor Resistance Mechanisms</h3>
@@ -162,23 +209,23 @@ hr{border:none;border-top:1px solid var(--border);margin:26px 0}
 <li><strong>BRCA1/2 reversion mutations</strong>: secondary somatic mutations that restore the reading frame of the original germline frameshift or nonsense mutation. The restored protein may be partially functional, restoring enough HR to survive PARP inhibitor pressure. Detection requires deep sequencing of the original mutation site in ctDNA or tumor biopsy. Frequency: 20-30% of acquired olaparib resistance in BRCA2-mutant HGSOC.</li>
 <li><strong>53BP1 / RIF1 / REV7 loss</strong>: restores HR-independent repair by allowing end resection even in the absence of BRCA1; tumors become NHEJ-deficient instead of HR-deficient, losing PARPi sensitivity but remaining sensitive to DNA-damaging agents. Detection: IHC for 53BP1 nuclear foci.</li>
 <li><strong>PARP1 mutations</strong>: rare, but PARP1 splice variants that skip the DNA-binding zinc fingers reduce PARP trapping while maintaining catalytic activity; these are detected by RNA-seq of the PARP1 locus.</li>
-<li><strong>CDK12 bypass</strong>: CDK12 loss causes HR deficiency by reducing expression of HR genes (BRCA1, FANCD2, RAD51); resistance can emerge by alternative splicing or upregulation of backup HR factors.</li>
+<li><strong><a href="https://www.ncbi.nlm.nih.gov/gene/51755" target="_blank" title="CDK12 — NCBI Gene" class="rl">CDK12</a> bypass</strong>: CDK12 loss causes HR deficiency by reducing expression of HR genes (BRCA1, FANCD2, RAD51); resistance can emerge by alternative splicing or upregulation of backup HR factors.</li>
 <li><strong>Drug efflux</strong>: P-glycoprotein (ABCB1) upregulation reduces intracellular PARPi concentration; not a primary mechanism but observed in some cell line models.</li>
 </ul>
 
 <h2>HGSOC Genomic Landscape</h2>
 <p>The TCGA ovarian cancer analysis (2011, n=489) established the canonical molecular portrait of HGSOC:</p>
 <ul>
-<li><strong>TP53: ~96%</strong> of cases carry somatic mutations. This is near-universal, making HGSOC molecularly distinct from almost every other cancer type. Hotspot mutations: R248W (missense, dominant negative), R175H, R273H, R248Q, R249S. Splice site mutations (e.g., intron 4, intron 6 splice donors) are also common. The consequence is p53 protein accumulation detectable by IHC — a diagnostic criterion for HGSOC.</li>
+<li><strong><a href="https://www.ncbi.nlm.nih.gov/gene/7157" target="_blank" title="TP53 — NCBI Gene" class="rl">TP53</a>: ~96%</strong> of cases carry somatic mutations. This is near-universal, making HGSOC molecularly distinct from almost every other cancer type. Hotspot mutations: R248W (missense, dominant negative), R175H, R273H, R248Q, R249S. Splice site mutations (e.g., intron 4, intron 6 splice donors) are also common. The consequence is p53 protein accumulation detectable by IHC — a diagnostic criterion for HGSOC.</li>
 <li><strong>BRCA1: ~11%</strong> germline or somatic mutation. BRCA1 mutations cluster in a few hotspots: c.5266dupC (5382insC in older nomenclature, exon 20, causes frameshift), c.181T>G (p.C61G, RING domain missense disrupting BARD1 interaction), exon 11 large deletions. BRCA1 promoter methylation adds another ~5% with epigenetic silencing.</li>
 <li><strong>BRCA2: ~8%</strong> germline or somatic. Hotspot: c.6174delT (exon 11 frameshift, common Ashkenazi founder mutation), large deletions in the BRC repeat region.</li>
 <li><strong>RAD51C, RAD51D, BARD1, PALB2: ~5-7% combined</strong>. These are now included in standard germline panel testing for ovarian cancer. RAD51C/D mutations confer PARPi sensitivity equivalent to BRCA2 loss.</li>
 <li><strong>CDK12: ~3%</strong>. CDK12 is a cyclin-dependent kinase that phosphorylates the RNA polymerase II CTD and regulates transcription elongation of long HR genes (BRCA1, FANCD2). Loss causes focal tandem duplication signature and moderate HR deficiency. CDK12-mutant HGSOC is PARPi-sensitive but less so than BRCA1/2-mutant.</li>
-<li><strong>CCNE1 amplification: ~20%</strong>. Cyclin E1 amplification at chr19q12 drives HR-proficient HGSOC — this subgroup does NOT benefit from PARPi but shows sensitivity to CDK2 inhibitors. CCNE1-amplified tumors have distinct genomic stability profiles (low HRD scores) and worse prognosis on platinum.</li>
+<li><strong><a href="https://www.ncbi.nlm.nih.gov/gene/898" target="_blank" title="CCNE1 (Cyclin E1) — NCBI Gene" class="rl">CCNE1</a> amplification: ~20%</strong>. Cyclin E1 amplification at chr19q12 drives HR-proficient HGSOC — this subgroup does NOT benefit from PARPi but shows sensitivity to CDK2 inhibitors. CCNE1-amplified tumors have distinct genomic stability profiles (low HRD scores) and worse prognosis on platinum.</li>
 <li><strong>Homologous Recombination Deficiency (HRD) scores</strong>: composite genomic scar measures including Loss of Heterozygosity (LOH) — segments >15Mb that are copy-number neutral LOH; Telomeric Allelic Imbalance (TAI) — allelic imbalance extending to telomeres; Large-Scale State Transitions (LST) — breakpoints between segments >10Mb. The Myriad myChoice HRD score (sum of LOH + TAI + LST, threshold ≥42 = HRD-positive) is the clinical companion diagnostic for niraparib. Genomic HRD scars persist even after BRCA reversion mutations restore HR, making them retrospective markers of past HR deficiency.</li>
 </ul>
 
-<h2>Tumor Microenvironment in HGSOC</h2>
+<h2><a href="https://en.wikipedia.org/wiki/Tumor_microenvironment" target="_blank" title="Tumor microenvironment — Wikipedia" class="rl">tumor microenvironment</a> in HGSOC</h2>
 <p>HGSOC has a complex and clinically significant tumor microenvironment (TME). Unlike many solid tumors, HGSOC frequently spreads to the peritoneal cavity, where it encounters a distinct immune landscape shaped by ascitic fluid and omental stromal cells.</p>
 <p><strong>CD8+ tumor-infiltrating lymphocytes (TILs)</strong>: Higher intratumoral CD8+ TIL density is consistently associated with improved overall survival in HGSOC across multiple studies (Zhang et al. 2003, Sato et al. 2005). The correlation holds for both primary and recurrent disease. Quantification is typically done on IHC-stained sections: CD8 antibody on FFPE sections, manual or digital scoring of CD8+ cells per mm² within the tumor epithelial compartment. The challenge is compartment definition — stromal CD8 vs intraepithelial CD8 have different prognostic significance.</p>
 <p><strong>PD-L1 expression</strong>: PD-L1 (CD274) is expressed on tumor cells (~50% of HGSOC cases), stromal cells, and tumor-associated macrophages (TAMs). The scoring system matters: tumor proportion score (TPS, % of tumor cells PD-L1+), combined positive score (CPS, PD-L1+ cells of any type per 100 tumor cells), and area-based scoring. PD-L1 positivity in HGSOC does not reliably predict response to checkpoint inhibitors — multiple Phase II trials of pembrolizumab and atezolizumab showed modest ~10% ORR in unselected HGSOC regardless of PD-L1 status. Combination approaches (PARPi + anti-PD-L1) are in ongoing trials.</p>
@@ -198,12 +245,29 @@ hr{border:none;border-top:1px solid var(--border);margin:26px 0}
 <h3>TMA (Tissue Microarray)</h3>
 <p>Arrays of small tissue cores (0.6-1.5mm diameter) from many patients on one slide. A typical HGSOC TMA has 100-300 cores, each representing a separate patient or tumor region. TMA scanning produces a single large image (same formats as WSI) that is then digitally deconstructed into individual core images. H-score or Allred scoring per core is the standard output. The key research workflow: scan → core detection → stain quantification → link scores to clinical data (survival, treatment response).</p>
 
-<div class="note g"><div class="nt">Platform Implication</div><p>The Q-onco biotools platform needs to handle: (1) 16-bit multi-channel TIFF for mIF TMA cores, (2) H&amp;E WSI tiles for morphological assessment, (3) IHC images for DAB quantification with color deconvolution, (4) PDB/mmCIF for protein structures, (5) VCF/BAM for genomic variants. Each has completely different rendering requirements, pixel depth, channel semantics, and quantification logic. No single existing browser library covers all of these — which is precisely why a custom integration layer is needed.</p></div>
+<div class="note g"><div class="nt">Platform Implication</div><p>The Q-onco biotools platform needs to handle: (1) 16-bit multi-channel TIFF for mIF TMA cores, (2) H&amp;E WSI tiles for morphological assessment, (3) IHC images for DAB quantification with color deconvolution, (4) PDB/<a href="https://mmcif.wwpdb.org" target="_blank" title="mmCIF — macromolecular CIF format spec" class="rl">mmCIF</a> for protein structures, (5) VCF/BAM for genomic variants. Each has completely different rendering requirements, pixel depth, channel semantics, and quantification logic. No single existing browser library covers all of these — which is precisely why a custom integration layer is needed.</p></div>
 
 </div>
 </div>
 
 <!-- ═══ 02 MOLECULAR VIZ ═══ -->
+
+<div id="czone_bio" class="czone">
+  <div class="czone-hdr" onclick="toggleC('bio')">
+    <i class="czone-arrow">&#9654;</i>
+    <span>Annotations &amp; Comments</span>
+    <span class="ccount" id="ccount_bio"></span>
+  </div>
+  <div class="czone-body">
+    <div class="clist" id="clist_bio"></div>
+    <div class="cform">
+      <div class="cform-title">Add your annotation</div>
+      <input class="cinput" id="cname_bio" type="text" placeholder="Your name or initials" autocomplete="name">
+      <textarea class="ctextarea" id="ctext_bio" placeholder="Observation, question, or note about this section…"></textarea>
+      <button class="csubmit" onclick="addC('bio')">Save Annotation</button>
+    </div>
+  </div>
+</div>
 <div id="pg-mol" class="page">
 <div class="ph">
   <div class="pn">Section 02</div>
@@ -219,12 +283,12 @@ hr{border:none;border-top:1px solid var(--border);margin:26px 0}
 <div class="card">
   <div class="ch">
     <div class="ci" style="background:rgba(124,58,237,.15)">🧊</div>
-    <div><div class="cn">Mol* (MolStar)</div><div class="cm">molstar.org · MIT · ~2MB gzipped · npm: molstar · Standard viewer at RCSB PDB, PDBe, UniProt</div></div>
+    <div><div class="cn"><a href="https://molstar.org" target="_blank" title="Mol* — official site" class="rl">Mol* (MolStar)</a></div><div class="cm">molstar.org · MIT · ~2MB gzipped · npm: molstar · Standard viewer at <a href="https://www.rcsb.org" target="_blank" title="RCSB PDB — Protein Data Bank" class="rl">RCSB PDB</a>, PDBe, UniProt</div></div>
   </div>
   <div class="cb">
   <h4>Design History and Motivation</h4>
   <p>Mol* was initiated in 2018 as a collaboration between David Sehnal (CEITEC, Brno), Alexander Rose (RCSB PDB, UCSD), and the PDBe team at EMBL-EBI, with the explicit goal of replacing Jmol as the reference web-based molecular viewer. Jmol, written in Java and later reimplemented as JSmol (pure JS), was the dominant web viewer for 15 years but had fundamental architectural problems: single-threaded, unable to handle structures above ~50,000 atoms, no GPU rendering, no plugin system, and a scripting language (Jmol script) that was effectively a proprietary DSL requiring significant learning investment.</p>
-  <p>NGL Viewer (Alexander Rose, 2015) was the first serious attempt at a WebGL-based replacement. NGL used Three.js as its rendering foundation and demonstrated that WebGL could handle protein structures interactively. However, Three.js's scene graph overhead began to appear at ~100,000 atoms, and NGL had no state serialization and no plugin system — limiting its extensibility for institutional use at RCSB.</p>
+  <p><a href="https://nglviewer.org" target="_blank" title="NGL Viewer — official site" class="rl">NGL Viewer</a> (Alexander Rose, 2015) was the first serious attempt at a WebGL-based replacement. NGL used Three.js as its rendering foundation and demonstrated that WebGL could handle protein structures interactively. However, Three.js's scene graph overhead began to appear at ~100,000 atoms, and NGL had no state serialization and no plugin system — limiting its extensibility for institutional use at RCSB.</p>
   <p>Mol* was designed from the start around three non-negotiable requirements: (1) handle any structure in the PDB including the largest entries (ribosome 70S is ~250,000 atoms, PBCV-1 virus capsid is ~10M atoms), (2) have a complete plugin system that allows third parties to add custom representations and behaviors without modifying core code, and (3) serialize complete viewer state so sessions can be saved, shared, and reproduced.</p>
 
   <h4>The WebGL2 Rendering Pipeline</h4>
@@ -237,7 +301,7 @@ hr{border:none;border-top:1px solid var(--border);margin:26px 0}
   </ul>
 
   <h4>The State Tree Architecture</h4>
-  <p>Mol*'s state is organized as a tree of <code>PluginStateObject</code> nodes. Each node has a type (e.g., <code>Download</code>, <code>ParseCif</code>, <code>Trajectory</code>, <code>Model</code>, <code>Structure</code>, <code>StructureRepresentation3D</code>) and transforms that convert one type to another. A typical state tree for loading BRCA1 from AlphaFold looks like:</p>
+  <p>Mol*'s state is organized as a tree of <code>PluginStateObject</code> nodes. Each node has a type (e.g., <code>Download</code>, <code>ParseCif</code>, <code>Trajectory</code>, <code>Model</code>, <code>Structure</code>, <code>StructureRepresentation3D</code>) and transforms that convert one type to another. A typical state tree for loading BRCA1 from <a href="https://alphafold.ebi.ac.uk" target="_blank" title="AlphaFold Database — EBI" class="rl">AlphaFold</a> looks like:</p>
   <pre>Download (url: alphafold.ebi.ac.uk/api/prediction/P38398)
   └─ ParseCif (parses mmCIF text into CIF AST)
        └─ TrajectoryFromMmCif (extracts trajectory from CIF data)
@@ -246,7 +310,7 @@ hr{border:none;border-top:1px solid var(--border);margin:26px 0}
                       └─ StructureRepresentation3D
                            ├─ Cartoon (secondary structure ribbons)
                            └─ SpaceFill (atoms, colored by pLDDT score)</pre>
-  <p>This tree is serializable to MOLJ (JSON). Loading a MOLJ file reconstructs this exact tree, re-fetches any remote data, re-parses, and produces identical visual output. The MOLJ format is stable across Mol* versions for common operations, making it suitable for long-term session storage in our GitHub .enc system.</p>
+  <p>This tree is serializable to <a href="https://github.com/molstar/molstar/blob/master/docs/state.md" target="_blank" title="MOLJ — Mol* state serialization format" class="rl">MOLJ</a> (JSON). Loading a MOLJ file reconstructs this exact tree, re-fetches any remote data, re-parses, and produces identical visual output. The MOLJ format is stable across Mol* versions for common operations, making it suitable for long-term session storage in our GitHub .enc system.</p>
 
   <h4>The Plugin/Behavior System</h4>
   <p>Mol* behaviors are classes that register against the <code>PluginContext</code> and subscribe to state change events. A behavior for HGSOC BRCA1 annotation would:</p>
@@ -266,7 +330,7 @@ this.subscribeObservable(
     }
   }
 );</pre>
-  <p><code>applyHGSOCAnnotations</code> then adds color-by-domain representations (RING domain = red, BRCT domain = blue, unstructured = gray), adds label overlays at known pathogenic variant positions, and adds a custom panel to the right sidebar with variant classification data from ClinVar.</p>
+  <p><code>applyHGSOCAnnotations</code> then adds color-by-domain representations (RING domain = red, BRCT domain = blue, unstructured = gray), adds label overlays at known pathogenic variant positions, and adds a custom panel to the right sidebar with variant classification data from <a href="https://www.ncbi.nlm.nih.gov/clinvar/" target="_blank" title="ClinVar — NCBI variant database" class="rl">ClinVar</a>.</p>
 
   <h4>Performance in Practice</h4>
   <p>Tested performance figures for Mol* on a mid-range laptop (Intel Iris Xe integrated GPU): BRCA1 AlphaFold structure (1863 residues) in Cartoon mode = 60fps; BRCA1 in SpaceFill mode = 60fps; BRCA1-BARD1-PALB2 complex (~5000 residues) in SpaceFill = 60fps; 70S ribosome (250K atoms) in Cartoon = 45fps; 70S ribosome in SpaceFill = 18fps. The SpaceFill limitation at >100K atoms on integrated GPU is fragment shader bound (many overlapping sphere fragments). Discrete GPUs easily handle 250K atoms at 60fps in SpaceFill.</p>
@@ -287,7 +351,7 @@ this.subscribeObservable(
       <li>Plugin API surface is large and occasionally breaks between minor versions</li>
       <li>Default UI is designed for PDB power users, not clinical oncology researchers</li>
       <li>No 16-bit multi-channel TIFF — cannot handle IF microscopy data</li>
-      <li>No PDBQT format — docking output from Vina requires conversion before display</li>
+      <li>No <a href="https://autodock.scripps.edu/wp-content/uploads/2021/10/AutoDock4.2.6_UserGuide.pdf" target="_blank" title="PDBQT format — AutoDock user guide" class="rl">PDBQT</a> format — docking output from Vina requires conversion before display</li>
       <li>MOLJ sessions >1MB become slow to parse; large annotation datasets need separate storage</li>
     </ul></div>
   </div>
@@ -314,7 +378,7 @@ this.subscribeObservable(
     <div><div class="cn">3Dmol.js</div><div class="cm">3dmol.csb.pitt.edu · BSD-3 · ~600KB · npm: 3dmol · Computational chemistry focus, native PDBQT</div></div>
   </div>
   <div class="cb">
-  <p>3Dmol.js was developed at the Pitt Drug Discovery Institute specifically for computational chemistry workflows — docking pose visualization, small molecule display, and protein-ligand interaction analysis. Its defining feature is <strong>native PDBQT format support</strong>. PDBQT is AutoDock's format: it extends the standard PDB format with two additional columns for partial atomic charge (from Gasteiger method) and AutoDock atom type (AD4 type system: HD for polar hydrogen, OA for acceptor oxygen, NA for acceptor nitrogen, SA for acceptor sulfur, etc.). Every other web viewer requires conversion from PDBQT to SDF or MOL2 before display. 3Dmol.js parses PDBQT directly, making it the essential docking results viewer.</p>
+  <p>3Dmol.js was developed at the Pitt Drug Discovery Institute specifically for computational chemistry workflows — docking pose visualization, small molecule display, and protein-ligand interaction analysis. Its defining feature is <strong>native PDBQT format support</strong>. PDBQT is <a href="https://autodock.scripps.edu" target="_blank" title="AutoDock — molecular docking" class="rl">AutoDock</a>'s format: it extends the standard PDB format with two additional columns for partial atomic charge (from Gasteiger method) and AutoDock atom type (AD4 type system: HD for polar hydrogen, OA for acceptor oxygen, NA for acceptor nitrogen, SA for acceptor sulfur, etc.). Every other web viewer requires conversion from PDBQT to SDF or MOL2 before display. 3Dmol.js parses PDBQT directly, making it the essential docking results viewer.</p>
   <p>Internally, 3Dmol.js uses its own WebGL implementation (not Three.js). The <code>GLViewer</code> class manages a WebGL context, camera matrices (view, projection, model), and a list of model objects. Rendering uses a custom forward renderer — no deferred rendering, no SSAO, no PBR. The visual quality is lower than Mol* but sufficient for docking result interpretation.</p>
   <p>Mouse interaction uses ray-sphere intersection for atom picking: for each mouse click, the viewer computes a ray from the camera through the clicked screen position, tests intersection against each atom sphere, and selects the nearest hit. This is O(n_atoms) per click — for structures under 50,000 atoms this is imperceptible; for larger structures it can stutter. 3Dmol.js is intentionally designed for drug-sized molecules (200-500 atoms) and drug targets (1000-5000 residues) — it degrades gracefully outside that range.</p>
   <p>Surface computation uses a JavaScript port of MSMS (Michel Sanner's Molecular Surface) with spatial hashing for performance. Solvent-excluded surface generation for a typical protein takes 2-5 seconds on the main thread — this is a known limitation. For Q-onco, we will need to move surface computation to a Web Worker to prevent UI blocking.</p>
@@ -333,7 +397,7 @@ this.subscribeObservable(
   <p>Speck's approach: run a software rasterizer in a <code>Web Worker</code> that computes AO contributions analytically per atom, upload the result as a WebGL RGBA texture, and then in the fragment shader simply look up the pre-computed AO value for each screen pixel. The software rasterizer uses a simplified AO formula: for each atom at position p with radius r, AO contribution at screen position (x,y) is computed by integrating over neighboring atoms within a cutoff radius, estimating the solid angle subtended by each neighbor. The Poisson disk sampling of the hemisphere above the atom surface point gives the directional distribution.</p>
   <p>The rendering loop: Worker computes AO for the current view → posts a Float32Array result → main thread uploads to <code>gl.RGBA32F</code> texture → fragment shader reads AO values and multiplies with surface color. For a 100-atom drug molecule, the Worker computation takes ~10ms, enabling ~15fps AO rendering — acceptable for publication figure generation (not interactive rotation at 60fps, but usable).</p>
   <p>Input format: Speck expects XYZ format (<code>element x y z</code> per line, one line per atom). Conversion from SDF or MOL2 requires extracting atom coordinates and element symbols — achievable in ~20 lines of JS. For drug molecules from our Vina docking pipeline, we parse the PDBQT output, extract heavy atom coordinates, and pass to Speck.</p>
-  <div class="note w"><div class="nt">Q-onco Role</div><p>Speck is used for drug molecule display in the PARP inhibitor library panel. When a researcher selects olaparib, niraparib, rucaparib, or another compound from the pre-loaded library, Speck renders it with AO sphere mode. The output looks like a high-quality CGI render suitable for direct inclusion in a grant figure or presentation slide. RDKit.js provides the 3D coordinates from SMILES, Speck handles the rendering.</p></div>
+  <div class="note w"><div class="nt">Q-onco Role</div><p>Speck is used for drug molecule display in the PARP inhibitor library panel. When a researcher selects olaparib, niraparib, rucaparib, or another compound from the pre-loaded library, Speck renders it with AO sphere mode. The output looks like a high-quality CGI render suitable for direct inclusion in a grant figure or presentation slide. <a href="https://www.rdkit.org/docs/Overview.html#oss-software" target="_blank" title="RDKit — Open-Source Cheminformatics" class="rl">RDKit.js</a> provides the 3D coordinates from SMILES, Speck handles the rendering.</p></div>
   </div>
 </div>
 
@@ -359,6 +423,23 @@ this.subscribeObservable(
 </div>
 
 <!-- ═══ 03 MICROSCOPY ═══ -->
+
+<div id="czone_mol" class="czone">
+  <div class="czone-hdr" onclick="toggleC('mol')">
+    <i class="czone-arrow">&#9654;</i>
+    <span>Annotations &amp; Comments</span>
+    <span class="ccount" id="ccount_mol"></span>
+  </div>
+  <div class="czone-body">
+    <div class="clist" id="clist_mol"></div>
+    <div class="cform">
+      <div class="cform-title">Add your annotation</div>
+      <input class="cinput" id="cname_mol" type="text" placeholder="Your name or initials" autocomplete="name">
+      <textarea class="ctextarea" id="ctext_mol" placeholder="Observation, question, or note about this section…"></textarea>
+      <button class="csubmit" onclick="addC('mol')">Save Annotation</button>
+    </div>
+  </div>
+</div>
 <div id="pg-micro" class="page">
 <div class="ph">
   <div class="pn">Section 03</div>
@@ -386,7 +467,7 @@ this.subscribeObservable(
 <li><code>SamplesPerPixel</code> (tag 277): number of channels per pixel. For a 6-plex mIF stack stored as planar (PlanarConfiguration=2), each channel is stored in a separate IFD. Some systems store all channels interleaved in one IFD (PlanarConfiguration=1), others as separate IFDs per channel per z-slice per time point.</li>
 <li><code>PlanarConfiguration</code> (tag 284): 1 = chunky/interleaved (RGBRGBRGB...), 2 = planar (RRRR...GGGG...BBBB...). For multi-channel IF, planar configuration is common — all pixels for channel 1, then all pixels for channel 2, etc.</li>
 <li><code>TileWidth</code>/<code>TileLength</code> (tags 322/323) vs <code>StripOffsets</code> (tag 324): large images use tile-based storage (e.g., 256×256 or 512×512 tiles); smaller images use strips. Tile-based access enables random access to image regions without loading the full file — critical for large WSI tiles.</li>
-<li><code>ImageDescription</code> (tag 270): in OME-TIFF, this contains an XML document describing the full experiment metadata: channel names (DAPI, CK, CD8, CD68, PD-L1, Ki67), fluorophore wavelengths (405nm, 488nm, 555nm, 647nm, etc.), physical pixel size in µm, z-spacing, time interval, objective NA. Our decoder must parse this XML to label channels correctly.</li>
+<li><code>ImageDescription</code> (tag 270): in <a href="https://docs.openmicroscopy.org/ome-model/latest/ome-tiff/" target="_blank" title="OME-TIFF specification — Open Microscopy Environment" class="rl">OME-TIFF</a>, this contains an XML document describing the full experiment metadata: channel names (DAPI, CK, CD8, CD68, PD-L1, Ki67), fluorophore wavelengths (405nm, 488nm, 555nm, 647nm, etc.), physical pixel size in µm, z-spacing, time interval, objective NA. Our decoder must parse this XML to label channels correctly.</li>
 <li><code>Compression</code> (tag 259): value 1 = uncompressed, 5 = LZW, 8 = Adobe Deflate (zlib), 34892 = JPEG2000 (used by some confocal systems). We need decompression support for all common compression types.</li>
 </ul>
 <p>The existing browser libraries: <code>geotiff.js</code> (designed for geospatial rasters, handles 16-bit unsigned and float, tile access, LZW/Deflate/LERC compression) is the closest fit but does not parse OME-TIFF XML metadata. <code>UTIF.js</code> handles basic TIFF parsing but clips 16-bit values to 8-bit on decode. Our custom decoder will use <code>geotiff.js</code> for the low-level TIFF parsing and add OME-XML parsing on top.</p>
@@ -458,7 +539,7 @@ for (let y = 0; y < H; y++) {
 </pre>
   <p>This is O(H × W × STEPS) operations — for a 512×512 image with 30% foreground: ~40M iterations. In JavaScript, without SIMD optimization, this takes approximately 3-6 seconds in a Web Worker. This is acceptable as a one-time computation that runs while showing a progress indicator. The result is a label mask (same size as input, integer value = cell ID, 0 = background) that is then used for feature extraction.</p>
   <h4>ONNX Model Download Strategy</h4>
-  <p>The cytoplasm model is ~25MB. Download strategy: on first use, fetch from a CDN URL, store the ArrayBuffer in IndexedDB under the key <code>'cellpose_cyto_onnx_v2.3'</code>. Subsequent uses load from IndexedDB (instant). The IndexedDB entry should include the model version hash to invalidate the cache when we update models. Browser IndexedDB quota is typically 500MB-1GB for PWAs that have been "installed" — sufficient for Cellpose + StarDist + ESM-2 models combined.</p>
+  <p>The cytoplasm model is ~25MB. Download strategy: on first use, fetch from a CDN URL, store the ArrayBuffer in <a href="https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API" target="_blank" title="IndexedDB API — MDN Web Docs" class="rl">IndexedDB</a> under the key <code>'cellpose_cyto_onnx_v2.3'</code>. Subsequent uses load from IndexedDB (instant). The IndexedDB entry should include the model version hash to invalidate the cache when we update models. Browser IndexedDB quota is typically 500MB-1GB for PWAs that have been "installed" — sufficient for Cellpose + StarDist + ESM-2 models combined.</p>
   <div class="pc">
     <div class="pb pro"><h5>Browser Capability</h5><ul>
       <li>ONNX WebGL EP: ~2-5s per 512×512 — practical for TMA core analysis</li>
@@ -470,7 +551,7 @@ for (let y = 0; y < H; y++) {
     <div class="pb con"><h5>Implementation Complexity</h5><ul>
       <li>Postprocessing (Euler integration) must be written in JS — not trivial</li>
       <li>Large images need tiling with overlap (16px) to avoid edge artifacts</li>
-      <li>COOP/COEP headers required for SharedArrayBuffer transfer to Worker</li>
+      <li>COOP/COEP headers required for <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/SharedArrayBuffer" target="_blank" title="SharedArrayBuffer — MDN Web Docs" class="rl">SharedArrayBuffer</a> transfer to Worker</li>
       <li>WebGL EP float16 precision: some operations accumulate rounding errors vs float32</li>
     </ul></div>
   </div>
@@ -523,6 +604,23 @@ for (let y = 0; y < H; y++) {
 </div>
 
 <!-- ═══ 04 AI/ML PREDICTIONS ═══ -->
+
+<div id="czone_micro" class="czone">
+  <div class="czone-hdr" onclick="toggleC('micro')">
+    <i class="czone-arrow">&#9654;</i>
+    <span>Annotations &amp; Comments</span>
+    <span class="ccount" id="ccount_micro"></span>
+  </div>
+  <div class="czone-body">
+    <div class="clist" id="clist_micro"></div>
+    <div class="cform">
+      <div class="cform-title">Add your annotation</div>
+      <input class="cinput" id="cname_micro" type="text" placeholder="Your name or initials" autocomplete="name">
+      <textarea class="ctextarea" id="ctext_micro" placeholder="Observation, question, or note about this section…"></textarea>
+      <button class="csubmit" onclick="addC('micro')">Save Annotation</button>
+    </div>
+  </div>
+</div>
 <div id="pg-ai" class="page">
 <div class="ph">
   <div class="pn">Section 04</div>
@@ -538,7 +636,7 @@ for (let y = 0; y < H; y++) {
   </div>
   <div class="cb">
   <h4>What AlphaFold2 Actually Does</h4>
-  <p>AlphaFold2 (Jumper et al., Nature 2021) predicts protein 3D structure from amino acid sequence with accuracy competitive with experimental X-ray crystallography for many domains. The architecture has two major components: the <strong>Evoformer</strong> and the <strong>Structure Module</strong>.</p>
+  <p>AlphaFold2 (Jumper et al., Nature 2021) predicts protein 3D structure from amino acid sequence with accuracy competitive with experimental X-ray crystallography for many domains. The architecture has two major components: the <strong><a href="https://doi.org/10.1038/s41586-021-03819-2" target="_blank" title="AlphaFold2: Jumper et al. 2021, Nature" class="rl">Evoformer</a></strong> and the <strong><a href="https://doi.org/10.1038/s41586-021-03819-2" target="_blank" title="AlphaFold2 Structure Module — Jumper et al. 2021, Nature" class="rl">Structure Module</a></strong>.</p>
   <p>The <strong>Evoformer</strong> processes two types of input representations simultaneously: the MSA (Multiple Sequence Alignment) representation — a tensor of shape [N_sequences, N_residues, 256] encoding evolutionary information from homologous sequences — and the pair representation — a tensor of shape [N_residues, N_residues, 128] encoding pairwise relationships between all residue pairs. The model searches genetic databases (UniRef90, BFD, MGnify) and retrieves up to 512 homologous sequences aligned to the query. These homologs constrain the structure: residue pairs that co-evolve (correlated mutations across species) are almost always in contact in the 3D structure (mutual information = distance constraint).</p>
   <p>48 Evoformer blocks alternate between MSA row-wise attention (for each residue pair, attend across all homologous sequences), MSA column-wise attention (for each sequence, attend across residues), and triangular updates of the pair representation (message passing over triangles of residue triples). The triangular update enforces geometric consistency — if residue A is close to B, and B is close to C, then A and C must be in a consistent geometric relationship.</p>
   <p>The <strong>Structure Module</strong> takes the pair representation and produces 3D backbone frames for each residue. Each frame is a rigid body (rotation + translation in 3D space). The key innovation is <strong>Invariant Point Attention (IPA)</strong>: an attention mechanism that operates on both the 1D sequence features and the 3D spatial coordinates simultaneously, and is equivariant to global rigid-body transformations (rotating the whole protein doesn't change the predicted structure). 8 IPA blocks iteratively refine the backbone frames. The final step predicts side-chain torsion angles (χ1-χ4) from the sequence and refined backbone, and places side-chain atoms geometrically.</p>
@@ -620,7 +718,7 @@ async function scoreVariant(sequence, position, wtAA, mutAA) {
 <div class="card">
   <div class="ch">
     <div class="ci" style="background:rgba(233,69,96,.12)">⚗️</div>
-    <div><div class="cn">AutoDock Vina (WASM Build)</div><div class="cm">vina.scripps.edu · Apache 2.0 · ~70-80% native C++ speed via Emscripten · ~60s per typical docking run</div></div>
+    <div><div class="cn"><a href="https://vina.scripps.edu" target="_blank" title="AutoDock Vina — official site" class="rl">AutoDock Vina</a> (WASM Build)</div><div class="cm">vina.scripps.edu · Apache 2.0 · ~70-80% native C++ speed via Emscripten · ~60s per typical docking run</div></div>
   </div>
   <div class="cb">
   <h4>The Vina Scoring Function</h4>
@@ -716,6 +814,23 @@ function detectPiStacking(rings_protein, rings_ligand) {
 </div>
 
 <!-- ═══ 05 GENOMICS ═══ -->
+
+<div id="czone_ai" class="czone">
+  <div class="czone-hdr" onclick="toggleC('ai')">
+    <i class="czone-arrow">&#9654;</i>
+    <span>Annotations &amp; Comments</span>
+    <span class="ccount" id="ccount_ai"></span>
+  </div>
+  <div class="czone-body">
+    <div class="clist" id="clist_ai"></div>
+    <div class="cform">
+      <div class="cform-title">Add your annotation</div>
+      <input class="cinput" id="cname_ai" type="text" placeholder="Your name or initials" autocomplete="name">
+      <textarea class="ctextarea" id="ctext_ai" placeholder="Observation, question, or note about this section…"></textarea>
+      <button class="csubmit" onclick="addC('ai')">Save Annotation</button>
+    </div>
+  </div>
+</div>
 <div id="pg-genomics" class="page">
 <div class="ph">
   <div class="pn">Section 05</div>
@@ -735,8 +850,8 @@ function detectPiStacking(rings_protein, rings_ligand) {
 
 <h2>IGV.js Architecture</h2>
 <p>IGV.js implements the browser side of this protocol: (1) load .bai or .tbi (tabix) index, (2) parse bin structure to find file offsets for current view, (3) issue HTTP Range requests via <code>fetch(url, {headers: {Range: 'bytes=start-end'}})</code>, (4) decompress BGZF blocks using pako.js (a JS port of zlib) or the native <code>DecompressionStream</code> API (Web Streams API, available in modern browsers), (5) parse the decompressed BAM/VCF records, (6) render to a Canvas element.</p>
-<p>The rendering pipeline per track: a <code>getFeatures(chr, start, end)</code> call returns features for the current view region. These features are rendered to an <code>OffscreenCanvas</code> using 2D Canvas API (arc for reads, rect for blocks, text for labels). The OffscreenCanvas is transferred to the main canvas via <code>drawImage</code>. At 10,000+ reads in view, IGV.js switches from read-level rendering (individual colored rectangles per read) to coverage-level rendering (a histogram of depth per genomic position) to avoid performance issues.</p>
-<p>For local files (researcher dragging their own BAM or VCF from their laptop), IGV.js uses the <strong>File System Access API</strong>: <code>showOpenFilePicker()</code> → <code>FileSystemFileHandle</code> → <code>file.slice(start, end)</code>. This exposes the same random-access byte-range interface as HTTP range requests, using local disk I/O. The 100GB BAM file never leaves the researcher's machine — only the needed BGZF blocks for the current view window are read from disk and decoded in memory.</p>
+<p>The rendering pipeline per track: a <code>getFeatures(chr, start, end)</code> call returns features for the current view region. These features are rendered to an <code>OffscreenCanvas</code> using 2D Canvas API (arc for reads, rect for blocks, text for labels). The <a href="https://developer.mozilla.org/en-US/docs/Web/API/OffscreenCanvas" target="_blank" title="OffscreenCanvas — MDN Web Docs" class="rl">OffscreenCanvas</a> is transferred to the main canvas via <code>drawImage</code>. At 10,000+ reads in view, IGV.js switches from read-level rendering (individual colored rectangles per read) to coverage-level rendering (a histogram of depth per genomic position) to avoid performance issues.</p>
+<p>For local files (researcher dragging their own BAM or VCF from their laptop), IGV.js uses the <strong><a href="https://developer.mozilla.org/en-US/docs/Web/API/File_System_Access_API" target="_blank" title="File System Access API — MDN Web Docs" class="rl">File System Access API</a></strong>: <code>showOpenFilePicker()</code> → <code>FileSystemFileHandle</code> → <code>file.slice(start, end)</code>. This exposes the same random-access byte-range interface as HTTP range requests, using local disk I/O. The 100GB BAM file never leaves the researcher's machine — only the needed BGZF blocks for the current view window are read from disk and decoded in memory.</p>
 
 <h2>CORS Configuration</h2>
 <p>For remote BAM files (not local), the file host must send CORS headers: <code>Access-Control-Allow-Origin: *</code> and <code>Access-Control-Allow-Headers: Range</code>. S3, Google Cloud Storage, and Azure Blob all support this via bucket-level CORS configuration. Most institutional HPC storage and FTP servers do not — researchers must either use local file access or set up a compliant file server. This is a real practical limitation for clinical genomic data hosted on hospital systems.</p>
@@ -807,6 +922,23 @@ browser.loadTrack({
 </div>
 
 <!-- ═══ 06 ARCHITECTURE ═══ -->
+
+<div id="czone_genomics" class="czone">
+  <div class="czone-hdr" onclick="toggleC('genomics')">
+    <i class="czone-arrow">&#9654;</i>
+    <span>Annotations &amp; Comments</span>
+    <span class="ccount" id="ccount_genomics"></span>
+  </div>
+  <div class="czone-body">
+    <div class="clist" id="clist_genomics"></div>
+    <div class="cform">
+      <div class="cform-title">Add your annotation</div>
+      <input class="cinput" id="cname_genomics" type="text" placeholder="Your name or initials" autocomplete="name">
+      <textarea class="ctextarea" id="ctext_genomics" placeholder="Observation, question, or note about this section…"></textarea>
+      <button class="csubmit" onclick="addC('genomics')">Save Annotation</button>
+    </div>
+  </div>
+</div>
 <div id="pg-arch" class="page">
 <div class="ph">
   <div class="pn">Section 06</div>
@@ -821,7 +953,7 @@ browser.loadTrack({
 <p>For Q-onco, the pattern implies: use Three.js for nothing that has a performance requirement. Use WebGL2 directly (or via a thin wrapper like <code>regl</code> that exposes instancing without a scene graph) for the molecular renderer and IF viewer. Use Canvas2D API only for UI elements that change infrequently.</p>
 
 <h2>Pattern 2: The Main Thread is Sacred</h2>
-<p>Browser rendering happens on the main thread. Any JavaScript computation that runs for more than ~16ms (one frame at 60fps) will cause a dropped frame. Computations over ~100ms cause perceptible UI freezes. All scientific visualization tools learned this lesson the hard way — early versions blocked the UI during file parsing, and user complaints forced the move to Web Workers.</p>
+<p>Browser rendering happens on the main thread. Any JavaScript computation that runs for more than ~16ms (one frame at 60fps) will cause a dropped frame. Computations over ~100ms cause perceptible UI freezes. All scientific visualization tools learned this lesson the hard way — early versions blocked the UI during file parsing, and user complaints forced the move to <a href="https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API" target="_blank" title="Web Workers API — MDN Web Docs" class="rl">Web Workers</a>.</p>
 <p>The Web Worker architecture for scientific computation:</p>
 <pre>// Main thread: send work, receive results
 const worker = new Worker('/workers/cellpose.worker.js', { type: 'module' });
@@ -883,7 +1015,7 @@ self.onmessage = async ({ data }) => {
 
 <h2>Pattern 4: Format Parsers Are Infrastructure, Not Features</h2>
 <p>Every scientific format has edge cases accumulated over decades of real-world use: optional fields that some software writes and others don't, version-specific quirks, degenerate inputs that violate the spec, and compression variants. Writing format parsers from scratch is high-risk and time-consuming. Every team that did it learned this.</p>
-<p>The correct strategy: reuse existing, battle-tested parsers wherever they exist. Mol*'s mmCIF parser handles every quirk of the PDB's CIF files because it was written by the PDBe team who maintain the database. IGV.js's BAM parser handles every SAM/BAM quirk because the team works with real research data daily. GeoTIFF.js handles 16-bit TIFF because it was built for geospatial imaging which also uses 16-bit rasters. The one exception: OME-TIFF channel metadata — no browser library handles the OME-XML schema, so we write our own 100-line XML parser using DOMParser (the browser has a native XML parser via the Web API).</p>
+<p>The correct strategy: reuse existing, battle-tested parsers wherever they exist. Mol*'s mmCIF parser handles every quirk of the PDB's CIF files because it was written by the PDBe team who maintain the database. IGV.js's BAM parser handles every SAM/BAM quirk because the team works with real research data daily. <a href="https://geotiffjs.github.io/geotiff.js/" target="_blank" title="geotiff.js — parse GeoTIFF/BigTIFF in the browser" class="rl">geotiff.js</a> handles 16-bit TIFF because it was built for geospatial imaging which also uses 16-bit rasters. The one exception: OME-TIFF channel metadata — no browser library handles the OME-XML schema, so we write our own 100-line XML parser using DOMParser (the browser has a native XML parser via the Web API).</p>
 
 <h2>Pattern 5: Plugin Systems Enable Long-term Survival</h2>
 <p>The tools with the longest community lifespans (Mol*, Napari, IGV.js, QuPath) all have formal plugin/extension systems. The tools without them (NGL, 3Dmol.js, Speck) are used exactly as built by their authors, without community extensions. This is not coincidence. Research tools need customization the authors cannot anticipate: custom file formats from new instruments, custom visualizations for specific experiments, custom analysis pipelines for specific workflows.</p>
@@ -893,6 +1025,23 @@ self.onmessage = async ({ data }) => {
 </div>
 
 <!-- ═══ 06b WebGL/WASM/ONNX INTERNALS ═══ -->
+
+<div id="czone_arch" class="czone">
+  <div class="czone-hdr" onclick="toggleC('arch')">
+    <i class="czone-arrow">&#9654;</i>
+    <span>Annotations &amp; Comments</span>
+    <span class="ccount" id="ccount_arch"></span>
+  </div>
+  <div class="czone-body">
+    <div class="clist" id="clist_arch"></div>
+    <div class="cform">
+      <div class="cform-title">Add your annotation</div>
+      <input class="cinput" id="cname_arch" type="text" placeholder="Your name or initials" autocomplete="name">
+      <textarea class="ctextarea" id="ctext_arch" placeholder="Observation, question, or note about this section…"></textarea>
+      <button class="csubmit" onclick="addC('arch')">Save Annotation</button>
+    </div>
+  </div>
+</div>
 <div id="pg-stack" class="page">
 <div class="ph">
   <div class="pn">Section 06b</div>
@@ -934,6 +1083,23 @@ Cross-Origin-Embedder-Policy: require-corp</pre>
 </div>
 
 <!-- ═══ 07 BUILD PLAN ═══ -->
+
+<div id="czone_stack" class="czone">
+  <div class="czone-hdr" onclick="toggleC('stack')">
+    <i class="czone-arrow">&#9654;</i>
+    <span>Annotations &amp; Comments</span>
+    <span class="ccount" id="ccount_stack"></span>
+  </div>
+  <div class="czone-body">
+    <div class="clist" id="clist_stack"></div>
+    <div class="cform">
+      <div class="cform-title">Add your annotation</div>
+      <input class="cinput" id="cname_stack" type="text" placeholder="Your name or initials" autocomplete="name">
+      <textarea class="ctextarea" id="ctext_stack" placeholder="Observation, question, or note about this section…"></textarea>
+      <button class="csubmit" onclick="addC('stack')">Save Annotation</button>
+    </div>
+  </div>
+</div>
 <div id="pg-plan" class="page">
 <div class="ph">
   <div class="pn">Section 07</div>
@@ -965,7 +1131,7 @@ Cross-Origin-Embedder-Policy: require-corp</pre>
 <tr><td>AlphaFold EBI API integration + HGSOC gene list</td><td>fetch API</td><td>1</td><td>None</td><td>BRCA1/2 structure in 2 clicks from gene name</td></tr>
 <tr><td>HGSOCAnnotationBehavior plugin (ClinVar pathogenic highlights)</td><td>Mol* plugin API</td><td>3</td><td>Mol* API learning</td><td>Auto-highlight of known pathogenic variants on structure load</td></tr>
 <tr><td>pLDDT confidence coloring (built-in Mol* theme)</td><td>Mol* preset</td><td>0.5</td><td>None</td><td>Visual confidence assessment for disordered regions</td></tr>
-<tr><td>MOLJ session save/load → GitHub .enc store</td><td>Mol* state API + SubtleCrypto</td><td>2</td><td>None</td><td>Persistent, shareable annotated structure sessions</td></tr>
+<tr><td>MOLJ session save/load → GitHub .enc store</td><td>Mol* state API + <a href="https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto" target="_blank" title="SubtleCrypto — MDN Web Docs" class="rl">SubtleCrypto</a></td><td>2</td><td>None</td><td>Persistent, shareable annotated structure sessions</td></tr>
 <tr><td>IGV.js embed + HGSOC pre-packaged tracks</td><td>igv@latest (npm)</td><td>2</td><td>Track files must be pre-built</td><td>Genomic variant context for all HGSOC genes</td></tr>
 <tr><td>Speck small molecule renderer + drug library panel</td><td>speck (npm) + RDKit.js for 3D coords</td><td>2</td><td>RDKit.js WASM setup</td><td>AO-rendered drug molecule figures for grant use</td></tr>
 <tr><td>COOP/COEP headers in Vite + production deploy config</td><td>Vite config + Cloudflare</td><td>0.5</td><td>None (blocks everything else)</td><td>Infrastructure for SharedArrayBuffer (Phase 2 dependency)</td></tr>
@@ -1028,6 +1194,23 @@ RDKit.js (Phase 1, for Speck coords)
 </div>
 
 <!-- ═══ 08 PAIN POINTS ═══ -->
+
+<div id="czone_plan" class="czone">
+  <div class="czone-hdr" onclick="toggleC('plan')">
+    <i class="czone-arrow">&#9654;</i>
+    <span>Annotations &amp; Comments</span>
+    <span class="ccount" id="ccount_plan"></span>
+  </div>
+  <div class="czone-body">
+    <div class="clist" id="clist_plan"></div>
+    <div class="cform">
+      <div class="cform-title">Add your annotation</div>
+      <input class="cinput" id="cname_plan" type="text" placeholder="Your name or initials" autocomplete="name">
+      <textarea class="ctextarea" id="ctext_plan" placeholder="Observation, question, or note about this section…"></textarea>
+      <button class="csubmit" onclick="addC('plan')">Save Annotation</button>
+    </div>
+  </div>
+</div>
 <div id="pg-pain" class="page">
 <div class="ph">
   <div class="pn">Section 08</div>
@@ -1138,6 +1321,23 @@ RDKit.js (Phase 1, for Speck coords)
 </div>
 
 <!-- ═══ 09 BUILD VS EMBED ═══ -->
+
+<div id="czone_pain" class="czone">
+  <div class="czone-hdr" onclick="toggleC('pain')">
+    <i class="czone-arrow">&#9654;</i>
+    <span>Annotations &amp; Comments</span>
+    <span class="ccount" id="ccount_pain"></span>
+  </div>
+  <div class="czone-body">
+    <div class="clist" id="clist_pain"></div>
+    <div class="cform">
+      <div class="cform-title">Add your annotation</div>
+      <input class="cinput" id="cname_pain" type="text" placeholder="Your name or initials" autocomplete="name">
+      <textarea class="ctextarea" id="ctext_pain" placeholder="Observation, question, or note about this section…"></textarea>
+      <button class="csubmit" onclick="addC('pain')">Save Annotation</button>
+    </div>
+  </div>
+</div>
 <div id="pg-decide" class="page">
 <div class="ph">
   <div class="pn">Section 09</div>
@@ -1224,6 +1424,23 @@ RDKit.js (Phase 1, for Speck coords)
 </div>
 
 <!-- ═══ 10 APPENDIX ═══ -->
+
+<div id="czone_decide" class="czone">
+  <div class="czone-hdr" onclick="toggleC('decide')">
+    <i class="czone-arrow">&#9654;</i>
+    <span>Annotations &amp; Comments</span>
+    <span class="ccount" id="ccount_decide"></span>
+  </div>
+  <div class="czone-body">
+    <div class="clist" id="clist_decide"></div>
+    <div class="cform">
+      <div class="cform-title">Add your annotation</div>
+      <input class="cinput" id="cname_decide" type="text" placeholder="Your name or initials" autocomplete="name">
+      <textarea class="ctextarea" id="ctext_decide" placeholder="Observation, question, or note about this section…"></textarea>
+      <button class="csubmit" onclick="addC('decide')">Save Annotation</button>
+    </div>
+  </div>
+</div>
 <div id="pg-ref" class="page">
 <div class="ph">
   <div class="pn">Section 10</div>
@@ -1324,6 +1541,23 @@ RDKit.js (Phase 1, for Speck coords)
 </div>
 </div>
 
+
+<div id="czone_ref" class="czone">
+  <div class="czone-hdr" onclick="toggleC('ref')">
+    <i class="czone-arrow">&#9654;</i>
+    <span>Annotations &amp; Comments</span>
+    <span class="ccount" id="ccount_ref"></span>
+  </div>
+  <div class="czone-body">
+    <div class="clist" id="clist_ref"></div>
+    <div class="cform">
+      <div class="cform-title">Add your annotation</div>
+      <input class="cinput" id="cname_ref" type="text" placeholder="Your name or initials" autocomplete="name">
+      <textarea class="ctextarea" id="ctext_ref" placeholder="Observation, question, or note about this section…"></textarea>
+      <button class="csubmit" onclick="addC('ref')">Save Annotation</button>
+    </div>
+  </div>
+</div>
 </main>
 <script>
 function go(id){
@@ -1336,6 +1570,60 @@ function go(id){
   });
   document.getElementById('main').scrollTop=0;
 }
+
+// ---- Comment / Annotation System ----
+const CS='qonco_ann';
+function _gc(sid){try{return JSON.parse(localStorage.getItem(CS+'_'+sid)||'[]')}catch(e){return[]}}
+function _sc(sid,arr){localStorage.setItem(CS+'_'+sid,JSON.stringify(arr))}
+function escH(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function renderC(sid){
+  const list=document.getElementById('clist_'+sid);
+  const cnt=document.getElementById('ccount_'+sid);
+  if(!list)return;
+  const arr=_gc(sid);
+  if(cnt)cnt.textContent=arr.length?'('+arr.length+')':'';
+  if(!arr.length){list.innerHTML='<div class="no-ci">No annotations yet — be the first to annotate this section.</div>';return;}
+  list.innerHTML=arr.map(c=>`<div class="ci" data-id="${c.id}">
+    <div class="ci-meta">
+      <span class="ci-author">${escH(c.name)}</span>
+      <span class="ci-date">${escH(c.date)}</span>
+    </div>
+    <div class="ci-text">${escH(c.text)}</div>
+    <button class="ci-del" onclick="delC('${sid}','${c.id}')" title="Delete this annotation">✕</button>
+  </div>`).join('');
+}
+function toggleC(sid){
+  const z=document.getElementById('czone_'+sid);
+  z.classList.toggle('open');
+  if(z.classList.contains('open'))renderC(sid);
+}
+function addC(sid){
+  const n=document.getElementById('cname_'+sid);
+  const t=document.getElementById('ctext_'+sid);
+  const name=(n.value||'').trim();
+  const text=(t.value||'').trim();
+  if(!name||!text){alert('Please enter your name and an annotation.');return;}
+  const arr=_gc(sid);
+  arr.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),name,text,date:new Date().toLocaleString()});
+  _sc(sid,arr);
+  n.value='';t.value='';
+  renderC(sid);
+}
+function delC(sid,cid){
+  if(!confirm('Delete this annotation?'))return;
+  _sc(sid,_gc(sid).filter(c=>c.id!==cid));
+  renderC(sid);
+}
+// Render counts for all zones on load (without opening them)
+document.addEventListener('DOMContentLoaded',function(){
+  document.querySelectorAll('[id^="czone_"]').forEach(z=>{
+    const sid=z.id.replace('czone_','');
+    const arr=_gc(sid);
+    const cnt=document.getElementById('ccount_'+sid);
+    if(cnt&&arr.length)cnt.textContent='('+arr.length+')';
+  });
+});
+
 </script>
 </body>
 </html>
