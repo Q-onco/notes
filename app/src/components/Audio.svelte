@@ -843,7 +843,6 @@
   /* ── Draft ── */
   .draft-section { display: flex; flex-direction: column; gap: 8px; }
   .draft-label { display: block; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
-  .draft-area { font-size: 0.875rem; font-family: var(--mono); min-height: 100px; }
 
   .draft-actions {
     display: flex;

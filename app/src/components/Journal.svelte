@@ -473,14 +473,6 @@
 
   .entry-body { font-size: 0.9rem; line-height: 1.7; }
 
-  .empty-state {
-    text-align: center;
-    padding: 60px 24px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-
   .example-entry { opacity: 0.6; pointer-events: none; }
   .example-badge {
     font-size: 0.65rem;
