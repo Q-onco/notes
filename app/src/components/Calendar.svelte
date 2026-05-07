@@ -27,6 +27,37 @@
   const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
+  const now = new Date();
+  const EXAMPLE_EVENTS: CalendarEvent[] = [
+    {
+      uid: '_ex_esmo',
+      summary: 'ESMO abstract submission deadline',
+      start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 3, 23, 59).getTime(),
+      end:   new Date(now.getFullYear(), now.getMonth(), now.getDate() + 3, 23, 59).getTime(),
+      location: 'online',
+      description: 'Ovarian cancer TME abstract — ESMO 2026',
+      source: 'apple',
+    },
+    {
+      uid: '_ex_labmtg',
+      summary: 'NCT Lab meeting — scRNA-seq results',
+      start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 10, 0).getTime(),
+      end:   new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 11, 30).getTime(),
+      location: 'INF 224, Heidelberg',
+      description: 'Present HGSOC TME batch 3 clustering results',
+      source: 'apple',
+    },
+    {
+      uid: '_ex_review',
+      summary: 'Research committee review',
+      start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 14, 14, 0).getTime(),
+      end:   new Date(now.getFullYear(), now.getMonth(), now.getDate() + 14, 16, 0).getTime(),
+      location: 'Dept. Gynaecological Oncology',
+      description: 'Quarterly progress review',
+      source: 'apple',
+    },
+  ];
+
   const calGrid = $derived(() => {
     const total = daysInMonth(year, month);
     const start = firstDayOfMonth(year, month);
@@ -110,37 +141,6 @@
     return new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   }
 
-  // Example events shown when no .ics imported
-  const now = new Date();
-  const EXAMPLE_EVENTS: CalendarEvent[] = [
-    {
-      uid: '_ex_esmo',
-      summary: 'ESMO abstract submission deadline',
-      start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 3, 23, 59).getTime(),
-      end:   new Date(now.getFullYear(), now.getMonth(), now.getDate() + 3, 23, 59).getTime(),
-      location: 'online',
-      description: 'Ovarian cancer TME abstract — ESMO 2026',
-      source: 'apple',
-    },
-    {
-      uid: '_ex_labmtg',
-      summary: 'NCT Lab meeting — scRNA-seq results',
-      start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 10, 0).getTime(),
-      end:   new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 11, 30).getTime(),
-      location: 'INF 224, Heidelberg',
-      description: 'Present HGSOC TME batch 3 clustering results',
-      source: 'apple',
-    },
-    {
-      uid: '_ex_review',
-      summary: 'Research committee review',
-      start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 14, 14, 0).getTime(),
-      end:   new Date(now.getFullYear(), now.getMonth(), now.getDate() + 14, 16, 0).getTime(),
-      location: 'Dept. Gynaecological Oncology',
-      description: 'Quarterly progress review',
-      source: 'apple',
-    },
-  ];
 </script>
 
 <div class="calendar-view">

@@ -419,7 +419,7 @@
             </div>
             <button
               class="toggle-btn"
-              class:toggle-on={!!(store.aiSettings as Record<string, boolean>)[t.key]}
+              class:toggle-on={!!(store.aiSettings as unknown as Record<string, boolean>)[t.key]}
               onclick={() => toggleAi(t.key)}
             ><span class="toggle-knob"></span></button>
           </div>
@@ -716,7 +716,7 @@
   .section-hint { margin-top: -6px; }
 
   .field { display: flex; flex-direction: column; gap: 5px; }
-  .field label, .field-label { font-size: 0.82rem; font-weight: 500; color: var(--tx); }
+  .field label { font-size: 0.82rem; font-weight: 500; color: var(--tx); }
   .hint-label { font-weight: 400; color: var(--mu); font-size: 0.72rem; }
   .field-hint { font-size: 0.77rem; color: var(--mu); line-height: 1.5; margin-top: 2px; }
 

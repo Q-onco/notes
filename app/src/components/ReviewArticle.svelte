@@ -492,7 +492,9 @@
           <!-- Corpus list -->
           {#each ra.corpus as paper (paper.id)}
             <div class="corpus-card" class:corpus-card-open={corpusExpanded === paper.id}>
-              <button class="corpus-card-head" onclick={() => corpusExpanded = corpusExpanded === paper.id ? null : paper.id}>
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="corpus-card-head" onclick={() => corpusExpanded = corpusExpanded === paper.id ? null : paper.id} role="button" tabindex="0">
                 <span class="corpus-rating">
                   {#each [1,2,3] as star}
                     <button class="star-btn" class:star-on={paper.rating >= star}
@@ -501,7 +503,7 @@
                 </span>
                 <span class="corpus-title">{paper.title}</span>
                 <span class="corpus-year">{paper.year}</span>
-              </button>
+              </div>
               {#if corpusExpanded === paper.id}
                 <div class="corpus-expand">
                   <p class="corpus-authors">{paper.authors} · {paper.journal} · {paper.year}</p>
@@ -763,6 +765,7 @@
     line-height: 1.3;
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
     padding-right: 16px;
@@ -1104,6 +1107,7 @@
     line-height: 1.3;
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
@@ -1161,6 +1165,7 @@
     min-width: 0;
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }

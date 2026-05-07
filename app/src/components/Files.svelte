@@ -708,7 +708,7 @@
                     {:else if ri === 1}
                       <tbody><tr>{#each row as cell}<td>{cell}</td>{/each}</tr></tbody>
                     {:else}
-                      <tr>{#each row as cell}<td>{cell}</td>{/each}</tr>
+                      <tbody><tr>{#each row as cell}<td>{cell}</td>{/each}</tr></tbody>
                     {/if}
                   {/each}
                 </table>

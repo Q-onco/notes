@@ -28,6 +28,8 @@
     onchange,
     onSlashQuery,
     onSlashClose,
+    onNoteLinkQuery,
+    onNoteLinkClose,
     slashRef = $bindable<SlashRef | null>(null),
     class: extraClass = '',
   }: {
@@ -145,7 +147,7 @@
     const current = editor.getHTML();
     const incoming = htmlFromValue(value);
     if (incoming !== current) {
-      editor.commands.setContent(incoming, false);
+      editor.commands.setContent(incoming, false as any);
     }
   });
 

@@ -74,7 +74,7 @@
   );
 
   const jobsActive = $derived(
-    store.savedJobs.filter(j => j.status !== 'rejected' && j.status !== 'offer').length
+    store.savedJobs.filter(j => j.status !== 'closed' && j.status !== 'offer').length
   );
 
   // Dynamic Enzo prompts — contextual to actual data

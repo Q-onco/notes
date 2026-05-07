@@ -18,6 +18,7 @@
   ];
 
   let statusIdx = $state(0);
+  let streaming = $state(false);
   const enzoStatus = $derived(streaming ? '· thinking...' : IDLE_STATUSES[statusIdx]);
 
   $effect(() => {
@@ -596,7 +597,6 @@
 
   let tab = $state<'chat' | 'history'>('chat');
   let inputText = $state('');
-  let streaming = $state(false);
   let useJournalContext = $state(true);
   let streamBuffer = $state('');
   let abortController: AbortController | null = null;

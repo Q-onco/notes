@@ -1048,6 +1048,5 @@
   @media (max-width: 540px) {
     .ms-list-col { display: none; }
     .ms-shell { flex-direction: column; }
-    .ms-editor-col { min-width: 0; width: 100%; }
   }
 </style>

@@ -132,11 +132,11 @@
   let editingContact = $state<MailContact | null>(null);
   let newName = $state('');
   let newEmail = $state('');
-  let newRole = $state('');
+  let newRole = $state<MailContact['role'] | ''>('');
   let savingContact = $state(false);
 
   function startNewContact() {
-    editingContact = { id: nanoid(), name: '', email: '', role: '', createdAt: Date.now() };
+    editingContact = { id: nanoid(), name: '', email: '', role: 'other', createdAt: Date.now() };
     newName = ''; newEmail = ''; newRole = '';
   }
 
@@ -148,7 +148,7 @@
   async function saveContact() {
     if (!newEmail.trim()) { showToast('Email required', 'error'); return; }
     savingContact = true;
-    const c: MailContact = { ...editingContact!, name: newName.trim(), email: newEmail.trim(), role: newRole.trim() };
+    const c: MailContact = { ...editingContact!, name: newName.trim(), email: newEmail.trim(), role: (newRole || 'other') as MailContact['role'] };
     await store.saveMailContact(c);
     editingContact = null;
     showToast('Contact saved');

@@ -2,7 +2,7 @@
   import { store } from '../lib/store.svelte';
   import { transcribeAudio, parseTranscriptForEvents } from '../lib/groq';
   import { nanoid } from 'nanoid';
-  import type { Note } from '../lib/types';
+  import type { Note, AudioRecord } from '../lib/types';
   import RichEditor from './RichEditor.svelte';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
@@ -228,7 +228,7 @@
   let enabled = $state(sessionStorage.getItem(SESSION_KEY) === '1');
   function enable() { enabled = true; sessionStorage.setItem(SESSION_KEY, '1'); }
 
-  const EXAMPLE_RECORDS = [
+  const EXAMPLE_RECORDS: AudioRecord[] = [
     {
       id: '_ea1',
       createdAt: Date.now() - 86400000,
