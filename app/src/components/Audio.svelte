@@ -887,7 +887,7 @@
     display: flex; align-items: flex-start; gap: 8px;
     padding: 6px 8px;
     border-radius: var(--radius-sm);
-    background: var(--sf1);
+    background: var(--sf);
     border: 1px solid var(--bd);
     transition: opacity 0.15s;
   }

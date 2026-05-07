@@ -16,6 +16,7 @@
   import Files from './Files.svelte';
   import Grants from './Grants.svelte';
   import Manuscript from './Manuscript.svelte';
+  import ReviewArticle from './ReviewArticle.svelte';
   import Settings from './Settings.svelte';
   import Enzo from './Enzo.svelte';
   import Mail from './Mail.svelte';
@@ -473,6 +474,7 @@
     { id: 'notes',     label: 'Notes',    icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
     { id: 'tasks',     label: 'Tasks',    icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4' },
     { id: 'research',  label: 'Research', icon: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z' },
+    { id: 'review',    label: 'Reviews',  icon: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5' },
   ];
 
   function showToast(msg: string, type: 'success' | 'error' = 'success') {
@@ -877,6 +879,8 @@
         <Grants {showToast} />
       {:else if store.view === 'manuscript'}
         <Manuscript {showToast} />
+      {:else if store.view === 'review'}
+        <ReviewArticle {showToast} />
       {:else if store.view === 'mail'}
         <Mail {showToast} />
       {:else if store.view === 'settings'}
@@ -1038,7 +1042,7 @@
     from { opacity: 0; transform: scale(0.95); }
     to   { opacity: 1; transform: scale(1); }
   }
-  @media (max-width: 540px) {
+  @media (max-width: 480px) {
     .dna-fact-pill { display: none; }
   }
 
@@ -1544,11 +1548,13 @@
 
   /* ── Mobile: bottom nav, trimmed top bar ── */
   @media (max-width: 640px) {
-    .top-bar { padding: 0 10px; gap: 8px; }
+    .top-bar { padding: 0 10px; gap: 6px; }
+    .app-name { display: none; }
     .help-btn { display: none; }
     .enzo-label { display: none; }
     .tz-seg:not(:first-of-type) { display: none; }
     .tz-dot { display: none; }
+    .dna-char { width: 48px; height: auto; }
 
     .enzo-panel { width: 100%; max-width: 100%; }
 
@@ -1622,5 +1628,16 @@
       border-radius: 50%;
       background: var(--gn);
     }
+  }
+
+  @media (max-width: 480px) {
+    .enzo-activity { display: none; }
+    .dna-fact-pill { display: none; }
+  }
+
+  @media (max-width: 380px) {
+    .search-trigger { display: none; }
+    .enzo-toggle { display: none; }
+    .theme-toggle { display: none; }
   }
 </style>

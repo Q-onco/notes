@@ -27,6 +27,7 @@ export const PATHS = {
   conferences:   'data/conferences.enc',
   peerReviews:   'data/peer-reviews.enc',
   manuscripts:   'data/manuscripts.enc',
+  reviews:       'data/reviews.enc',
 } as const;
 
 function headers(token: string) {
