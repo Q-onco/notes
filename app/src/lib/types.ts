@@ -611,3 +611,47 @@ export interface MailComposeDraft {
   subject: string;
   body: string;
 }
+
+// ── Review Article ─────────────────────────────────────────────────────────────
+
+export type ReviewArticleStatus = 'planning' | 'outline' | 'drafting' | 'polishing' | 'submitted';
+export type ReviewThemeStatus = 'outline' | 'draft' | 'polished';
+
+export interface ReviewPaper {
+  id: string;
+  pmid?: string;
+  title: string;
+  authors: string;
+  journal: string;
+  year: number;
+  abstract: string;
+  doi: string;
+  url: string;
+  themeIds: string[];
+  rating: 1 | 2 | 3;
+  notes: string;
+}
+
+export interface ReviewTheme {
+  id: string;
+  title: string;
+  outline: string;
+  content: string;
+  wordTarget: number;
+  status: ReviewThemeStatus;
+  order: number;
+  paperIds: string[];
+}
+
+export interface ReviewArticle {
+  id: string;
+  title: string;
+  targetJournal: string;
+  scope: string;
+  status: ReviewArticleStatus;
+  wordTarget: number;
+  corpus: ReviewPaper[];
+  themes: ReviewTheme[];
+  createdAt: number;
+  updatedAt: number;
+}

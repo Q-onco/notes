@@ -39,6 +39,7 @@
     { id: 'tasks',     label: 'Tasks',       icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4' },
     { id: 'calendar',  label: 'Calendar',    icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
     { id: 'research',  label: 'Research',    icon: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z' },
+    { id: 'review',        label: 'Reviews',       icon: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5' },
     { id: 'pipeline',  label: 'Pipeline',    icon: 'M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v10a2 2 0 002 2h10a2 2 0 002-2V5M9 13H5a2 2 0 00-2 2v4a2 2 0 002 2h4a2 2 0 002-2v-4a2 2 0 00-2-2z' },
     { id: 'jobs',          label: 'Jobs',          icon: 'M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
     { id: 'presentations', label: 'Presentations', icon: 'M2 3h20v14H2zM8 21h8M12 17v4' },
@@ -250,7 +251,7 @@
     display: flex; flex-direction: column; height: 100%; padding: 10px 0;
   }
 
-  .nav-section { padding: 0 8px; }
+  .nav-section { padding: 0 8px; flex-shrink: 0; overflow-y: auto; max-height: 60vh; }
 
   .nav-item {
     display: flex; align-items: center; gap: 8px; width: 100%;

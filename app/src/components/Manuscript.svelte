@@ -915,7 +915,7 @@
     top: 50%; left: 50%;
     transform: translate(-50%, -50%);
     z-index: 101;
-    background: var(--sf1);
+    background: var(--sf);
     border: 1px solid var(--bd);
     border-radius: var(--radius);
     padding: 24px;
@@ -928,7 +928,7 @@
     top: 50%; left: 50%;
     transform: translate(-50%, -50%);
     z-index: 101;
-    background: var(--sf1);
+    background: var(--sf);
     border: 1px solid var(--bd);
     border-radius: var(--radius);
     padding: 20px;

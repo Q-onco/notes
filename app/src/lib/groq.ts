@@ -672,3 +672,46 @@ export async function assistManuscriptSection(
   ];
   await streamGroq(MODELS.enzo, messages, onChunk, signal);
 }
+
+// ── Review article theme synthesis ───────────────────────────────────────────
+export async function synthesizeReviewTheme(
+  themeTitle: string,
+  reviewTitle: string,
+  papers: { title: string; authors: string; year: number; abstract: string }[],
+  outline: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const paperSummaries = papers.slice(0, 8).map(p =>
+    `- ${p.authors} (${p.year}): ${p.title}. ${p.abstract.slice(0, 250)}`
+  ).join('\n');
+
+  const messages = [
+    {
+      role: 'system' as const,
+      content: `You are Enzo, a scientific writing assistant for academic review articles. Write precise, synthesis-oriented academic prose. Integrate findings across papers rather than summarising them individually. Do not fabricate data, statistics, or citations. Use hedged language where appropriate. Output plain text only — no HTML tags, no markdown headers — suitable for insertion into an academic review.`
+    },
+    {
+      role: 'user' as const,
+      content: `Write a synthesis paragraph for the following review article section.
+
+**Review title:** ${reviewTitle}
+**Section:** ${themeTitle}
+
+**My outline notes:**
+${outline || '(no outline yet — synthesise from the papers below)'}
+
+**Papers assigned to this section:**
+${paperSummaries || '(no papers assigned yet — write a placeholder acknowledging the gap)'}
+
+Write a cohesive synthesis paragraph (150–250 words) that:
+1. Opens with the central claim or consensus for this theme
+2. Integrates key findings across the listed papers using [Author Year] inline citations
+3. Highlights any contradictions or open questions
+4. Closes with the unresolved gap this review section will address
+
+Academic prose, third person, past tense for experiments, present tense for established facts. No bullet points. No section headers.`
+    }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}

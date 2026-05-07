@@ -6,12 +6,13 @@ import type {
   CvProfile, CoverLetter, JobContact, JobEmailTemplate, SalaryEntry, JobDeadline,
   Presentation, FileRecord,
   Grant, ConferenceAbstract, PeerReview, Manuscript,
-  MailContact, MailSent, MailDraft, MailComposeDraft
+  MailContact, MailSent, MailDraft, MailComposeDraft,
+  ReviewArticle
 } from './types';
 import { loadEncFile, saveEncFile, PATHS, validateToken } from './github';
 import { WORKER_URL } from './groq';
 
-type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs' | 'presentations' | 'files' | 'grants' | 'manuscript' | 'mail';
+type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs' | 'presentations' | 'files' | 'grants' | 'manuscript' | 'review' | 'mail';
 
 const DEFAULT_PROFILE: ResearcherProfile = {
   currentRole: 'Postdoctoral Researcher',
@@ -110,6 +111,9 @@ class Store {
 
   manuscripts = $state<Manuscript[]>([]);
   manuscriptsSha = $state<string | null>(null);
+
+  reviewArticles = $state<ReviewArticle[]>([]);
+  reviewArticlesSha = $state<string | null>(null);
 
   profile = $state<ResearcherProfile>({ ...DEFAULT_PROFILE });
   profileSha = $state<string | null>(null);
@@ -215,7 +219,7 @@ class Store {
     if (!this.tok) return;
     this.loadingMsg = 'Decrypting your research...';
 
-    const [n, j, t, c, a, pp, s, res, pip, jb, jbx, cv, cl, prf, pres, fi, gr, conf, pr, ms] = await Promise.all([
+    const [n, j, t, c, a, pp, s, res, pip, jb, jbx, cv, cl, prf, pres, fi, gr, conf, pr, ms, rv] = await Promise.all([
       loadEncFile<Note[]>(this.tok, PATHS.notes, []),
       loadEncFile<JournalEntry[]>(this.tok, PATHS.journal, []),
       loadEncFile<Task[]>(this.tok, PATHS.tasks, []),
@@ -236,6 +240,7 @@ class Store {
       loadEncFile<ConferenceAbstract[]>(this.tok, PATHS.conferences, []),
       loadEncFile<PeerReview[]>(this.tok, PATHS.peerReviews, []),
       loadEncFile<Manuscript[]>(this.tok, PATHS.manuscripts, []),
+      loadEncFile<ReviewArticle[]>(this.tok, PATHS.reviews, []),
     ]);
 
     this.notes = n.data; this.notesSha = n.sha;
@@ -273,6 +278,7 @@ class Store {
     this.conferences = conf.data; this.conferencesSha = conf.sha;
     this.peerReviews = pr.data; this.peerReviewsSha = pr.sha;
     this.manuscripts = ms.data; this.manuscriptsSha = ms.sha;
+    this.reviewArticles = rv.data; this.reviewArticlesSha = rv.sha;
   }
 
   async saveResearch(): Promise<void> {
@@ -403,6 +409,12 @@ class Store {
     if (!this.tok) return;
     const sha = await saveEncFile(this.tok, PATHS.manuscripts, this.manuscripts, this.manuscriptsSha, 'manuscripts: update');
     this.manuscriptsSha = sha;
+  }
+
+  async saveReviewArticles(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(this.tok, PATHS.reviews, this.reviewArticles, this.reviewArticlesSha, 'reviews: update');
+    this.reviewArticlesSha = sha;
   }
 
   isPinned(id: string): boolean {
