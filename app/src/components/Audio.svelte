@@ -688,7 +688,7 @@
         </div>
         <div class="proto-actions">
           <button class="btn btn-primary btn-sm" onclick={runProto} disabled={protoStreaming}>
-            {#if protoStreaming}<span class="proto-spinner"></span> Converting…{:else}Convert<span class="model-pill">[120B]</span>{/if}
+            {#if protoStreaming}<span class="proto-spinner"></span> Converting…{:else}Convert<span class="model-pill">[70B]</span>{/if}
           </button>
           {#if protoText}
             <button class="btn btn-ghost btn-sm" onclick={() => navigator.clipboard.writeText(protoText).then(() => showToast('Copied'))}>Copy to clipboard</button>

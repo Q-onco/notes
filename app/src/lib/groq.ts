@@ -5,14 +5,14 @@ import { store } from './store.svelte';
 export const WORKER_URL = 'https://enzo.quant-onco.workers.dev';
 
 export const MODELS = {
-  enzo:     'openai/gpt-oss-120b',
+  enzo:     'llama-3.3-70b-versatile',
   research: 'openai/gpt-oss-120b',
   quick:    'llama-3.1-8b-instant',
   whisper:  'whisper-large-v3',
 } as const;
 
 export const MODEL_LABELS: Record<ModelKey, string> = {
-  enzo:    'GPT-OSS 120B',
+  enzo:    'Llama 70B',
   research:'GPT-OSS 120B',
   quick:   'Llama 8B',
   whisper: 'Whisper v3',

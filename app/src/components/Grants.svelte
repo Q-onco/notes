@@ -433,7 +433,7 @@
         </div>
         <div class="critique-actions-row">
           <button class="btn btn-primary btn-sm" onclick={runCritique} disabled={critiqueStreaming}>
-            {#if critiqueStreaming}<span class="critique-spinner"></span> Critiquing…{:else}Run Critique<span class="model-pill">[120B]</span>{/if}
+            {#if critiqueStreaming}<span class="critique-spinner"></span> Critiquing…{:else}Run Critique<span class="model-pill">[70B]</span>{/if}
           </button>
           {#if critiqueText && !critiqueStreaming}
             <button class="btn btn-ghost btn-sm" onclick={() => navigator.clipboard.writeText(critiqueText).then(() => showToast('Copied'))}>Copy</button>

@@ -734,7 +734,7 @@
                       class="btn-icon da-btn"
                       class:da-active={daHypId === h.id}
                       onclick={() => doDevilsAdvocate(h)}
-                      title="Devil's Advocate — Enzo argues against this [GPT-OSS 120B]"
+                      title="Devil's Advocate — Enzo argues against this [Llama 70B]"
                     >
                       {#if daStreaming && daHypId === h.id}
                         <span class="spinner-xs"></span>
