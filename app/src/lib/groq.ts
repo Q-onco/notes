@@ -673,6 +673,111 @@ export async function assistManuscriptSection(
   await streamGroq(MODELS.enzo, messages, onChunk, signal);
 }
 
+// ── Figure Legend Generator ───────────────────────────────────────────────────
+export async function streamFigureLegend(
+  figureDescription: string,
+  methodsContext: string,
+  targetJournal: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    {
+      role: 'system' as const,
+      content: `You are a scientific writer drafting figure legends for high-impact oncology journals.`
+    },
+    {
+      role: 'user' as const,
+      content: `Write a complete figure legend for a figure in ${targetJournal}. Figure description: ${figureDescription}. Methods context: ${methodsContext}. Format: start with bold panel labels if multiple panels (A, B, C...), include n values, statistics, scale bars if mentioned, abbreviations at end. Plain text, no markdown.`
+    }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
+// ── Grant Critique ────────────────────────────────────────────────────────────
+export async function streamGrantCritique(
+  grantTitle: string,
+  sectionLabel: string,
+  sectionText: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    {
+      role: 'system' as const,
+      content: `You are a highly critical NIH/ERC study section reviewer with 20 years experience. You are not hostile for its own sake — you identify genuine scientific weaknesses.`
+    },
+    {
+      role: 'user' as const,
+      content: `Critique this ${sectionLabel} section from a grant titled '${grantTitle}'. Be specific about: (1) scientific gaps and weak justification, (2) methodological concerns, (3) feasibility issues, (4) missing controls or alternatives, (5) how reviewers will likely score this. Be direct and specific. Plain text.\n\n${sectionText}`
+    }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
+// ── Voice to Protocol ─────────────────────────────────────────────────────────
+export async function streamVoiceToProtocol(
+  transcript: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    {
+      role: 'system' as const,
+      content: `You are a lab protocol writer. Convert spoken lab notes into a clean, structured protocol.`
+    },
+    {
+      role: 'user' as const,
+      content: `Convert this voice transcript into a structured lab protocol with sections: Materials (bulleted list), Steps (numbered, with timing), Controls, Expected readout, Notes/Cautions. Be precise about quantities and timings mentioned. Plain text, no markdown headers — use ALL CAPS for section names.\n\nTranscript: ${transcript}`
+    }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
+// ── Radar Summary ─────────────────────────────────────────────────────────────
+export async function streamRadarSummary(
+  papers: { title: string; authors: string; journal: string; year: number; abstract: string }[],
+  existingTopics: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const paperList = papers.slice(0, 10).map(p =>
+    `- ${p.title} (${p.authors}, ${p.journal} ${p.year}): ${p.abstract.slice(0, 150)}`
+  ).join('\n');
+
+  const messages = [
+    {
+      role: 'system' as const,
+      content: `You are Enzo, an expert in HGSOC, TME, scRNA-seq, and PARPi biology.`
+    },
+    {
+      role: 'user' as const,
+      content: `Summarise these ${papers.length} new papers from a PubMed scan relevant to HGSOC research. For each paper give one sentence on the key finding. Then write a 2-3 sentence overall synthesis of what is new and how it relates to: ${existingTopics}. Plain text.\n\n${paperList}`
+    }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
+// ── Marker Lookup ─────────────────────────────────────────────────────────────
+export async function streamMarkerLookup(
+  gene: string,
+  context: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    {
+      role: 'system' as const,
+      content: `You are Enzo, an expert in HGSOC tumour microenvironment, single-cell RNA-seq, and cancer biology.`
+    },
+    {
+      role: 'user' as const,
+      content: `Explain the role of ${gene} in HGSOC and the tumour microenvironment. Cover: (1) which cell types express it, (2) its functional role in cancer or immunity, (3) its relevance to HGSOC specifically, (4) any therapeutic or biomarker significance. Context from user's research: ${context}. Plain text, 150-200 words.`
+    }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
 // ── Review article theme synthesis ───────────────────────────────────────────
 export async function synthesizeReviewTheme(
   themeTitle: string,

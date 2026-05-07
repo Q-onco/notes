@@ -521,6 +521,8 @@ export interface Manuscript {
   notes: string;
   createdAt: number;
   updatedAt: number;
+  reviewerComments?: ReviewerComment[];
+  creditAuthors?: CreditAuthor[];
 }
 
 // ── AI feature toggles ────────────────────────────────────────────────────────
@@ -610,6 +612,50 @@ export interface MailComposeDraft {
   toName: string;
   subject: string;
   body: string;
+}
+
+// ── Reviewer Response ──────────────────────────────────────────────────────────
+export interface ReviewerComment {
+  id: string;
+  reviewer: number;   // reviewer number (1, 2, 3...)
+  number: number;     // comment number within that reviewer
+  text: string;       // original reviewer comment
+  response: string;   // author's response
+  addressed: boolean;
+}
+
+// ── CRediT authorship ──────────────────────────────────────────────────────────
+export type CreditRoleId =
+  'conceptualization' | 'data-curation' | 'formal-analysis' |
+  'funding-acquisition' | 'investigation' | 'methodology' |
+  'project-administration' | 'resources' | 'software' |
+  'supervision' | 'validation' | 'visualization' |
+  'writing-original' | 'writing-review';
+
+export interface CreditAuthor {
+  name: string;
+  orcid: string;
+  corresponding: boolean;
+  roles: CreditRoleId[];
+}
+
+// ── Literature Radar ───────────────────────────────────────────────────────────
+export interface RadarPaper {
+  pmid: string;
+  title: string;
+  authors: string;
+  journal: string;
+  year: number;
+  abstract: string;
+  doi: string;
+  added: boolean;   // true once added to research corpus
+}
+
+export interface RadarScan {
+  scannedAt: number;
+  terms: string[];
+  papers: RadarPaper[];
+  summary: string;   // Enzo's digest
 }
 
 // ── Review Article ─────────────────────────────────────────────────────────────

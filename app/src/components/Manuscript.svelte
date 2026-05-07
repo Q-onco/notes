@@ -1,10 +1,10 @@
 <script lang="ts">
   import { store } from '../lib/store.svelte';
   import { nanoid } from 'nanoid';
-  import { assistManuscriptSection } from '../lib/groq';
+  import { assistManuscriptSection, streamFigureLegend, streamGrantCritique } from '../lib/groq';
   import { exportManuscriptPdf } from '../lib/export';
   import RichEditor from './RichEditor.svelte';
-  import type { Manuscript, ManuscriptSection, ManuscriptStatus } from '../lib/types';
+  import type { Manuscript, ManuscriptSection, ManuscriptStatus, ReviewerComment, CreditAuthor, CreditRoleId } from '../lib/types';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -200,6 +200,192 @@
     showToast('Citation inserted');
   }
 
+  // ── Panel tabs ─────────────────────────────────────────────────
+  let panelTab = $state<'editor' | 'reviewer' | 'legend' | 'credit'>('editor');
+
+  // ── Reviewer Response ──────────────────────────────────────────
+  let reviewLetterInput = $state('');
+  let reviewLetterModalOpen = $state(false);
+
+  function parseReviewerComments(text: string): ReviewerComment[] {
+    const lines = text.split('\n');
+    const comments: ReviewerComment[] = [];
+    let currentReviewer = 1;
+    let commentNumber = 0;
+    let buffer: string[] = [];
+    let inComment = false;
+
+    function flushBuffer() {
+      if (!buffer.join('').trim()) return;
+      const t = buffer.join('\n').trim();
+      if (t) {
+        comments.push({ id: nanoid(), reviewer: currentReviewer, number: ++commentNumber, text: t, response: '', addressed: false });
+      }
+      buffer = [];
+    }
+
+    for (const line of lines) {
+      const revMatch = line.match(/^reviewer\s*(\d+)[:\s]/i);
+      const commentMatch = line.match(/^(?:comment\s*\d+|(\d+)[.):]|(\d+)\))/i);
+
+      if (revMatch) {
+        flushBuffer();
+        currentReviewer = parseInt(revMatch[1]);
+        commentNumber = 0;
+        inComment = false;
+      } else if (commentMatch) {
+        flushBuffer();
+        inComment = true;
+        const rest = line.replace(/^(?:comment\s*\d+[:.)]?|\d+[.):])\s*/i, '').trim();
+        if (rest) buffer.push(rest);
+      } else if (inComment && line.trim()) {
+        buffer.push(line);
+      }
+    }
+    flushBuffer();
+    return comments;
+  }
+
+  function getReviewerComments(): ReviewerComment[] {
+    return ms?.reviewerComments ?? [];
+  }
+
+  function updateReviewerComment(id: string, patch: Partial<ReviewerComment>) {
+    if (!ms) return;
+    const updated = (ms.reviewerComments ?? []).map(c => c.id === id ? { ...c, ...patch } : c);
+    updateMs({ reviewerComments: updated });
+  }
+
+  function parseAndSetComments() {
+    if (!reviewLetterInput.trim()) return;
+    const parsed = parseReviewerComments(reviewLetterInput);
+    if (parsed.length === 0) return;
+    updateMs({ reviewerComments: parsed });
+    reviewLetterInput = '';
+    showToast(`Parsed ${parsed.length} reviewer comment${parsed.length !== 1 ? 's' : ''}`);
+  }
+
+  let exportResponseOpen = $state(false);
+  let exportResponseText = $state('');
+
+  function buildResponseLetter(): string {
+    const comments = getReviewerComments();
+    if (comments.length === 0) return '';
+    const grouped = new Map<number, ReviewerComment[]>();
+    for (const c of comments) {
+      if (!grouped.has(c.reviewer)) grouped.set(c.reviewer, []);
+      grouped.get(c.reviewer)!.push(c);
+    }
+    const parts: string[] = [
+      'Dear Editor,',
+      '',
+      'We thank the reviewers for their constructive feedback. We have addressed all comments and provide detailed responses below.',
+      '',
+    ];
+    for (const [revNum, revComments] of Array.from(grouped.entries()).sort((a, b) => a[0] - b[0])) {
+      parts.push(`Reviewer ${revNum}`);
+      parts.push('');
+      for (const c of revComments) {
+        parts.push(`Comment ${c.number}: ${c.text}`);
+        parts.push(`Response: ${c.response || '[Please add your response]'}`);
+        parts.push('');
+      }
+    }
+    parts.push('We hope these revisions satisfy the reviewers\' concerns and look forward to your decision.');
+    parts.push('');
+    parts.push('Sincerely,');
+    parts.push('The Authors');
+    return parts.join('\n');
+  }
+
+  // ── Figure Legend ──────────────────────────────────────────────
+  let legendModalOpen = $state(false);
+  let legendFigDesc = $state('');
+  let legendMethods = $state('');
+  let legendJournal = $state('');
+  let legendText = $state('');
+  let legendStreaming = $state(false);
+  let legendAbort: AbortController | null = null;
+
+  async function runLegendGen() {
+    legendAbort?.abort();
+    legendAbort = new AbortController();
+    legendText = '';
+    legendStreaming = true;
+    try {
+      await streamFigureLegend(legendFigDesc, legendMethods, legendJournal || ms?.targetJournal || 'a high-impact oncology journal', chunk => { legendText += chunk; }, legendAbort.signal);
+    } catch { /* aborted */ }
+    legendStreaming = false;
+  }
+
+  // ── CRediT Authors ─────────────────────────────────────────────
+  const CREDIT_ROLES: { id: CreditRoleId; label: string }[] = [
+    { id: 'conceptualization',    label: 'Conceptualization' },
+    { id: 'data-curation',        label: 'Data curation' },
+    { id: 'formal-analysis',      label: 'Formal analysis' },
+    { id: 'funding-acquisition',  label: 'Funding acquisition' },
+    { id: 'investigation',        label: 'Investigation' },
+    { id: 'methodology',          label: 'Methodology' },
+    { id: 'project-administration', label: 'Project administration' },
+    { id: 'resources',            label: 'Resources' },
+    { id: 'software',             label: 'Software' },
+    { id: 'supervision',          label: 'Supervision' },
+    { id: 'validation',           label: 'Validation' },
+    { id: 'visualization',        label: 'Visualization' },
+    { id: 'writing-original',     label: 'Writing – original draft' },
+    { id: 'writing-review',       label: 'Writing – review & editing' },
+  ];
+
+  let newAuthorName = $state('');
+  let newAuthorOrcid = $state('');
+  let newAuthorCorresponding = $state(false);
+
+  function getCreditAuthors(): CreditAuthor[] {
+    return ms?.creditAuthors ?? [];
+  }
+
+  function addCreditAuthor() {
+    if (!newAuthorName.trim() || !ms) return;
+    const author: CreditAuthor = {
+      name: newAuthorName.trim(),
+      orcid: newAuthorOrcid.trim(),
+      corresponding: newAuthorCorresponding,
+      roles: [],
+    };
+    updateMs({ creditAuthors: [...getCreditAuthors(), author] });
+    newAuthorName = '';
+    newAuthorOrcid = '';
+    newAuthorCorresponding = false;
+  }
+
+  function toggleCreditRole(authorIdx: number, roleId: CreditRoleId) {
+    const authors = [...getCreditAuthors()];
+    const a = { ...authors[authorIdx] };
+    if (a.roles.includes(roleId)) {
+      a.roles = a.roles.filter(r => r !== roleId);
+    } else {
+      a.roles = [...a.roles, roleId];
+    }
+    authors[authorIdx] = a;
+    updateMs({ creditAuthors: authors });
+  }
+
+  function removeCreditAuthor(idx: number) {
+    const updated = getCreditAuthors().filter((_, i) => i !== idx);
+    updateMs({ creditAuthors: updated });
+  }
+
+  function buildContributionsText(): string {
+    const authors = getCreditAuthors();
+    return authors.map(a => {
+      const roleLabels = a.roles.map(r => CREDIT_ROLES.find(cr => cr.id === r)?.label ?? r).join(', ');
+      const initials = a.name.split(' ').map(n => n[0]).join('.') + '.';
+      return `${initials}${a.corresponding ? '*' : ''} (${roleLabels || 'No roles assigned'})`;
+    }).join(' ') + (authors.some(a => a.corresponding) ? '\n\n* Corresponding author.' : '');
+  }
+
+  let contribText = $state('');
+
   function exportMarkdown() {
     if (!ms) return;
     const md = [`# ${ms.title}`, `**Journal:** ${ms.targetJournal}`, `**Authors:** ${ms.authors.join(', ')}`, '---',
@@ -212,6 +398,26 @@
     a.click(); URL.revokeObjectURL(url);
   }
 </script>
+
+<!-- ── Export Response Letter modal ──────────────────────────────── -->
+{#if exportResponseOpen}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="ms-backdrop" onclick={() => exportResponseOpen = false}></div>
+  <div class="ms-modal" role="dialog" aria-label="Response letter" style="width:min(640px,96vw);max-height:80vh;display:flex;flex-direction:column;">
+    <h3 class="modal-title">Response Letter</h3>
+    <textarea
+      class="response-letter-area"
+      readonly
+      value={exportResponseText}
+      style="flex:1;min-height:320px;font-size:0.82rem;line-height:1.6;resize:none;background:var(--sf2);border:1px solid var(--bd);border-radius:var(--radius-sm);padding:12px;color:var(--tx);font-family:var(--font);"
+    ></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick={() => exportResponseOpen = false}>Close</button>
+      <button class="btn btn-primary" onclick={() => navigator.clipboard.writeText(exportResponseText).then(() => showToast('Copied'))}>Copy to clipboard</button>
+    </div>
+  </div>
+{/if}
 
 <!-- ── New manuscript modal ─────────────────────────────────────── -->
 {#if newOpen}
@@ -392,6 +598,18 @@
 
     <!-- ── Right: editor + Enzo ───────────────────────────────── -->
     <div class="editor-col">
+      <!-- Panel tab row -->
+      <div class="panel-tab-row">
+        <button class="panel-tab" class:panel-tab-active={panelTab === 'editor'} onclick={() => panelTab = 'editor'}>Editor</button>
+        <button class="panel-tab" class:panel-tab-active={panelTab === 'reviewer'} onclick={() => panelTab = 'reviewer'}>Reviewer Resp.</button>
+        <button class="panel-tab" class:panel-tab-active={panelTab === 'legend'} onclick={() => panelTab = 'legend'}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          Legend
+        </button>
+        <button class="panel-tab" class:panel-tab-active={panelTab === 'credit'} onclick={() => panelTab = 'credit'}>Authors</button>
+      </div>
+
+      {#if panelTab === 'editor'}
       {#if sec}
         <div class="editor-top-bar">
           <div class="editor-section-info">
@@ -494,6 +712,155 @@
       {:else}
         <div class="no-sec">Select a section to start writing.</div>
       {/if}
+      {:else if panelTab === 'reviewer'}
+      <!-- ── Reviewer Response panel ── -->
+      <div class="rv-panel">
+        <div class="rv-parse-section">
+          <textarea
+            class="rv-letter-input"
+            bind:value={reviewLetterInput}
+            placeholder="Paste the decision letter here (with Reviewer 1:, Comment 1: etc.) then click Parse…"
+            rows={5}
+          ></textarea>
+          <div class="rv-parse-actions">
+            <button class="btn btn-primary btn-sm" onclick={parseAndSetComments} disabled={!reviewLetterInput.trim()}>Parse comments</button>
+            {#if getReviewerComments().length > 0}
+              <button class="btn btn-ghost btn-sm" onclick={() => { exportResponseText = buildResponseLetter(); exportResponseOpen = true; }}>Export Response Letter</button>
+            {/if}
+          </div>
+        </div>
+
+        {#if getReviewerComments().length > 0}
+          <div class="rv-progress-row">
+            <span class="text-xs text-mu">{getReviewerComments().filter(c => c.addressed).length} of {getReviewerComments().length} comments addressed</span>
+            <div class="rv-progress-track">
+              <div class="rv-progress-fill" style="width:{Math.round(getReviewerComments().filter(c => c.addressed).length/getReviewerComments().length*100)}%"></div>
+            </div>
+          </div>
+
+          <div class="rv-comments">
+            {#each getReviewerComments() as c (c.id)}
+              <div class="rv-comment-card">
+                <div class="rv-comment-head">
+                  <span class="rv-badge rv-badge-{c.reviewer <= 3 ? c.reviewer : 'n'}">R{c.reviewer}</span>
+                  <span class="rv-num text-xs text-mu">Comment {c.number}</span>
+                  <label class="rv-addressed-label">
+                    <input type="checkbox" checked={c.addressed} onchange={() => updateReviewerComment(c.id, { addressed: !c.addressed })} />
+                    Addressed
+                  </label>
+                </div>
+                <div class="rv-original-text text-sm">{c.text}</div>
+                <textarea
+                  class="rv-response-input"
+                  placeholder="Your response…"
+                  value={c.response}
+                  rows={3}
+                  oninput={(e) => updateReviewerComment(c.id, { response: (e.target as HTMLTextAreaElement).value })}
+                ></textarea>
+              </div>
+            {/each}
+          </div>
+        {:else}
+          <div class="rv-empty">
+            <p class="text-mu text-sm">Paste the decision letter above and click Parse to extract reviewer comments.</p>
+          </div>
+        {/if}
+      </div>
+
+      {:else if panelTab === 'legend'}
+      <!-- ── Figure Legend Generator panel ── -->
+      <div class="legend-panel">
+        <div class="field-row-ms">
+          <label>Describe your figure (panels, what is shown, n values, statistics)</label>
+          <textarea class="legend-textarea" bind:value={legendFigDesc} rows={4} placeholder="e.g. Panel A: UMAP of 12,000 cells from 6 HGSOC tumors colored by cell type. Panel B: Violin plot of CD8A expression across clusters. n=6 patients, Wilcoxon test, *p<0.05."></textarea>
+        </div>
+        <div class="field-row-ms">
+          <label>Methods context (optional)</label>
+          <textarea class="legend-textarea" bind:value={legendMethods} rows={2} placeholder="e.g. scRNA-seq using 10x Chromium v3.1, Seurat v5 analysis pipeline"></textarea>
+        </div>
+        <div class="field-row-ms">
+          <label>Target journal</label>
+          <input class="field-input-ms" bind:value={legendJournal} placeholder={ms?.targetJournal || 'e.g. Nature Cancer'} />
+        </div>
+        <button class="btn btn-primary btn-sm" onclick={runLegendGen} disabled={legendStreaming || !legendFigDesc.trim()}>
+          {#if legendStreaming}<span class="ms-spinner-xs"></span> Generating…{:else}Generate Legend{/if}
+        </button>
+
+        {#if legendText || legendStreaming}
+          <div class="legend-output-wrap">
+            <div class="legend-output-head">
+              <span class="legend-output-label text-xs">Generated legend</span>
+              {#if legendStreaming}
+                <span class="ms-spinner-xs"></span>
+              {:else}
+                <button class="btn btn-ghost btn-sm" onclick={() => navigator.clipboard.writeText(legendText).then(() => showToast('Copied'))}>Copy</button>
+                <button class="btn btn-ghost btn-sm" onclick={() => { legendText = ''; }}>Clear</button>
+              {/if}
+            </div>
+            <textarea class="legend-output-text" readonly value={legendText} rows={8}></textarea>
+          </div>
+        {/if}
+      </div>
+
+      {:else if panelTab === 'credit'}
+      <!-- ── CRediT Authors panel ── -->
+      <div class="credit-panel">
+        <div class="credit-add-form card">
+          <span class="col-label">Add author</span>
+          <div class="credit-form-row">
+            <input class="field-input-ms" bind:value={newAuthorName} placeholder="Full name" />
+            <input class="field-input-ms" bind:value={newAuthorOrcid} placeholder="ORCID (optional)" style="width:160px" />
+            <label class="credit-corr-label">
+              <input type="checkbox" bind:checked={newAuthorCorresponding} />
+              Corresponding
+            </label>
+            <button class="btn btn-primary btn-sm" onclick={addCreditAuthor} disabled={!newAuthorName.trim()}>Add</button>
+          </div>
+        </div>
+
+        {#each getCreditAuthors() as author, idx}
+          <div class="credit-author-card card">
+            <div class="credit-author-head">
+              <span class="credit-author-name">{author.name}{author.corresponding ? ' *' : ''}</span>
+              {#if author.orcid}<span class="text-xs text-mu">ORCID: {author.orcid}</span>{/if}
+              <button class="btn-icon ms-del-btn" onclick={() => removeCreditAuthor(idx)} title="Remove author">×</button>
+            </div>
+            <div class="credit-roles-grid">
+              {#each CREDIT_ROLES as role}
+                <label class="credit-role-check" class:credit-role-active={author.roles.includes(role.id)}>
+                  <input
+                    type="checkbox"
+                    checked={author.roles.includes(role.id)}
+                    onchange={() => toggleCreditRole(idx, role.id)}
+                  />
+                  {role.label}
+                </label>
+              {/each}
+            </div>
+          </div>
+        {:else}
+          <div class="rv-empty">
+            <p class="text-mu text-sm">No authors added yet. Use the form above to add CRediT authors.</p>
+          </div>
+        {/each}
+
+        {#if getCreditAuthors().length > 0}
+          <div class="credit-contrib-section">
+            <div class="credit-contrib-head">
+              <span class="col-label">Author contributions statement</span>
+              <button class="btn btn-primary btn-sm" onclick={() => contribText = buildContributionsText()}>Generate contributions text</button>
+              {#if contribText}
+                <button class="btn btn-ghost btn-sm" onclick={() => navigator.clipboard.writeText(contribText).then(() => showToast('Copied'))}>Copy</button>
+              {/if}
+            </div>
+            {#if contribText}
+              <textarea class="legend-output-text" readonly value={contribText} rows={4}></textarea>
+            {/if}
+          </div>
+        {/if}
+      </div>
+      {/if}
+
     </div>
   {:else}
     <div class="ms-empty">
@@ -1038,6 +1405,117 @@
     border-radius: var(--radius-sm);
   }
   .btn-icon:hover { background: var(--sf2); color: var(--tx); }
+
+  /* ── Panel tabs ── */
+  .panel-tab-row {
+    display: flex; gap: 0; border-bottom: 1px solid var(--bd); flex-shrink: 0; background: var(--sf);
+  }
+  .panel-tab {
+    padding: 8px 14px; font-size: 0.78rem; font-weight: 500; color: var(--tx2);
+    background: transparent; border: none; border-bottom: 2px solid transparent;
+    cursor: pointer; display: flex; align-items: center; gap: 4px;
+    transition: all var(--transition); font-family: var(--font);
+  }
+  .panel-tab:hover { color: var(--tx); }
+  .panel-tab-active { color: var(--ac); border-bottom-color: var(--ac); font-weight: 600; }
+
+  /* ── Reviewer panel ── */
+  .rv-panel { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+  .rv-parse-section { display: flex; flex-direction: column; gap: 8px; }
+  .rv-letter-input {
+    width: 100%; resize: vertical; font-size: 0.82rem; padding: 8px 10px;
+    border: 1px solid var(--bd); border-radius: var(--radius-sm);
+    background: var(--sf2); color: var(--tx); font-family: var(--font);
+  }
+  .rv-parse-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .rv-progress-row { display: flex; align-items: center; gap: 10px; }
+  .rv-progress-track { flex: 1; height: 5px; background: var(--sf2); border-radius: 3px; overflow: hidden; }
+  .rv-progress-fill { height: 100%; background: var(--gn); border-radius: 3px; transition: width 0.3s; }
+  .rv-comments { display: flex; flex-direction: column; gap: 10px; }
+  .rv-comment-card {
+    background: var(--sf); border: 1px solid var(--bd); border-radius: var(--radius);
+    padding: 12px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .rv-comment-head { display: flex; align-items: center; gap: 8px; }
+  .rv-badge {
+    font-size: 0.65rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+    padding: 2px 7px; border-radius: 10px;
+  }
+  .rv-badge-1 { background: var(--ac-bg); color: var(--ac); }
+  .rv-badge-2 { background: var(--pu-bg, rgba(139,92,246,.1)); color: #8b5cf6; }
+  .rv-badge-3 { background: var(--gn-bg); color: var(--gn); }
+  .rv-badge-n { background: var(--sf2); color: var(--mu); }
+  .rv-num { margin-left: 2px; }
+  .rv-addressed-label { display: flex; align-items: center; gap: 4px; font-size: 0.75rem; color: var(--mu); margin-left: auto; cursor: pointer; }
+  .rv-addressed-label input { cursor: pointer; accent-color: var(--gn); }
+  .rv-original-text {
+    background: var(--sf2); border-radius: var(--radius-sm); padding: 8px 10px;
+    color: var(--tx2); line-height: 1.6; border: 1px solid var(--bd);
+  }
+  .rv-response-input {
+    width: 100%; resize: vertical; font-size: 0.82rem; padding: 8px 10px;
+    border: 1px solid var(--bd); border-radius: var(--radius-sm);
+    background: var(--sf2); color: var(--tx); font-family: var(--font); line-height: 1.6;
+  }
+  .rv-empty { padding: 32px; text-align: center; }
+
+  /* ── Legend panel ── */
+  .legend-panel { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .field-row-ms { display: flex; flex-direction: column; gap: 4px; }
+  .field-row-ms label { font-size: 0.75rem; color: var(--mu); font-weight: 500; }
+  .legend-textarea {
+    resize: vertical; font-size: 0.82rem; padding: 8px 10px; width: 100%;
+    border: 1px solid var(--bd); border-radius: var(--radius-sm);
+    background: var(--sf2); color: var(--tx); font-family: var(--font); line-height: 1.5;
+  }
+  .field-input-ms {
+    font-size: 0.82rem; padding: 7px 10px; border-radius: var(--radius-sm);
+    background: var(--sf2); border: 1px solid var(--bd); color: var(--tx); width: 100%;
+  }
+  .legend-output-wrap { display: flex; flex-direction: column; gap: 6px; }
+  .legend-output-head { display: flex; align-items: center; gap: 8px; }
+  .legend-output-label { font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--mu); }
+  .legend-output-text {
+    width: 100%; resize: vertical; font-size: 0.82rem; padding: 10px;
+    border: 1px solid var(--bd); border-radius: var(--radius-sm);
+    background: var(--sf2); color: var(--tx); font-family: var(--font); line-height: 1.65;
+  }
+  .ms-spinner-xs {
+    display: inline-block; width: 10px; height: 10px;
+    border: 1.5px solid var(--bd2); border-top-color: var(--ac);
+    border-radius: 50%; animation: ms-spin 0.7s linear infinite;
+  }
+  @keyframes ms-spin { to { transform: rotate(360deg); } }
+
+  /* ── CRediT panel ── */
+  .credit-panel { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .credit-add-form { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .credit-form-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .credit-corr-label { display: flex; align-items: center; gap: 4px; font-size: 0.78rem; color: var(--tx2); cursor: pointer; white-space: nowrap; }
+  .credit-corr-label input { cursor: pointer; accent-color: var(--ac); }
+  .credit-author-card { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .credit-author-head { display: flex; align-items: center; gap: 10px; }
+  .credit-author-name { font-weight: 600; font-size: 0.88rem; color: var(--tx); flex: 1; }
+  .ms-del-btn { width: 22px; height: 22px; font-size: 1rem; color: var(--mu); }
+  .ms-del-btn:hover { color: var(--rd); background: var(--rd-bg); }
+  .credit-roles-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 4px;
+  }
+  .credit-role-check {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 0.75rem; color: var(--tx2); cursor: pointer;
+    padding: 3px 6px; border-radius: var(--radius-sm);
+    border: 1px solid transparent; transition: all var(--transition);
+  }
+  .credit-role-check:hover { background: var(--sf2); }
+  .credit-role-active { background: var(--ac-bg) !important; color: var(--ac) !important; border-color: var(--ac) !important; }
+  .credit-role-check input { cursor: pointer; accent-color: var(--ac); }
+  .credit-contrib-section { display: flex; flex-direction: column; gap: 8px; }
+  .credit-contrib-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+  .response-letter-area { box-sizing: border-box; }
 
   @media (max-width: 700px) {
     .ms-list-col { width: 140px; }

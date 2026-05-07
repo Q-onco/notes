@@ -3,7 +3,7 @@
   import type { PaperResult, ReadingListItem, SavedSearch, Note } from '../lib/types';
   import { store } from '../lib/store.svelte';
   import { exportPapers, exportPapersDocx, exportPapersBibTeX } from '../lib/export';
-  import { askResearch, deepReadPaper, generateReadingNote, critiquePaper } from '../lib/groq';
+  import { askResearch, deepReadPaper, generateReadingNote, critiquePaper, streamRadarSummary, streamMarkerLookup } from '../lib/groq';
   import { nanoid } from 'nanoid';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
@@ -138,7 +138,260 @@
   let summaryLoading = $state<Record<string, boolean>>({});
   let summaryText = $state<Record<string, string>>({});
   let summaryStreaming = $state<Record<string, boolean>>({});
-  let researchTab = $state<'results' | 'reading-list'>('results');
+  let researchTab = $state<'results' | 'reading-list' | 'radar' | 'markers' | 'network'>('results');
+
+  // ── Radar tab state ────────────────────────────────────────────
+  type RadarCard = { pmid: string; title: string; authors: string; journal: string; year: number; abstract: string; doi: string; added: boolean };
+
+  const RADAR_DEFAULTS = ['HGSOC', 'high-grade serous ovarian cancer', 'PARPi resistance', 'tumour microenvironment ovarian', 'scRNA-seq ovarian cancer'];
+  let radarTerms = $state<string[]>([...RADAR_DEFAULTS]);
+  let radarNewTerm = $state('');
+  let radarLoading = $state(false);
+  let radarResults = $state<RadarCard[]>([]);
+  let radarDigest = $state('');
+  let radarDigestStreaming = $state(false);
+  let radarDigestAbort: AbortController | null = null;
+  let radarScanned = $state(false);
+
+  const RADAR_EXAMPLES: RadarCard[] = [
+    { pmid: '_r1', title: 'Spatial mapping of CD8+ T cell exclusion zones in HGSOC identifies TGF-β-driven CAF barrier', authors: 'Weber K et al.', journal: 'Nature Cancer', year: 2024, abstract: 'High-resolution Visium HD profiling of 28 HGSOC tumors reveals spatially discrete immune-excluded niches co-localised with myoCAF-enriched stroma. TGF-β pathway inhibition in patient-derived organoids partially restored CD8 infiltration.', doi: '', added: false },
+    { pmid: '_r2', title: 'Single-cell atlas of PARPi-resistant HGSOC identifies emergent immune-evasive tumour clone', authors: 'Patel S et al.', journal: 'Cancer Discovery', year: 2024, abstract: 'scRNA-seq of 19 olaparib-resistant HGSOC cases identifies a novel tumour subpopulation with downregulated MHC-I and upregulated TIGIT ligands, correlating with reduced CD8 infiltration and worse post-progression outcomes.', doi: '', added: false },
+    { pmid: '_r3', title: 'FOLR1-targeting antibody-drug conjugate mirvetuximab achieves durable responses in platinum-resistant HGSOC', authors: 'Moore KN et al.', journal: 'New England Journal of Medicine', year: 2023, abstract: 'Phase III MIRASOL trial demonstrates that mirvetuximab soravtansine significantly improves progression-free and overall survival versus chemotherapy in FOLR1-high platinum-resistant ovarian cancer, establishing a new standard of care.', doi: '', added: false },
+  ];
+
+  async function radarScan() {
+    radarLoading = true;
+    radarScanned = false;
+    const seen = new Set<string>();
+    const all: RadarCard[] = [];
+
+    for (const term of radarTerms) {
+      try {
+        const results = await searchPubMed(term, 8);
+        for (const p of results) {
+          const key = p.id || p.doi || p.title;
+          if (seen.has(key)) continue;
+          // skip if already in corpus (compare by title similarity)
+          const inCorpus = store.pinnedPapers.some(pp =>
+            pp.title.toLowerCase().slice(0, 40) === p.title.toLowerCase().slice(0, 40)
+          );
+          if (inCorpus) continue;
+          seen.add(key);
+          all.push({
+            pmid: p.id,
+            title: p.title,
+            authors: p.authors.slice(0, 3).join(', ') + (p.authors.length > 3 ? ' et al.' : ''),
+            journal: p.journal,
+            year: p.year,
+            abstract: p.abstract || '',
+            doi: p.doi || '',
+            added: false,
+          });
+        }
+      } catch { /* continue */ }
+    }
+
+    radarResults = all;
+    radarScanned = true;
+    radarLoading = false;
+  }
+
+  function radarAddToCorpus(card: RadarCard) {
+    const paper: PaperResult = {
+      id: card.pmid,
+      title: card.title,
+      authors: card.authors.split(', '),
+      abstract: card.abstract,
+      journal: card.journal,
+      year: card.year,
+      doi: card.doi,
+      url: card.doi ? `https://doi.org/${card.doi}` : `https://pubmed.ncbi.nlm.nih.gov/${card.pmid}/`,
+      source: 'pubmed',
+    };
+    store.pinPaper(paper);
+    radarResults = radarResults.map(r => r.pmid === card.pmid ? { ...r, added: true } : r);
+    showToast('Added to research corpus');
+  }
+
+  async function radarSummarise() {
+    const papersToSummarise = radarResults.slice(0, 10);
+    if (papersToSummarise.length === 0) return;
+    radarDigestAbort?.abort();
+    radarDigestAbort = new AbortController();
+    radarDigest = '';
+    radarDigestStreaming = true;
+    const existingTopics = store.pinnedPapers.slice(0, 5).map(p => p.title).join('; ') || 'HGSOC, PARPi resistance, tumour microenvironment';
+    try {
+      await streamRadarSummary(papersToSummarise, existingTopics, chunk => { radarDigest += chunk; }, radarDigestAbort.signal);
+    } catch { /* aborted */ }
+    radarDigestStreaming = false;
+  }
+
+  // ── Markers tab state ──────────────────────────────────────────
+  const MARKER_DB = [
+    { gene: 'TP53', cellTypes: ['tumour cells'], role: 'tumour suppressor', hgsocRelevance: 'mutated in >96% HGSOC' },
+    { gene: 'BRCA1', cellTypes: ['tumour cells'], role: 'DNA repair', hgsocRelevance: 'germline/somatic mutation, PARPi sensitivity' },
+    { gene: 'BRCA2', cellTypes: ['tumour cells'], role: 'DNA repair', hgsocRelevance: 'germline/somatic mutation, PARPi sensitivity' },
+    { gene: 'FOXM1', cellTypes: ['tumour cells'], role: 'mitotic progression', hgsocRelevance: 'amplified in HGSOC, poor prognosis' },
+    { gene: 'CD8A', cellTypes: ['cytotoxic T cells'], role: 'co-receptor, cytotoxicity', hgsocRelevance: 'CD8+ TIL correlates with improved survival' },
+    { gene: 'PDCD1', cellTypes: ['exhausted T cells'], role: 'checkpoint receptor (PD-1)', hgsocRelevance: 'checkpoint inhibitor target' },
+    { gene: 'CD274', cellTypes: ['tumour cells', 'macrophages'], role: 'PD-L1 immune evasion', hgsocRelevance: 'biomarker for checkpoint therapy' },
+    { gene: 'EPCAM', cellTypes: ['tumour cells'], role: 'cell adhesion', hgsocRelevance: 'tumour cell marker, CTC detection' },
+    { gene: 'MKI67', cellTypes: ['proliferating cells'], role: 'proliferation marker', hgsocRelevance: 'tumour proliferation index' },
+    { gene: 'CXCL12', cellTypes: ['CAFs', 'endothelial'], role: 'chemokine', hgsocRelevance: 'TME remodelling, immune exclusion' },
+    { gene: 'CD68', cellTypes: ['macrophages'], role: 'macrophage marker', hgsocRelevance: 'TAM quantification' },
+    { gene: 'MRC1', cellTypes: ['M2 macrophages'], role: 'mannose receptor (CD206)', hgsocRelevance: 'immunosuppressive TAM phenotype' },
+    { gene: 'ACTA2', cellTypes: ['CAFs', 'smooth muscle'], role: 'alpha-SMA, contractile CAF', hgsocRelevance: 'stromal activation marker' },
+    { gene: 'VEGFA', cellTypes: ['tumour cells', 'macrophages'], role: 'angiogenesis', hgsocRelevance: 'bevacizumab target' },
+    { gene: 'IL6', cellTypes: ['CAFs', 'macrophages'], role: 'pro-tumour cytokine', hgsocRelevance: 'ascites driver, JAK/STAT signalling' },
+    { gene: 'FOLR1', cellTypes: ['tumour cells'], role: 'folate receptor alpha', hgsocRelevance: 'overexpressed ~90% HGSOC, mirvetuximab target' },
+    { gene: 'CA9', cellTypes: ['hypoxic tumour cells'], role: 'carbonic anhydrase IX', hgsocRelevance: 'hypoxia marker' },
+    { gene: 'NCAM1', cellTypes: ['NK cells'], role: 'CD56, NK cell marker', hgsocRelevance: 'NK cell dysfunction in ascites' },
+    { gene: 'FOXP3', cellTypes: ['regulatory T cells'], role: 'Treg master TF', hgsocRelevance: 'immunosuppression, poor prognosis' },
+    { gene: 'HLA-A', cellTypes: ['tumour cells', 'APCs'], role: 'MHC-I antigen presentation', hgsocRelevance: 'immune evasion by downregulation' },
+  ];
+
+  let markerQuery = $state('');
+  let markerEnzoText = $state('');
+  let markerEnzoStreaming = $state(false);
+  let markerEnzoAbort: AbortController | null = null;
+
+  const markerMatches = $derived(
+    markerQuery.trim().length >= 1
+      ? MARKER_DB.filter(m => m.gene.toLowerCase().startsWith(markerQuery.toLowerCase().trim()))
+      : []
+  );
+
+  async function askMarkerEnzo(gene: string) {
+    markerEnzoAbort?.abort();
+    markerEnzoAbort = new AbortController();
+    markerEnzoText = '';
+    markerEnzoStreaming = true;
+    const matched = MARKER_DB.find(m => m.gene.toLowerCase() === gene.toLowerCase());
+    const context = matched
+      ? `Cell types: ${matched.cellTypes.join(', ')}. Role: ${matched.role}. HGSOC relevance: ${matched.hgsocRelevance}.`
+      : 'No local database entry — provide general HGSOC TME context.';
+    try {
+      await streamMarkerLookup(gene || markerQuery.trim(), context, chunk => { markerEnzoText += chunk; }, markerEnzoAbort.signal);
+    } catch { /* aborted */ }
+    markerEnzoStreaming = false;
+  }
+
+  // ── Network tab state ──────────────────────────────────────────
+  type NetNode = { id: string; title: string; authors: string; doi: string; x: number; y: number; connections: number };
+  type NetEdge = { source: string; target: string };
+
+  let networkNodes = $state<NetNode[]>([]);
+  let networkEdges = $state<NetEdge[]>([]);
+  let networkLoading = $state(false);
+  let networkSelectedId = $state<string | null>(null);
+  let networkBuilt = $state(false);
+
+  const networkSelectedNode = $derived(networkNodes.find(n => n.id === networkSelectedId) ?? null);
+
+  async function buildNetwork() {
+    const corpusPapers = store.pinnedPapers.filter(p => p.doi);
+    if (corpusPapers.length < 3) return;
+
+    networkLoading = true;
+    networkBuilt = false;
+    networkNodes = [];
+    networkEdges = [];
+
+    // Build a map of doi → paper
+    const doiMap = new Map<string, PaperResult>();
+    for (const p of corpusPapers) {
+      if (p.doi) doiMap.set(p.doi.toLowerCase(), p);
+    }
+
+    const connectionCount = new Map<string, number>();
+    const edges: NetEdge[] = [];
+
+    // Fetch references for each paper
+    for (const paper of corpusPapers) {
+      if (!paper.doi) continue;
+      try {
+        const res = await fetch(`https://api.crossref.org/works/${encodeURIComponent(paper.doi)}`);
+        if (!res.ok) continue;
+        const data = await res.json();
+        const refs: { DOI?: string }[] = data?.message?.reference ?? [];
+        for (const ref of refs) {
+          if (!ref.DOI) continue;
+          const refDoi = ref.DOI.toLowerCase();
+          if (doiMap.has(refDoi) && refDoi !== paper.doi.toLowerCase()) {
+            const targetPaper = doiMap.get(refDoi)!;
+            edges.push({ source: paper.id, target: targetPaper.id });
+            connectionCount.set(paper.id, (connectionCount.get(paper.id) ?? 0) + 1);
+            connectionCount.set(targetPaper.id, (connectionCount.get(targetPaper.id) ?? 0) + 1);
+          }
+        }
+      } catch { /* continue */ }
+    }
+
+    // Create nodes with initial positions in a circle
+    const cx = 300; const cy = 220; const radius = 160;
+    const nodes: NetNode[] = corpusPapers.map((p, i) => {
+      const angle = (i / corpusPapers.length) * 2 * Math.PI;
+      return {
+        id: p.id,
+        title: p.title,
+        authors: (p.authors[0] || '') + (p.authors.length > 1 ? ' et al.' : ''),
+        doi: p.doi,
+        x: cx + Math.cos(angle) * radius,
+        y: cy + Math.sin(angle) * radius,
+        connections: connectionCount.get(p.id) ?? 0,
+      };
+    });
+
+    // Simple force layout — ~80 iterations
+    for (let iter = 0; iter < 80; iter++) {
+      // Repulsion
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const dx = nodes[i].x - nodes[j].x;
+          const dy = nodes[i].y - nodes[j].y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const force = 4000 / (dist * dist);
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+          nodes[i].x += fx * 0.1;
+          nodes[i].y += fy * 0.1;
+          nodes[j].x -= fx * 0.1;
+          nodes[j].y -= fy * 0.1;
+        }
+      }
+      // Attraction along edges
+      for (const edge of edges) {
+        const src = nodes.find(n => n.id === edge.source);
+        const tgt = nodes.find(n => n.id === edge.target);
+        if (!src || !tgt) continue;
+        const dx = tgt.x - src.x;
+        const dy = tgt.y - src.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const force = dist * 0.015;
+        src.x += (dx / dist) * force;
+        src.y += (dy / dist) * force;
+        tgt.x -= (dx / dist) * force;
+        tgt.y -= (dy / dist) * force;
+      }
+      // Center pull
+      for (const n of nodes) {
+        n.x += (cx - n.x) * 0.008;
+        n.y += (cy - n.y) * 0.008;
+      }
+    }
+
+    // Clamp to visible area
+    for (const n of nodes) {
+      n.x = Math.max(30, Math.min(570, n.x));
+      n.y = Math.max(30, Math.min(410, n.y));
+    }
+
+    networkNodes = nodes;
+    networkEdges = edges;
+    networkBuilt = true;
+    networkLoading = false;
+  }
   let showPresets = $state(false);
   let savingSearch = $state(false);
   let saveSearchLabel = $state('');
@@ -694,6 +947,27 @@ Format your response as:
         >
           Reading list {#if store.readingList.length > 0}<span class="tab-count">{store.readingList.length}</span>{/if}
         </button>
+        <button
+          class="tab-btn"
+          class:active={researchTab === 'radar'}
+          onclick={() => researchTab = 'radar'}
+        >
+          Radar
+        </button>
+        <button
+          class="tab-btn"
+          class:active={researchTab === 'markers'}
+          onclick={() => researchTab = 'markers'}
+        >
+          Markers
+        </button>
+        <button
+          class="tab-btn"
+          class:active={researchTab === 'network'}
+          onclick={() => researchTab = 'network'}
+        >
+          Network
+        </button>
       </div>
       <!-- DOI resolver -->
       <div class="doi-wrap">
@@ -1079,7 +1353,7 @@ Format your response as:
       {/each}
     </div>
 
-  {:else}
+  {:else if researchTab === 'reading-list'}
     <!-- Reading list tab -->
     <div class="reading-list">
       {#if store.readingList.length > 0}
@@ -1176,6 +1450,270 @@ Format your response as:
             </div>
           {/if}
         {/each}
+      {/if}
+    </div>
+  {:else if researchTab === 'radar'}
+    <!-- ── Radar tab ── -->
+    <div class="radar-view">
+      <div class="radar-terms-row">
+        <span class="source-label">Search terms</span>
+        <div class="radar-chips">
+          {#each radarTerms as term, i}
+            <div class="radar-chip">
+              <span>{term}</span>
+              <button class="radar-chip-del" onclick={() => radarTerms = radarTerms.filter((_, j) => j !== i)}>×</button>
+            </div>
+          {/each}
+        </div>
+        <div class="radar-add-row">
+          <input
+            class="radar-add-input"
+            bind:value={radarNewTerm}
+            placeholder="Add term…"
+            onkeydown={(e) => { if (e.key === 'Enter' && radarNewTerm.trim()) { radarTerms = [...radarTerms, radarNewTerm.trim()]; radarNewTerm = ''; } }}
+          />
+          <button class="btn btn-ghost btn-sm" onclick={() => { if (radarNewTerm.trim()) { radarTerms = [...radarTerms, radarNewTerm.trim()]; radarNewTerm = ''; } }}>Add</button>
+          <button class="btn btn-primary btn-sm" onclick={radarScan} disabled={radarLoading}>
+            {#if radarLoading}<span class="spinner-xs"></span> Scanning…{:else}Scan PubMed{/if}
+          </button>
+        </div>
+      </div>
+
+      {#if !radarScanned}
+        <div class="radar-examples">
+          <p class="text-xs text-mu example-label-row">· example results — press Scan PubMed to see live papers</p>
+          {#each RADAR_EXAMPLES as card}
+            <div class="radar-card card radar-card-example">
+              <div class="radar-card-head">
+                <span class="example-paper-badge text-xs">example</span>
+                <span class="text-xs text-mu">{card.journal} · {card.year}</span>
+              </div>
+              <p class="radar-card-title">{card.title}</p>
+              <p class="text-xs text-mu">{card.authors}</p>
+              <p class="text-sm radar-card-abstract">{card.abstract.slice(0, 180)}…</p>
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <div class="radar-results">
+          {#if radarResults.length === 0}
+            <div class="empty-state"><p class="text-mu">No new papers found — all results may already be in your corpus.</p></div>
+          {:else}
+            {#each radarResults as card (card.pmid)}
+              <div class="radar-card card">
+                <div class="radar-card-head">
+                  <div class="radar-card-meta">
+                    <span class="tag tag-ac">PubMed</span>
+                    <span class="text-xs text-mu">{card.journal}</span>
+                    {#if card.year > 0}<span class="text-xs text-mu">· {card.year}</span>{/if}
+                  </div>
+                  <button
+                    class="btn btn-sm {card.added ? 'btn-ghost' : 'btn-primary'}"
+                    disabled={card.added}
+                    onclick={() => radarAddToCorpus(card)}
+                  >
+                    {card.added ? 'Added' : 'Add to corpus'}
+                  </button>
+                </div>
+                <p class="radar-card-title">{card.title}</p>
+                <p class="text-xs text-mu">{card.authors}</p>
+                {#if card.abstract}
+                  <p class="text-sm radar-card-abstract">{card.abstract.slice(0, 200)}…</p>
+                {/if}
+              </div>
+            {/each}
+          {/if}
+        </div>
+
+        <!-- Enzo Digest -->
+        {#if radarResults.length > 0}
+          <div class="radar-digest card">
+            <div class="radar-digest-head">
+              <span class="summary-label" style="color:var(--enzo)">Enzo Digest</span>
+              <button
+                class="btn btn-sm btn-enzo"
+                onclick={radarSummarise}
+                disabled={radarDigestStreaming}
+              >
+                {#if radarDigestStreaming}<span class="spinner-xs"></span> Summarising…{:else}Summarise new papers{/if}
+              </button>
+              {#if radarDigest && !radarDigestStreaming}
+                <button class="btn btn-ghost btn-sm" onclick={() => navigator.clipboard.writeText(radarDigest).then(() => showToast('Copied'))}>Copy</button>
+              {/if}
+            </div>
+            {#if radarDigest}
+              <div class="summary-body text-sm">{radarDigest}</div>
+            {:else if !radarDigestStreaming}
+              <p class="text-sm text-mu">Click "Summarise new papers" to get Enzo's synthesis of what's new.</p>
+            {/if}
+          </div>
+        {/if}
+      {/if}
+    </div>
+
+  {:else if researchTab === 'markers'}
+    <!-- ── Markers tab ── -->
+    <div class="markers-view">
+      <div class="markers-search-row">
+        <input
+          class="markers-input"
+          bind:value={markerQuery}
+          placeholder="Search gene symbol (e.g. CD8A, FOXP3, FOLR1)…"
+          onkeydown={(e) => { if (e.key === 'Enter' && markerQuery.trim()) askMarkerEnzo(markerQuery.trim()); }}
+        />
+        <button
+          class="btn btn-primary btn-sm"
+          onclick={() => askMarkerEnzo(markerQuery.trim())}
+          disabled={!markerQuery.trim() || markerEnzoStreaming}
+        >
+          {#if markerEnzoStreaming}<span class="spinner-xs"></span>{:else}Ask Enzo{/if}
+        </button>
+      </div>
+
+      {#if markerMatches.length > 0}
+        <div class="marker-matches">
+          {#each markerMatches as m}
+            <button class="marker-match-chip" onclick={() => { markerQuery = m.gene; askMarkerEnzo(m.gene); }}>
+              <span class="marker-gene">{m.gene}</span>
+              <span class="marker-cell-types text-xs">{m.cellTypes.join(', ')}</span>
+              <span class="marker-relevance text-xs text-mu">{m.hgsocRelevance}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+
+      {#if markerEnzoText || markerEnzoStreaming}
+        <div class="marker-enzo-box card">
+          <div class="summary-header">
+            <span class="summary-label" style="color:var(--enzo)">Enzo · {markerQuery || 'Gene'} in HGSOC TME</span>
+            {#if markerEnzoStreaming}
+              <span class="spinner-xs"></span>
+            {:else}
+              <button class="btn-link" onclick={() => { markerEnzoAbort?.abort(); markerEnzoStreaming = false; navigator.clipboard.writeText(markerEnzoText).then(() => showToast('Copied')); }}>Copy</button>
+              <button class="btn-link" onclick={() => { markerEnzoText = ''; }}>Clear</button>
+            {/if}
+          </div>
+          <div class="summary-body text-sm">{markerEnzoText}</div>
+        </div>
+      {/if}
+
+      <!-- Marker table -->
+      <div class="marker-table card">
+        <div class="marker-table-head">
+          <span class="source-label">HGSOC Marker Database ({MARKER_DB.length} entries)</span>
+        </div>
+        <div class="marker-table-body">
+          {#each MARKER_DB as m}
+            <button
+              class="marker-row"
+              class:marker-row-active={markerQuery.toLowerCase() === m.gene.toLowerCase()}
+              onclick={() => { markerQuery = m.gene; askMarkerEnzo(m.gene); }}
+            >
+              <span class="marker-gene-col">{m.gene}</span>
+              <span class="marker-cells-col text-xs text-mu">{m.cellTypes.join(', ')}</span>
+              <span class="marker-role-col text-xs">{m.role}</span>
+              <span class="marker-hgsoc-col text-xs text-mu">{m.hgsocRelevance}</span>
+            </button>
+          {/each}
+        </div>
+      </div>
+    </div>
+
+  {:else if researchTab === 'network'}
+    <!-- ── Network tab ── -->
+    <div class="network-view">
+      {#if store.pinnedPapers.filter(p => p.doi).length < 3}
+        <div class="empty-state">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--mu)" stroke-width="1.2" opacity="0.5">
+            <circle cx="6" cy="12" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="18" cy="18" r="3"/>
+            <line x1="9" y1="11" x2="15" y2="7"/><line x1="9" y1="13" x2="15" y2="17"/>
+          </svg>
+          <p class="text-mu text-sm">Add at least 3 papers with DOIs to your research corpus (via pin) to build a citation network.</p>
+        </div>
+      {:else}
+        <div class="network-toolbar">
+          <span class="text-sm text-mu">{store.pinnedPapers.filter(p => p.doi).length} papers in corpus</span>
+          <button class="btn btn-primary btn-sm" onclick={buildNetwork} disabled={networkLoading}>
+            {#if networkLoading}<span class="spinner-xs"></span> Building…{:else}Build Network{/if}
+          </button>
+          {#if networkBuilt}
+            <span class="text-xs text-mu">{networkEdges.length} citation link{networkEdges.length !== 1 ? 's' : ''} found</span>
+          {/if}
+        </div>
+
+        {#if networkBuilt}
+          <div class="network-body">
+            <div class="network-svg-wrap">
+              <svg viewBox="0 0 600 440" class="network-svg">
+                <!-- Edges -->
+                {#each networkEdges as edge}
+                  {@const src = networkNodes.find(n => n.id === edge.source)}
+                  {@const tgt = networkNodes.find(n => n.id === edge.target)}
+                  {#if src && tgt}
+                    <line
+                      x1={src.x} y1={src.y}
+                      x2={tgt.x} y2={tgt.y}
+                      stroke="var(--bd2)"
+                      stroke-width="1.5"
+                      opacity="0.6"
+                    />
+                  {/if}
+                {/each}
+                <!-- Nodes -->
+                {#each networkNodes as node}
+                  {@const r = 8 + Math.min(node.connections * 3, 14)}
+                  {@const fill = node.connections > 2 ? 'var(--enzo)' : 'var(--ac)'}
+                  <!-- svelte-ignore a11y_click_events_have_key_events -->
+                  <g
+                    role="button"
+                    tabindex="0"
+                    onclick={() => networkSelectedId = networkSelectedId === node.id ? null : node.id}
+                    onkeydown={(e) => e.key === 'Enter' && (networkSelectedId = networkSelectedId === node.id ? null : node.id)}
+                    class="net-node-g"
+                  >
+                    <circle
+                      cx={node.x} cy={node.y} r={r}
+                      fill={fill}
+                      opacity={networkSelectedId && networkSelectedId !== node.id ? 0.4 : 0.9}
+                      stroke={networkSelectedId === node.id ? 'var(--tx)' : 'transparent'}
+                      stroke-width="2"
+                    />
+                    <text
+                      x={node.x} y={node.y + r + 10}
+                      text-anchor="middle"
+                      font-size="9"
+                      fill="var(--tx2)"
+                      class="net-label"
+                    >{node.title.slice(0, 22)}{node.title.length > 22 ? '…' : ''}</text>
+                  </g>
+                {/each}
+              </svg>
+            </div>
+
+            {#if networkSelectedNode}
+              <div class="network-detail card">
+                <div class="network-detail-head">
+                  <span class="source-label">Selected paper</span>
+                  <button class="btn-link" onclick={() => networkSelectedId = null}>Clear</button>
+                </div>
+                <p class="network-detail-title">{networkSelectedNode.title}</p>
+                <p class="text-xs text-mu">{networkSelectedNode.authors}</p>
+                <p class="text-xs" style="color:var(--ac)">
+                  {networkSelectedNode.connections} citation link{networkSelectedNode.connections !== 1 ? 's' : ''} within corpus
+                </p>
+                {#if networkSelectedNode.doi}
+                  <a href="https://doi.org/{networkSelectedNode.doi}" target="_blank" rel="noreferrer" class="btn-link text-xs">
+                    Open paper →
+                  </a>
+                {/if}
+              </div>
+            {:else}
+              <div class="network-hint">
+                <p class="text-xs text-mu">Click a node to see paper details. Larger nodes = more cited within corpus. Purple nodes have &gt;2 connections.</p>
+              </div>
+            {/if}
+          </div>
+        {/if}
       {/if}
     </div>
   {/if}
@@ -1662,4 +2200,92 @@ Format your response as:
     .search-row { flex-direction: column; }
     .search-row input { width: 100%; }
   }
+
+  /* ── Radar tab ─────────────────────────────────────────────────── */
+  .radar-view { display: flex; flex-direction: column; gap: 14px; }
+  .radar-terms-row { display: flex; flex-direction: column; gap: 8px; }
+  .radar-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .radar-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 8px; border-radius: 20px; font-size: 0.78rem; font-weight: 500;
+    background: var(--enzo-bg); border: 1px solid var(--enzo-bd); color: var(--enzo);
+  }
+  .radar-chip-del {
+    background: transparent; border: none; color: var(--enzo); cursor: pointer;
+    font-size: 0.9rem; line-height: 1; padding: 0; opacity: 0.6;
+  }
+  .radar-chip-del:hover { opacity: 1; }
+  .radar-add-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .radar-add-input { flex: 1; min-width: 140px; font-size: 0.82rem; }
+  .radar-examples, .radar-results { display: flex; flex-direction: column; gap: 10px; }
+  .radar-card { display: flex; flex-direction: column; gap: 6px; }
+  .radar-card-example { opacity: 0.65; }
+  .radar-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .radar-card-meta { display: flex; align-items: center; gap: 6px; }
+  .radar-card-title { font-size: 0.88rem; font-weight: 600; color: var(--tx); line-height: 1.4; margin: 0; }
+  .radar-card-abstract { color: var(--tx2); line-height: 1.6; margin: 0; }
+  .radar-digest { display: flex; flex-direction: column; gap: 10px; background: var(--enzo-bg); border-color: var(--enzo-bd); }
+  .radar-digest-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .btn-enzo {
+    background: var(--enzo-bg);
+    color: var(--enzo);
+    border: 1px solid var(--enzo-bd, rgba(168,85,247,0.2));
+    font-size: 0.78rem;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .btn-enzo:hover:not(:disabled) { background: rgba(168,85,247,0.2); }
+  .btn-enzo:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ── Markers tab ───────────────────────────────────────────────── */
+  .markers-view { display: flex; flex-direction: column; gap: 14px; }
+  .markers-search-row { display: flex; gap: 8px; align-items: center; }
+  .markers-input { flex: 1; font-size: 0.85rem; }
+  .marker-matches { display: flex; flex-direction: column; gap: 4px; }
+  .marker-match-chip {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 12px; border-radius: var(--radius-sm);
+    background: var(--sf2); border: 1px solid var(--bd);
+    cursor: pointer; text-align: left; transition: all var(--transition);
+  }
+  .marker-match-chip:hover { border-color: var(--enzo); background: var(--enzo-bg); }
+  .marker-gene { font-size: 0.88rem; font-weight: 700; font-family: var(--mono); color: var(--tx); min-width: 60px; }
+  .marker-cell-types { min-width: 120px; }
+  .marker-relevance { flex: 1; }
+  .marker-enzo-box { padding: 14px; background: var(--enzo-bg); border-color: var(--enzo-bd); }
+  .marker-table { overflow: hidden; }
+  .marker-table-head { padding: 10px 14px; border-bottom: 1px solid var(--bd); }
+  .marker-table-body { display: flex; flex-direction: column; max-height: 360px; overflow-y: auto; }
+  .marker-row {
+    display: grid;
+    grid-template-columns: 80px 140px 1fr 1fr;
+    gap: 8px;
+    padding: 7px 14px;
+    border-bottom: 1px solid var(--bd);
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+    transition: background var(--transition);
+  }
+  .marker-row:hover { background: var(--sf2); }
+  .marker-row-active { background: var(--enzo-bg) !important; }
+  .marker-gene-col { font-weight: 700; font-family: var(--mono); font-size: 0.82rem; color: var(--enzo); }
+  .marker-cells-col, .marker-role-col, .marker-hgsoc-col { align-self: center; }
+
+  /* ── Network tab ───────────────────────────────────────────────── */
+  .network-view { display: flex; flex-direction: column; gap: 14px; }
+  .network-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .network-body { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+  .network-svg-wrap {
+    flex: 1; min-width: 300px;
+    border: 1px solid var(--bd); border-radius: var(--radius);
+    background: var(--sf); overflow: hidden;
+  }
+  .network-svg { width: 100%; display: block; }
+  .net-node-g { cursor: pointer; }
+  .net-label { pointer-events: none; }
+  .network-detail { width: 220px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; }
+  .network-detail-head { display: flex; align-items: center; justify-content: space-between; }
+  .network-detail-title { font-size: 0.85rem; font-weight: 600; color: var(--tx); line-height: 1.4; margin: 0; }
+  .network-hint { padding: 10px 0; }
+  .tag-ac { background: var(--ac-bg); color: var(--ac); border: 1px solid var(--ac); border-radius: 10px; padding: 1px 7px; font-size: 0.7rem; font-weight: 700; }
 </style>
