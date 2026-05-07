@@ -7,6 +7,12 @@
   let activeTagFilter = $state('');
   let showArchived = $state(false);
 
+  // Views with new features — badge clears on first visit
+  const NEW_VIEWS = new Set(['review', 'research', 'manuscript', 'grants', 'audio']);
+  const _seenRaw = typeof localStorage !== 'undefined'
+    ? JSON.parse(localStorage.getItem('qonco-seen-views') ?? '[]') : [];
+  let seenViews = $state<Set<string>>(new Set(_seenRaw));
+
   // Hover preview
   let hoveredNote = $state<Note | null>(null);
   let hoverX = $state(0);
@@ -59,6 +65,10 @@
       store.currentNoteId = store.recentNotes[0].id;
     }
     store.sidebarOpen = false;
+    if (NEW_VIEWS.has(id) && !seenViews.has(id)) {
+      seenViews = new Set([...seenViews, id]);
+      localStorage.setItem('qonco-seen-views', JSON.stringify([...seenViews]));
+    }
   }
 
   function newNote() {
@@ -122,7 +132,9 @@
           <path d={item.icon}/>
         </svg>
         <span>{item.label}</span>
-        {#if item.id === 'tasks' && store.activeTasks.length > 0}
+        {#if NEW_VIEWS.has(item.id) && !seenViews.has(item.id)}
+          <span class="badge-new">new</span>
+        {:else if item.id === 'tasks' && store.activeTasks.length > 0}
           <span class="badge">{store.activeTasks.length}</span>
         {:else if item.id === 'presentations' && store.presentations.length > 0}
           <span class="badge">{store.presentations.length}</span>
@@ -269,6 +281,11 @@
     margin-left: auto; background: var(--ac); color: white;
     font-size: 0.7rem; font-weight: 700; padding: 1px 6px;
     border-radius: 10px; min-width: 18px; text-align: center;
+  }
+  .badge-new {
+    margin-left: auto; background: var(--enzo); color: white;
+    font-size: 0.6rem; font-weight: 800; padding: 1px 5px;
+    border-radius: 10px; letter-spacing: 0.04em; text-transform: uppercase;
   }
 
   .divider { border: none; border-top: 1px solid var(--bd); margin: 8px 0; }
