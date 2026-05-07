@@ -620,7 +620,7 @@
       noteContext: store.currentNote?.title ?? null
     };
     store.chatSessions = [session, ...store.chatSessions];
-    return session;
+    return store.chatSessions.find(s => s.id === todayKey)!;
   }
 
   async function send() {
