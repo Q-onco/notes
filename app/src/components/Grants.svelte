@@ -1,6 +1,7 @@
 <script lang="ts">
   import { store } from '../lib/store.svelte';
   import { nanoid } from 'nanoid';
+  import { streamGrantCritique } from '../lib/groq';
   import type { Grant, ConferenceAbstract, PeerReview, GrantStatus, AbstractStatus, PeerReviewStatus } from '../lib/types';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
@@ -172,6 +173,46 @@
   const activeGrants = $derived(store.grants.filter(g => g.status !== 'awarded' && g.status !== 'rejected' && g.status !== 'withdrawn').length);
   const pendingConfs = $derived(store.conferences.filter(c => c.status === 'drafting' || c.status === 'submitted').length);
   const activeReviews = $derived(store.peerReviews.filter(r => r.status === 'accepted' || r.status === 'in-progress').length);
+
+  // ── Grant Critique ──────────────────────────────────────────────
+  const CRITIQUE_SECTIONS = [
+    { label: 'Title & Aims', key: 'aims' },
+    { label: 'Background / Significance', key: 'background' },
+    { label: 'Approach / Strategy', key: 'approach' },
+    { label: 'Innovation', key: 'innovation' },
+    { label: 'Investigator', key: 'investigator' },
+    { label: 'Full grant text', key: 'full' },
+  ];
+
+  let critiqueOpen = $state(false);
+  let critiqueGrant = $state<Grant | null>(null);
+  let critiqueSection = $state('full');
+  let critiqueText = $state('');
+  let critiqueStreaming = $state(false);
+  let critiqueAbort: AbortController | null = null;
+
+  function openCritique(g: Grant) {
+    critiqueGrant = g;
+    critiqueSection = 'full';
+    critiqueText = '';
+    critiqueOpen = true;
+  }
+
+  async function runCritique() {
+    if (!critiqueGrant) return;
+    critiqueAbort?.abort();
+    critiqueAbort = new AbortController();
+    critiqueText = '';
+    critiqueStreaming = true;
+
+    const secLabel = CRITIQUE_SECTIONS.find(s => s.key === critiqueSection)?.label ?? critiqueSection;
+    const sectionText = critiqueGrant.notes.trim() || critiqueGrant.description.trim() || critiqueGrant.title;
+
+    try {
+      await streamGrantCritique(critiqueGrant.title, secLabel, sectionText, chunk => { critiqueText += chunk; }, critiqueAbort.signal);
+    } catch { /* aborted */ }
+    critiqueStreaming = false;
+  }
 </script>
 
 <div class="tracker">
@@ -240,6 +281,9 @@
                   </div>
                 {/if}
                 <div class="tc-actions">
+                  <button class="btn-icon critique-btn" onclick={() => openCritique(g)} title="AI Critique">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                  </button>
                   <button class="btn-icon" onclick={() => editGrant(g)} title="Edit">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                   </button>
@@ -362,6 +406,57 @@
   {/if}
 
 </div>
+
+<!-- ── Critique panel ── -->
+{#if critiqueOpen && critiqueGrant}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="modal-overlay" onclick={() => { critiqueOpen = false; critiqueAbort?.abort(); }}>
+    <div class="modal-card wide" onclick={e => e.stopPropagation()} style="max-height:88vh">
+      <div class="modal-head">
+        <h3>Grant Critique — {critiqueGrant.title.slice(0, 50)}{critiqueGrant.title.length > 50 ? '…' : ''}</h3>
+        <button class="btn-icon" onclick={() => { critiqueOpen = false; critiqueAbort?.abort(); }}>✕</button>
+      </div>
+      <div class="modal-body" style="gap:10px">
+        <div class="form-row">
+          <label>Section to critique</label>
+          <select bind:value={critiqueSection}>
+            {#each CRITIQUE_SECTIONS as s}
+              <option value={s.key}>{s.label}</option>
+            {/each}
+          </select>
+        </div>
+        <div class="critique-context-note">
+          <span class="critique-note-label">Text that will be critiqued</span>
+          <p class="critique-context-text text-sm">{(critiqueGrant.notes || critiqueGrant.description || critiqueGrant.title).slice(0, 300)}{((critiqueGrant.notes || critiqueGrant.description).length > 300) ? '…' : ''}</p>
+          <p class="text-xs text-mu">Tip: add section text to the grant's Notes field for best results.</p>
+        </div>
+        <div class="critique-actions-row">
+          <button class="btn btn-primary btn-sm" onclick={runCritique} disabled={critiqueStreaming}>
+            {#if critiqueStreaming}<span class="critique-spinner"></span> Critiquing…{:else}Run Critique{/if}
+          </button>
+          {#if critiqueText && !critiqueStreaming}
+            <button class="btn btn-ghost btn-sm" onclick={() => navigator.clipboard.writeText(critiqueText).then(() => showToast('Copied'))}>Copy</button>
+            <button class="btn btn-ghost btn-sm" onclick={() => { critiqueText = ''; }}>Clear</button>
+          {/if}
+        </div>
+        {#if critiqueText || critiqueStreaming}
+          <div class="critique-output-box">
+            <span class="critique-output-label">Reviewer critique</span>
+            {#if critiqueStreaming && !critiqueText}
+              <span class="text-sm text-mu">Thinking…</span>
+            {:else}
+              <div class="critique-output-text text-sm">{critiqueText}</div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick={() => { critiqueOpen = false; critiqueAbort?.abort(); }}>Close</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <!-- ── Grant modal ── -->
 {#if grantModal}
@@ -684,6 +779,36 @@
   .tag-input { border: none; background: transparent; font-size: 0.82rem; color: var(--tx); min-width: 100px; flex: 1; outline: none; font-family: var(--font); }
   .wc-inline { font-size: 0.7rem; font-weight: 600; color: var(--gn); margin-left: 6px; }
   .wc-inline.wc-over { color: var(--rd); }
+
+  .critique-btn { color: #fb923c; }
+  .critique-btn:hover { color: #fb923c; background: rgba(251,146,60,0.1); }
+
+  .critique-context-note {
+    background: var(--sf2); border: 1px solid var(--bd); border-radius: var(--radius-sm);
+    padding: 10px 12px; display: flex; flex-direction: column; gap: 4px;
+  }
+  .critique-note-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--mu); }
+  .critique-context-text { margin: 0; color: var(--tx2); line-height: 1.5; }
+  .critique-actions-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .critique-spinner {
+    display: inline-block; width: 10px; height: 10px;
+    border: 1.5px solid var(--bd2); border-top-color: #fb923c;
+    border-radius: 50%; animation: critique-spin 0.7s linear infinite;
+    vertical-align: middle; margin-right: 2px;
+  }
+  @keyframes critique-spin { to { transform: rotate(360deg); } }
+  .critique-output-box {
+    background: rgba(251,146,60,0.06); border: 1px solid rgba(251,146,60,0.2);
+    border-radius: var(--radius-sm); padding: 12px;
+    display: flex; flex-direction: column; gap: 8px;
+    max-height: 320px; overflow-y: auto;
+  }
+  .critique-output-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: #fb923c; }
+  .critique-output-text { color: var(--tx2); line-height: 1.7; white-space: pre-wrap; }
+
+  .text-mu { color: var(--mu); }
+  .text-sm { font-size: 0.875rem; }
+  .text-xs { font-size: 0.75rem; }
 
   @media (max-width: 640px) {
     .form-2col { grid-template-columns: 1fr; }

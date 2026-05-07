@@ -1,6 +1,6 @@
 <script lang="ts">
   import { store } from '../lib/store.svelte';
-  import { transcribeAudio, parseTranscriptForEvents } from '../lib/groq';
+  import { transcribeAudio, parseTranscriptForEvents, streamVoiceToProtocol } from '../lib/groq';
   import { nanoid } from 'nanoid';
   import type { Note, AudioRecord } from '../lib/types';
   import RichEditor from './RichEditor.svelte';
@@ -368,6 +368,55 @@
     committing = false;
   }
 
+  // ── Voice to Protocol ─────────────────────────────────────────
+  let protoRec = $state<AudioRecord | null>(null);
+  let protoOpen = $state(false);
+  let protoText = $state('');
+  let protoStreaming = $state(false);
+  let protoAbort: AbortController | null = null;
+  let protoShowFull = $state(false);
+
+  function openProto(rec: AudioRecord) {
+    protoRec = rec;
+    protoText = '';
+    protoShowFull = false;
+    protoOpen = true;
+  }
+
+  async function runProto() {
+    if (!protoRec) return;
+    protoAbort?.abort();
+    protoAbort = new AbortController();
+    protoText = '';
+    protoStreaming = true;
+    try {
+      await streamVoiceToProtocol(protoRec.transcript, chunk => { protoText += chunk; }, protoAbort.signal);
+    } catch { /* aborted */ }
+    protoStreaming = false;
+  }
+
+  async function saveProtocolAsNote() {
+    if (!protoText.trim()) return;
+    const date = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    const note: Note = {
+      id: nanoid(),
+      title: `Protocol — ${date}`,
+      body: protoText,
+      tags: ['protocol', 'audio'],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      pinned: false,
+      archived: false,
+      audioIds: protoRec ? [protoRec.id] : [],
+    };
+    store.notes = [note, ...store.notes];
+    store.currentNoteId = note.id;
+    await store.saveNotes();
+    protoOpen = false;
+    store.view = 'notes';
+    showToast('Protocol saved as note');
+  }
+
   // ── Selected audio highlight from Calendar click-through ──────
   $effect(() => {
     if (store.selectedAudioId) {
@@ -615,6 +664,52 @@
     {/if}
   </div>
 
+  <!-- Voice to Protocol modal -->
+  {#if protoOpen && protoRec}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="proto-backdrop" onclick={() => { protoOpen = false; protoAbort?.abort(); }}></div>
+    <div class="proto-modal" role="dialog" aria-label="Voice to Protocol">
+      <div class="proto-modal-head">
+        <h3 class="proto-modal-title">Voice to Protocol</h3>
+        <button class="proto-close-btn" onclick={() => { protoOpen = false; protoAbort?.abort(); }}>✕</button>
+      </div>
+      <div class="proto-modal-body">
+        <div class="proto-transcript-section">
+          <span class="proto-section-label">Transcript</span>
+          <p class="proto-transcript-text text-sm">
+            {protoShowFull ? protoRec.transcript : protoRec.transcript.slice(0, 300)}{!protoShowFull && protoRec.transcript.length > 300 ? '…' : ''}
+          </p>
+          {#if protoRec.transcript.length > 300}
+            <button class="btn-link proto-toggle-btn" onclick={() => protoShowFull = !protoShowFull}>
+              {protoShowFull ? 'Show less' : 'Show more'}
+            </button>
+          {/if}
+        </div>
+        <div class="proto-actions">
+          <button class="btn btn-primary btn-sm" onclick={runProto} disabled={protoStreaming}>
+            {#if protoStreaming}<span class="proto-spinner"></span> Converting…{:else}Convert{/if}
+          </button>
+          {#if protoText}
+            <button class="btn btn-ghost btn-sm" onclick={() => navigator.clipboard.writeText(protoText).then(() => showToast('Copied'))}>Copy to clipboard</button>
+            <button class="btn btn-ghost btn-sm" onclick={saveProtocolAsNote}>Save as Protocol note</button>
+          {/if}
+        </div>
+        {#if protoText || protoStreaming}
+          <div class="proto-output-section">
+            <span class="proto-section-label">Protocol</span>
+            <textarea
+              class="proto-output-area"
+              readonly
+              value={protoText}
+              rows={12}
+            ></textarea>
+          </div>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
   <!-- Recordings list -->
   <div class="recordings-list">
     {#each store.audioRecords.length > 0 ? store.audioRecords : EXAMPLE_RECORDS as rec (rec.id)}
@@ -666,6 +761,17 @@
                 <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
               </svg>
             </button>
+            {#if rec.transcript && !rec.transcript.startsWith('_')}
+              <button class="btn-icon rec-action-btn proto-btn" onclick={() => openProto(rec)} title="Convert to protocol">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                  <line x1="12" y1="18" x2="12" y2="12"/>
+                  <line x1="9" y1="15" x2="15" y2="15"/>
+                </svg>
+                <span class="proto-btn-label">Protocol</span>
+              </button>
+            {/if}
           {/if}
           <button
             class="btn-icon"
@@ -948,6 +1054,73 @@
   }
 
   .empty-state { padding: 40px; text-align: center; }
+
+  /* Proto button */
+  .proto-btn { color: var(--gn) !important; }
+  .proto-btn:hover { background: var(--gn-bg) !important; }
+  .proto-btn-label { font-size: 0.6rem; font-weight: 700; font-family: var(--mono); letter-spacing: 0.03em; }
+
+  /* Proto modal */
+  .proto-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+    backdrop-filter: blur(2px); z-index: 200;
+  }
+  .proto-modal {
+    position: fixed; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 201;
+    background: var(--sf); border: 1px solid var(--bd);
+    border-radius: var(--radius); box-shadow: var(--shadow-lg);
+    width: min(600px, 96vw); max-height: 88vh;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .proto-modal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px; border-bottom: 1px solid var(--bd); flex-shrink: 0;
+  }
+  .proto-modal-title { font-size: 1rem; font-weight: 700; margin: 0; }
+  .proto-close-btn {
+    background: transparent; border: none; color: var(--mu); cursor: pointer;
+    font-size: 1rem; width: 28px; height: 28px; border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .proto-close-btn:hover { background: var(--sf2); color: var(--tx); }
+  .proto-modal-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+  .proto-transcript-section { display: flex; flex-direction: column; gap: 6px; }
+  .proto-section-label {
+    font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.07em; color: var(--mu);
+  }
+  .proto-transcript-text {
+    background: var(--sf2); border: 1px solid var(--bd); border-radius: var(--radius-sm);
+    padding: 10px 12px; color: var(--tx2); line-height: 1.6; margin: 0;
+  }
+  .proto-toggle-btn {
+    background: transparent; border: none; color: var(--ac); cursor: pointer;
+    font-size: 0.78rem; padding: 2px 0; font-family: var(--font);
+    align-self: flex-start;
+  }
+  .proto-toggle-btn:hover { text-decoration: underline; }
+  .proto-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .proto-spinner {
+    display: inline-block; width: 10px; height: 10px;
+    border: 1.5px solid var(--bd2); border-top-color: #fff;
+    border-radius: 50%; animation: proto-spin 0.7s linear infinite;
+  }
+  @keyframes proto-spin { to { transform: rotate(360deg); } }
+  .proto-output-section { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .proto-output-area {
+    flex: 1; resize: vertical; font-size: 0.82rem; padding: 10px;
+    border: 1px solid var(--bd); border-radius: var(--radius-sm);
+    background: var(--sf2); color: var(--tx); font-family: var(--font);
+    line-height: 1.65; min-height: 200px;
+  }
+  .btn-link {
+    background: transparent; border: none; color: var(--ac); cursor: pointer;
+    font-size: 0.78rem; padding: 2px 4px; border-radius: var(--radius-sm);
+    font-family: var(--font);
+  }
+  .btn-link:hover { background: var(--ac-bg); }
 
   @media (max-width: 540px) {
     .audio-view { padding: 16px; gap: 14px; }
