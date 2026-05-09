@@ -821,10 +821,10 @@
     .tab-row { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; }
   }
   @media (max-width: 540px) {
-    .modal-card { width: calc(100vw - 24px) !important; max-height: 85vh; overflow-y: auto; }
+    .modal-card { width: calc(100vw - 24px) !important; max-height: 92vh; overflow-y: auto; }
     .modal-card.wide { width: calc(100vw - 24px) !important; }
-    .modal-body { padding: 14px; max-height: 55vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .modal-body { padding: 14px; }
     .modal-head { padding: 12px 14px; }
-    .modal-footer { padding: 10px 14px; position: sticky; bottom: 0; background: var(--sf); }
+    .modal-footer { padding: 10px 14px; }
   }
 </style>

@@ -620,9 +620,6 @@
 
       <!-- ── Detail / Viewer panel ── -->
       {#if selectedFile}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="file-detail-backdrop" onclick={() => selectedId = null}></div>
         <div class="file-detail" class:viewer-expanded={viewerExpand}>
           <div class="file-detail-head">
             <div class="file-detail-title">
@@ -943,8 +940,6 @@
   .files-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 40px; }
 
   /* ── Detail panel ── */
-  .file-detail-backdrop { display: none; }
-
   .file-detail {
     width: min(360px, 100vw); flex-shrink: 0;
     border-left: 1px solid var(--bd);
@@ -1073,13 +1068,6 @@
       height: 100%;
       z-index: 30;
       box-shadow: var(--shadow-lg);
-    }
-    .file-detail-backdrop {
-      display: block;
-      position: absolute;
-      inset: 0;
-      background: rgba(0,0,0,0.4);
-      z-index: 39;
     }
     .file-detail {
       position: absolute;

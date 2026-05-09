@@ -19,10 +19,7 @@
   let hoverY = $state(0);
   let hoverTimer: ReturnType<typeof setTimeout>;
 
-  const isTouch = typeof window !== 'undefined' && window.matchMedia('(hover: none)').matches;
-
   function onNoteHover(e: MouseEvent, n: Note) {
-    if (isTouch) return;
     clearTimeout(hoverTimer);
     hoverTimer = setTimeout(() => {
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -33,7 +30,6 @@
   }
 
   function onNoteLeave() {
-    if (isTouch) return;
     clearTimeout(hoverTimer);
     hoveredNote = null;
   }
@@ -194,7 +190,7 @@
           class:active={store.currentNoteId === note.id && store.view === 'notes'}
           class:has-color={note.color}
           style={note.color ? `border-left-color: var(--${note.color})` : ''}
-          onclick={() => { store.currentNoteId = note.id; store.view = 'notes'; if (window.innerWidth <= 900) store.sidebarOpen = false; }}
+          onclick={() => { store.currentNoteId = note.id; store.view = 'notes'; }}
           onmouseenter={(e) => onNoteHover(e, note)}
           onmouseleave={onNoteLeave}
         >
@@ -225,7 +221,7 @@
           <div class="archived-list">
             {#each archivedNotes as note (note.id)}
               <div class="archived-item">
-                <button class="archived-btn" onclick={() => { store.currentNoteId = note.id; store.view = 'notes'; if (window.innerWidth <= 900) store.sidebarOpen = false; }}>
+                <button class="archived-btn" onclick={() => { store.currentNoteId = note.id; store.view = 'notes'; }}>
                   <span class="note-title">{note.title || 'Untitled'}</span>
                   <span class="note-time">{relTime(note.updatedAt)}</span>
                 </button>
