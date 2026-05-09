@@ -536,6 +536,9 @@
   </button>
 
   {#if leftOpen}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="pipeline-sidebar-backdrop" onclick={() => leftOpen = false}></div>
     <aside class="left-panel">
       <div class="left-header">
         <div class="left-tabs-row">
@@ -2219,8 +2222,17 @@
   }
   .cta-btn:hover { opacity: 0.85; }
 
+  .pipeline-sidebar-backdrop { display: none; }
+
   @media (max-width: 768px) {
     .mobile-sidebar-toggle { display: flex; }
+    .pipeline-sidebar-backdrop {
+      display: block;
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 19;
+    }
     .left-panel {
       position: absolute;
       top: 0; left: 0;
