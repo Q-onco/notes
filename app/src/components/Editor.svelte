@@ -403,7 +403,7 @@
         </div>
 
         <!-- ToC toggle -->
-        <button class="btn-icon" class:active={showToc} onclick={() => showToc = !showToc} title="Table of contents">
+        <button class="btn-icon toc-toggle" class:active={showToc} onclick={() => showToc = !showToc} title="Table of contents">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="12" y2="18"/>
           </svg>
@@ -846,6 +846,7 @@
   /* ── Tablet/mobile responsive ── */
   @media (max-width: 900px) {
     .toc-panel { display: none; }
+    .toc-toggle { display: none; }
     .editor-toolbar { padding: 6px 10px; }
   }
   @media (max-width: 640px) {
@@ -853,6 +854,8 @@
     .title-input { padding: 10px 14px; font-size: 1.15rem; }
     .tags-row { padding: 6px 14px; }
     .toolbar-actions .save-indicator { display: none; }
+    .editor-toolbar { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    .editor-toolbar::-webkit-scrollbar { display: none; }
   }
   @media (max-width: 480px) {
     :global(.note-body-editor .re-content) { padding: 14px !important; }

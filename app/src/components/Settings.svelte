@@ -906,7 +906,7 @@
     .io-row { grid-template-columns: 1fr; }
     .settings-header { padding: 16px 16px 0; }
     .tab-bar { padding: 10px 16px 0; }
-    .save-bar { padding: 12px 16px; }
+    .save-bar { padding: 12px 16px; position: sticky; bottom: calc(60px + env(safe-area-inset-bottom, 0px)); z-index: 10; }
   }
   @media (max-width: 540px) {
     .tab-bar { gap: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
