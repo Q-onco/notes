@@ -50,6 +50,7 @@ export interface AudioRecord {
   sizeBytes: number;
   r2Key?: string;       // R2 object key for audio blob (enables replay)
   mimeType?: string;    // e.g. audio/webm
+  sessionId?: string;   // CF D1 audio session ID (enables word-level playback sync)
 }
 
 export interface ChatMessage {

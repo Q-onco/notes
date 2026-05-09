@@ -1,7 +1,9 @@
 <script lang="ts">
   import { store } from '../lib/store.svelte';
-  import { transcribeAudio, parseTranscriptForEvents, streamVoiceToProtocol } from '../lib/groq';
+  import { parseTranscriptForEvents, streamVoiceToProtocol } from '../lib/groq';
   import { nanoid } from 'nanoid';
+  import { tick } from 'svelte';
+  import { Howl } from 'howler';
   import type { Note, AudioRecord } from '../lib/types';
   import RichEditor from './RichEditor.svelte';
 
@@ -38,6 +40,29 @@
 
   const CHUNK_SEC = 15;
 
+  // ── Word-timed transcript tracking ───────────────────────────
+  type WordTiming = { word: string; start: number; end: number };
+  type Segment = { offsetSec: number; text: string; words: WordTiming[] };
+  let liveSegments = $state<Segment[]>([]);
+  let sessionId: string | null = null;
+  let chunkIdx = 0;
+  let chunkOffsetSec = 0;
+
+  // ── Web Audio visualiser ──────────────────────────────────────
+  let visualiserCanvas = $state<HTMLCanvasElement | null>(null);
+  let analyserNode: AnalyserNode | null = null;
+  let animFrameId: number | null = null;
+  let audioCtxRef: AudioContext | null = null;
+
+  // ── Howler playback ───────────────────────────────────────────
+  let howlRef: Howl | null = null;
+  let howlPlaying = $state(false);
+  let howlPos = $state(0);
+  let howlDur = $state(0);
+  let howlWords = $state<WordTiming[]>([]);
+  let howlActiveWord = $state(-1);
+  let howlPollTimer: ReturnType<typeof setInterval> | null = null;
+
   // ── Recording ────────────────────────────────────────────────
   async function startRecording() {
     if (!store.settings.workerUrl) {
@@ -55,6 +80,10 @@
     transcribingCount = 0;
     fullAudioChunks = [];
     whisperUsed = getUsed();
+    liveSegments = [];
+    sessionId = null;
+    chunkIdx = 0;
+    chunkOffsetSec = 0;
 
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -66,6 +95,14 @@
     recording = true;
     isRecordingSession = true;
 
+    // Create D1 audio session (fire-and-forget)
+    if (store.workerBase) {
+      fetch(`${store.workerBase}/audio/session`, { method: 'POST' })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.sessionId) sessionId = d.sessionId; })
+        .catch(() => {});
+    }
+
     durationTimer = setInterval(() => {
       durationSec++;
       whisperUsed = getUsed();
@@ -76,17 +113,23 @@
     }, 1000);
 
     startChunk();
+
+    // Setup visualiser after DOM update (canvas rendered by recording = true)
+    await tick();
+    setupVisualiser(stream);
   }
 
   function startChunk() {
     if (!stream || !isRecordingSession) return;
 
-    chunkMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-      ? 'audio/webm;codecs=opus'
-      : 'audio/webm';
+    const fmtChain = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/wav', 'audio/webm'];
+    chunkMime = fmtChain.find(f => MediaRecorder.isTypeSupported(f)) ?? '';
     chunkBuffer = [];
 
-    const mr = new MediaRecorder(stream, { mimeType: chunkMime });
+    const mrOpts: MediaRecorderOptions = {};
+    if (chunkMime) mrOpts.mimeType = chunkMime;
+    if (chunkMime && !chunkMime.includes('wav')) mrOpts.audioBitsPerSecond = 256000;
+    const mr = new MediaRecorder(stream, mrOpts);
     mr.ondataavailable = (e) => { if (e.data.size > 0) { chunkBuffer.push(e.data); fullAudioChunks.push(e.data); } };
     mr.onstop = handleChunkStop;
     mr.start(500);
@@ -101,18 +144,41 @@
 
   async function handleChunkStop() {
     const blob = new Blob(chunkBuffer, { type: chunkMime });
+    const capturedOffset = chunkOffsetSec;
+    const capturedIdx = chunkIdx;
+    chunkOffsetSec += CHUNK_SEC;
+    chunkIdx++;
     chunkBuffer = [];
 
-    if (blob.size > 500 && store.settings.workerUrl) {
+    if (blob.size > 500 && store.workerBase) {
       transcribingCount++;
       try {
-        const text = await transcribeAudio(blob, store.settings.workerUrl);
-        const trimmed = text.trim();
-        if (trimmed) liveText = liveText ? liveText + ' ' + trimmed : trimmed;
-        addUsed(CHUNK_SEC);
-        whisperUsed = getUsed();
+        const fd = new FormData();
+        fd.append('audio', blob, `chunk-${capturedIdx}.webm`);
+        const res = await fetch(`${store.workerBase}/whisper`, { method: 'POST', body: fd });
+        if (res.ok) {
+          const data = await res.json();
+          const trimmed = (data.text ?? '').trim();
+          const rawWords: WordTiming[] = data.words ?? [];
+          if (trimmed) {
+            const adjustedWords = rawWords.map(w => ({
+              word: w.word, start: w.start + capturedOffset, end: w.end + capturedOffset,
+            }));
+            liveText = liveText ? liveText + ' ' + trimmed : trimmed;
+            liveSegments = [...liveSegments, { offsetSec: capturedOffset, text: trimmed, words: adjustedWords }];
+            if (sessionId && store.workerBase) {
+              fetch(`${store.workerBase}/audio/chunk`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId, chunkIndex: capturedIdx, offsetSec: capturedOffset, text: trimmed, words: adjustedWords }),
+              }).catch(() => {});
+            }
+          }
+          addUsed(CHUNK_SEC);
+          whisperUsed = getUsed();
+        }
       } catch {
-        // silent — individual chunk failures don't abort the session
+        // silent — chunk failures don't abort the session
       } finally {
         transcribingCount--;
         if (!isRecordingSession && transcribingCount === 0) {
@@ -136,6 +202,9 @@
     clearInterval(durationTimer);
     if (currentMR?.state === 'recording') currentMR.stop();
     stream?.getTracks().forEach(t => t.stop());
+    if (animFrameId !== null) { cancelAnimationFrame(animFrameId); animFrameId = null; }
+    if (audioCtxRef) { audioCtxRef.close().catch(() => {}); audioCtxRef = null; }
+    analyserNode = null;
   }
 
   // ── Save / export ────────────────────────────────────────────
@@ -148,16 +217,29 @@
     if (fullAudioChunks.length > 0 && store.workerBase) {
       try {
         const fullBlob = new Blob(fullAudioChunks, { type: mime });
-        const ext = mime.includes('ogg') ? 'ogg' : 'webm';
+        const ext = mime.includes('mp4') || mime.includes('m4a') ? 'm4a'
+          : mime.includes('ogg') ? 'ogg'
+          : mime.includes('wav') ? 'wav'
+          : 'webm';
         const res = await fetch(
           `${store.workerBase}/upload?prefix=audio&ext=${ext}&mime=${encodeURIComponent(mime)}`,
           { method: 'POST', body: fullBlob, headers: { 'Content-Type': mime } }
         );
-        if (res.ok) { const d = await res.json(); r2Key = d.key; }
+        if (res.ok) {
+          const d = await res.json();
+          r2Key = d.key;
+          if (sessionId) {
+            fetch(`${store.workerBase}/audio/finalize`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sessionId, r2Key, durationSec }),
+            }).catch(() => {});
+          }
+        }
       } catch { /* non-fatal — save transcript without audio blob */ }
     }
 
-    const rec = {
+    const rec: AudioRecord = {
       id: nanoid(),
       createdAt: Date.now(),
       durationSec,
@@ -166,7 +248,8 @@
       journalId: null,
       sizeBytes: fullAudioChunks.reduce((a, b) => a + b.size, 0),
       r2Key,
-      mimeType: mime
+      mimeType: mime,
+      sessionId: sessionId ?? undefined,
     };
     store.audioRecords = [rec, ...store.audioRecords];
 
@@ -288,6 +371,127 @@
 
   // ── Replay ───────────────────────────────────────────────────
   let playingId = $state<string | null>(null);
+
+  // Load/unload Howl when playingId changes
+  $effect(() => {
+    const pid = playingId;
+    if (!pid) {
+      howlRef?.unload();
+      howlRef = null;
+      howlPlaying = false;
+      howlPos = 0;
+      howlDur = 0;
+      howlWords = [];
+      howlActiveWord = -1;
+      if (howlPollTimer) { clearInterval(howlPollTimer); howlPollTimer = null; }
+      return;
+    }
+    const allRecs = store.audioRecords.length > 0 ? store.audioRecords : EXAMPLE_RECORDS;
+    const rec = allRecs.find(r => r.id === pid);
+    if (!rec?.r2Key || !store.workerBase) return;
+
+    howlRef?.unload();
+    howlPlaying = false; howlPos = 0; howlDur = 0; howlWords = []; howlActiveWord = -1;
+    if (howlPollTimer) { clearInterval(howlPollTimer); howlPollTimer = null; }
+
+    const mime = rec.mimeType ?? '';
+    const fmt: string[] = [];
+    if (mime.includes('mp4') || mime.includes('m4a')) fmt.push('m4a');
+    else if (mime.includes('wav')) fmt.push('wav');
+    else if (mime.includes('ogg')) fmt.push('oga');
+    else fmt.push('webm');
+
+    const h = new Howl({
+      src: [`${store.workerBase}/file/${encodeURIComponent(rec.r2Key)}`],
+      html5: true,
+      format: fmt,
+      onload: () => { howlDur = h.duration(); },
+      onplay: () => {
+        howlPlaying = true;
+        howlPollTimer = setInterval(() => {
+          howlPos = (h.seek() as number) || 0;
+          if (howlWords.length > 0) {
+            const p = howlPos;
+            howlActiveWord = howlWords.findIndex(w => p >= w.start && p <= w.end);
+          }
+        }, 80);
+      },
+      onpause: () => { howlPlaying = false; if (howlPollTimer) { clearInterval(howlPollTimer); howlPollTimer = null; } },
+      onstop: () => { howlPlaying = false; if (howlPollTimer) { clearInterval(howlPollTimer); howlPollTimer = null; } },
+      onend: () => { howlPlaying = false; howlActiveWord = -1; if (howlPollTimer) { clearInterval(howlPollTimer); howlPollTimer = null; } },
+    });
+    howlRef = h;
+    h.play();
+
+    // Fetch word data if sessionId available
+    if (rec.sessionId && store.workerBase) {
+      fetch(`${store.workerBase}/audio/session/${rec.sessionId}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data?.segments) {
+            const all: WordTiming[] = [];
+            for (const seg of data.segments) {
+              if (seg.words) {
+                const ws: WordTiming[] = typeof seg.words === 'string' ? JSON.parse(seg.words) : seg.words;
+                all.push(...ws);
+              }
+            }
+            howlWords = all;
+          }
+        })
+        .catch(() => {});
+    }
+
+    return () => {
+      h.unload();
+      if (howlPollTimer) { clearInterval(howlPollTimer); howlPollTimer = null; }
+    };
+  });
+
+  // ── Web Audio visualiser functions ────────────────────────────
+  function setupVisualiser(ms: MediaStream) {
+    try {
+      audioCtxRef = new AudioContext();
+      const source = audioCtxRef.createMediaStreamSource(ms);
+      analyserNode = audioCtxRef.createAnalyser();
+      analyserNode.fftSize = 256;
+      analyserNode.smoothingTimeConstant = 0.82;
+      source.connect(analyserNode);
+      drawVisualiser();
+    } catch { /* non-fatal — visualiser is cosmetic */ }
+  }
+
+  function drawVisualiser() {
+    if (!analyserNode || !visualiserCanvas) return;
+    const canvas = visualiserCanvas;
+    const ctx2d = canvas.getContext('2d');
+    if (!ctx2d) return;
+    const bufLen = analyserNode.frequencyBinCount;
+    const dataArr = new Uint8Array(bufLen);
+
+    const grad = ctx2d.createLinearGradient(0, 0, canvas.width, 0);
+    grad.addColorStop(0, '#a855f7');
+    grad.addColorStop(0.5, '#3b82f6');
+    grad.addColorStop(1, '#a855f7');
+
+    function draw() {
+      if (!analyserNode || !visualiserCanvas) return;
+      animFrameId = requestAnimationFrame(draw);
+      analyserNode.getByteFrequencyData(dataArr);
+      ctx2d.clearRect(0, 0, canvas.width, canvas.height);
+      const barCount = Math.floor(bufLen / 2);
+      const barW = canvas.width / barCount;
+      for (let i = 0; i < barCount; i++) {
+        const v = dataArr[i] / 255;
+        const h = Math.max(2, v * canvas.height);
+        ctx2d.globalAlpha = 0.35 + v * 0.65;
+        ctx2d.fillStyle = grad;
+        ctx2d.fillRect(i * barW, canvas.height - h, barW - 1, h);
+      }
+      ctx2d.globalAlpha = 1;
+    }
+    draw();
+  }
 
   function sendTranscriptAsEmail(rec: typeof EXAMPLE_RECORDS[0]) {
     if (rec.id.startsWith('_')) return;
@@ -521,11 +725,20 @@
       </div>
     </div>
 
+    <!-- Frequency visualiser during recording -->
+    {#if recording}
+      <canvas bind:this={visualiserCanvas} class="vis-canvas" width="600" height="80"></canvas>
+    {/if}
+
     <!-- Live transcript during recording -->
-    {#if recording && liveText}
+    {#if recording && liveSegments.length > 0}
       <div class="live-transcript">
         <span class="live-label text-xs">Live transcript</span>
-        <p class="live-text">{liveText}</p>
+        <div class="live-segments">
+          {#each liveSegments as seg}
+            <span class="live-stamp">[{fmtDur(Math.floor(seg.offsetSec))}]</span><span class="live-seg-text">{seg.text} </span>
+          {/each}
+        </div>
       </div>
     {/if}
 
@@ -792,12 +1005,48 @@
           </button>
         </div>
         {#if rec.r2Key && store.workerBase && playingId === rec.id}
-          <audio
-            class="rec-player"
-            src="{store.workerBase}/file/{encodeURIComponent(rec.r2Key)}"
-            controls
-            autoplay
-          ></audio>
+          <div class="howler-player">
+            <div class="howl-bar">
+              <button
+                class="howl-btn"
+                onclick={() => howlPlaying ? howlRef?.pause() : howlRef?.play()}
+                aria-label={howlPlaying ? 'Pause' : 'Play'}
+              >
+                {#if howlPlaying}
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                {:else}
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+                {/if}
+              </button>
+              <input
+                type="range"
+                class="howl-seek"
+                min="0"
+                max={howlDur || 1}
+                step="0.1"
+                value={howlPos}
+                oninput={(e) => {
+                  const t = parseFloat((e.target as HTMLInputElement).value);
+                  howlRef?.seek(t);
+                  howlPos = t;
+                }}
+              />
+              <span class="howl-time">{fmtDur(Math.floor(howlPos))} / {fmtDur(Math.floor(howlDur))}</span>
+            </div>
+            {#if howlWords.length > 0}
+              <div class="howl-words">
+                {#each howlWords as w, i}
+                  <!-- svelte-ignore a11y_click_events_have_key_events -->
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <span
+                    class="howl-word"
+                    class:howl-word-active={i === howlActiveWord}
+                    onclick={() => { howlRef?.seek(w.start); howlPos = w.start; }}
+                  >{w.word}</span>
+                {/each}
+              </div>
+            {/if}
+          </div>
         {/if}
         {#if rec.transcript}
           <p class="rec-transcript text-sm">{rec.transcript}</p>
@@ -938,13 +1187,7 @@
     letter-spacing: 0.07em;
     color: var(--ac);
   }
-  .live-text {
-    font-size: 0.875rem;
-    color: var(--tx);
-    line-height: 1.6;
-    max-height: 120px;
-    overflow-y: auto;
-  }
+  /* .live-text removed — replaced by .live-segments */
 
   /* ── Draft ── */
   .draft-section { display: flex; flex-direction: column; gap: 8px; }
@@ -1046,12 +1289,7 @@
   .rec-action-btn:hover { color: var(--ac); background: var(--ac-bg); }
   .rec-play-active { color: var(--ac) !important; background: var(--ac-bg) !important; }
 
-  .rec-player {
-    width: 100%;
-    height: 36px;
-    border-radius: var(--radius-sm);
-    accent-color: var(--ac);
-  }
+  /* .rec-player removed — replaced by .howler-player */
 
   .empty-state { padding: 40px; text-align: center; }
 
@@ -1122,9 +1360,103 @@
   }
   .btn-link:hover { background: var(--ac-bg); }
 
+  /* ── Frequency visualiser ── */
+  .vis-canvas {
+    width: 100%;
+    height: 80px;
+    border-radius: var(--radius-sm);
+    background: var(--sf2);
+    border: 1px solid var(--bd);
+    display: block;
+  }
+
+  /* ── Live segments ── */
+  .live-segments {
+    font-size: 0.875rem;
+    color: var(--tx);
+    line-height: 1.75;
+    max-height: 140px;
+    overflow-y: auto;
+  }
+  .live-stamp {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--ac);
+    font-weight: 600;
+    margin-right: 4px;
+  }
+
+  /* ── Howler player ── */
+  .howler-player {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--sf2);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--bd);
+  }
+  .howl-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .howl-btn {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: var(--ac);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    transition: opacity 0.15s;
+  }
+  .howl-btn:hover { opacity: 0.82; }
+  .howl-seek {
+    flex: 1;
+    height: 4px;
+    accent-color: var(--ac);
+    cursor: pointer;
+  }
+  .howl-time {
+    font-size: 0.7rem;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--mu);
+    white-space: nowrap;
+    min-width: 70px;
+    text-align: right;
+  }
+  .howl-words {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 3px;
+    padding: 6px 8px;
+    background: var(--sf);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--bd);
+    max-height: 96px;
+    overflow-y: auto;
+  }
+  .howl-word {
+    font-size: 0.78rem;
+    padding: 1px 4px;
+    border-radius: 3px;
+    cursor: pointer;
+    color: var(--tx2);
+    transition: background 0.08s, color 0.08s;
+  }
+  .howl-word:hover { background: var(--ac-bg); color: var(--ac); }
+  .howl-word-active {
+    background: var(--ac);
+    color: #fff !important;
+    font-weight: 600;
+  }
+
   @media (max-width: 540px) {
     .audio-view { padding: 16px; gap: 14px; }
     .recorder-top { flex-wrap: wrap; }
-    .rec-player { height: 44px; }
+    .vis-canvas { height: 60px; }
   }
 </style>
