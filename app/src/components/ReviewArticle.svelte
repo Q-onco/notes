@@ -1575,13 +1575,10 @@
   @media (max-width: 900px) {
     .ra-shell { grid-template-columns: 200px 240px 1fr; }
   }
-  @media (max-width: 768px) {
-    .ra-shell { grid-template-columns: 180px 1fr; }
-    .ra-sidebar { display: none; }
-  }
+
   @media (max-width: 640px) {
     .ra-shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
     .ra-sidebar { display: none; }
-    .ra-middle { border-right: none; max-height: 200px; }
+    .ra-middle { border-right: none; max-height: 240px; }
   }
 </style>

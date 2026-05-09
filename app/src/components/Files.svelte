@@ -1061,25 +1061,6 @@
   }
   .share-exp-note { text-align: center; }
 
-  @media (max-width: 768px) {
-    .files-sidebar {
-      position: absolute;
-      top: 0; left: 0;
-      height: 100%;
-      z-index: 30;
-      box-shadow: var(--shadow-lg);
-    }
-    .file-detail {
-      position: absolute;
-      top: 0; right: 0;
-      height: 100%;
-      width: min(340px, 90vw) !important;
-      z-index: 40;
-      box-shadow: var(--shadow-lg);
-    }
-    .file-detail.viewer-expanded { width: min(500px, 96vw) !important; }
-    .files-main { position: relative; overflow: hidden; }
-  }
   @media (max-width: 540px) {
     .file-detail {
       position: fixed;
@@ -1089,7 +1070,5 @@
       border-left: none;
     }
     .file-action { width: 36px; height: 36px; }
-    .files-sidebar { width: 140px; }
-    .files-topbar { padding: 8px 12px; gap: 6px; }
   }
 </style>

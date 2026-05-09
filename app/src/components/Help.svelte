@@ -445,7 +445,7 @@
   }
 
   .modal {
-    width: min(1020px, 94vw);
+    width: min(1020px, 96vw);
     height: min(88vh, 760px);
     background: var(--bg);
     border: 1px solid var(--bd);
@@ -786,7 +786,7 @@
   .cmd-row-ex em { font-style: normal; color: var(--tx2); }
 
   @media (max-width: 720px) {
-    .modal { flex-direction: column; height: 96vh; width: min(1020px, 96vw); }
+    .modal { flex-direction: column; height: 95vh; }
     .side-nav { width: 100%; height: auto; flex-direction: row; flex-wrap: wrap; padding: 10px; border-right: none; border-bottom: 1px solid var(--bd); }
     .brand { display: none; }
     .side-links { flex-direction: row; flex-wrap: wrap; gap: 4px; flex: 1; }
@@ -795,12 +795,6 @@
     .shortcuts-groups { grid-template-columns: 1fr; }
     .enzo-modes { grid-template-columns: 1fr; }
     .cmd-row { grid-template-columns: 1fr; }
-    .section-wrap { padding: 16px; }
-  }
-  @media (max-width: 540px) {
-    .modal { width: calc(100vw - 16px); height: 96vh; border-radius: 10px; }
-    .section-wrap { padding: 14px; }
-    .side-nav { padding: 8px; }
-    .side-link { font-size: 0.72rem; padding: 5px 8px; }
+    .section-wrap { padding: 20px; }
   }
 </style>

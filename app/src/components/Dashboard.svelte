@@ -1037,17 +1037,5 @@
     .stats-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
     .stat-card { padding: 10px 12px; }
     .stat-val { font-size: 1.4rem; }
-    .dashboard { padding: 14px; }
-    .df-body { gap: 12px; }
-    .df-deadlines { min-width: unset; }
-    .dash-header { flex-direction: column; gap: 8px; }
-    .dash-header h1 { font-size: 1.2rem; }
-    .digest-row { flex-wrap: wrap; }
-  }
-  @media (max-width: 400px) {
-    .dashboard { padding: 10px; }
-    .stats-row { gap: 6px; }
-    .stat-value { font-size: 1.3rem; }
-    .analytics-strip { gap: 8px; }
   }
 </style>
