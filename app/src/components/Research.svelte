@@ -2194,11 +2194,21 @@ Format your response as:
     .research { padding: 16px; }
     .save-label-input { width: 120px; }
     .tab-btn { padding: 4px 8px; font-size: 0.72rem; }
+    .tab-row { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; }
+    .research-header { flex-direction: column; gap: 10px; }
+    .header-actions { flex-wrap: wrap; }
   }
   @media (max-width: 540px) {
     .source-row { flex-wrap: wrap; gap: 4px; }
     .search-row { flex-direction: column; }
     .search-row input { width: 100%; }
+    .marker-row { grid-template-columns: 60px 1fr; gap: 6px; font-size: 0.78rem; }
+    .marker-row > :nth-child(3), .marker-row > :nth-child(4) { grid-column: 2; }
+    .marker-cell-types { min-width: unset; }
+    .network-body { flex-direction: column; }
+    .network-detail { width: 100%; }
+    .network-svg-wrap { min-width: unset; }
+    .network-hint { padding: 6px 0; }
   }
 
   /* ── Radar tab ─────────────────────────────────────────────────── */

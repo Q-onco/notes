@@ -613,9 +613,16 @@
 
   .empty-state { padding: 40px; text-align: center; }
 
+  @media (max-width: 768px) {
+    .mail-view { padding: 16px; }
+    .mail-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; }
+    .mail-tab { white-space: nowrap; }
+  }
   @media (max-width: 540px) {
+    .mail-view { padding: 14px; gap: 12px; }
     .compose-actions { flex-wrap: wrap; justify-content: stretch; }
     .compose-actions .btn { flex: 1; justify-content: center; }
     .mail-body { min-height: 140px; }
+    .mail-header { flex-wrap: wrap; }
   }
 </style>

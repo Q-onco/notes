@@ -740,6 +740,13 @@
   .example-label { font-size: 0.68rem; color: var(--mu); letter-spacing: 0.04em; }
 
   /* Mobile */
+  @media (max-width: 640px) {
+    .tasks-header { flex-direction: column; gap: 10px; }
+    .header-actions { width: 100%; justify-content: flex-end; }
+    .search-row { flex-direction: column; gap: 6px; }
+    .filter-bar { gap: 6px; }
+    .filter-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  }
   @media (max-width: 540px) {
     .tasks { padding: 16px; gap: 12px; }
     .add-meta { flex-wrap: wrap; }
@@ -749,5 +756,6 @@
     .filter-tab { flex: 1; text-align: center; }
     .task-edit { opacity: 0.4; }
     .tasks-header { flex-wrap: wrap; }
+    .tasks { padding: 14px; }
   }
 </style>

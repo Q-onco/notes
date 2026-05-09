@@ -472,4 +472,32 @@
 
   .example-notice { font-style: italic; }
   .example-badge { font-size: 0.6rem; font-weight: 700; color: var(--mu); text-transform: uppercase; letter-spacing: 0.05em; margin-left: 4px; }
+
+  @media (max-width: 768px) {
+    .day-detail {
+      position: absolute;
+      top: 0; right: 0;
+      height: 100%;
+      width: min(280px, 88vw);
+      z-index: 40;
+      box-shadow: var(--shadow-lg);
+      background: var(--sf);
+    }
+    .cal-body { position: relative; overflow: hidden; }
+    .cal-grid-wrap { padding: 12px 14px; }
+    .cal-header { padding: 12px 14px; }
+    .cal-cell { min-height: 56px; }
+    .day-cell { padding: 4px 5px; }
+    .month-label { min-width: 120px; font-size: 0.95rem; }
+    .cal-actions { gap: 4px; }
+  }
+  @media (max-width: 540px) {
+    .cal-grid { gap: 2px; }
+    .cal-cell { min-height: 44px; }
+    .day-num { font-size: 0.72rem; width: 18px; height: 18px; }
+    .dot { width: 5px; height: 5px; }
+    .day-name { font-size: 0.65rem; }
+    .cal-grid-wrap { padding: 8px 10px; }
+    .cal-header { padding: 10px; }
+  }
 </style>

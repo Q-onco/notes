@@ -1163,4 +1163,18 @@
   .count-chip.active { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); }
   .count-input { width: 56px; font-size: 0.82rem; padding: 3px 6px; text-align: center; }
   .gen-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+  @media (max-width: 768px) {
+    .pres-list-panel { width: 160px; }
+    .pres-toolbar { flex-wrap: wrap; gap: 6px; padding: 8px 12px; }
+    .pres-toolbar-right { flex-wrap: wrap; gap: 4px; }
+    .slides-editor { padding: 16px; }
+    .theme-select, .transition-select { font-size: 0.72rem; padding: 3px 6px; }
+  }
+  @media (max-width: 540px) {
+    .pres-list-panel { display: none; }
+    .slides-editor { padding: 12px; }
+    .gen-tabs { flex-wrap: wrap; }
+    .pres-toolbar-right { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; }
+  }
 </style>

@@ -1122,9 +1122,14 @@
   }
   .btn-link:hover { background: var(--ac-bg); }
 
+  @media (max-width: 768px) {
+    .recorder-top { gap: 12px; }
+  }
   @media (max-width: 540px) {
     .audio-view { padding: 16px; gap: 14px; }
-    .recorder-top { flex-wrap: wrap; }
+    .recorder-top { flex-wrap: wrap; gap: 10px; }
     .rec-player { height: 44px; }
+    .draft-actions { flex-wrap: wrap; gap: 6px; }
+    .note-select { min-width: 120px; }
   }
 </style>

@@ -1330,4 +1330,12 @@
     border-top: 1px solid var(--bd);
     background: var(--sf2);
   }
+
+  @media (max-width: 540px) {
+    .enzo-head { padding: 10px 12px; }
+    .enzo-input-row { padding: 8px 10px; gap: 6px; }
+    .message { max-width: 96%; }
+    .enzo-messages { padding: 10px 12px; }
+    .enzo-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; }
+  }
 </style>

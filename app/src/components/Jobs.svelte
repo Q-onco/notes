@@ -1950,6 +1950,11 @@
   .btn-link:hover { background: var(--ac-bg); }
 
   /* ── Mobile responsive ── */
+  @media (max-width: 768px) {
+    .tab-content { padding: 16px; }
+    .tracker-right { gap: 4px; }
+    .cv-view { padding: 0; }
+  }
   @media (max-width: 640px) {
     .tab-content { padding: 14px; }
     .field-grid { grid-template-columns: 1fr; }
@@ -1959,12 +1964,16 @@
     .feed-controls { flex-direction: column; align-items: stretch; }
     .search-input { min-width: unset; }
     .cl-view-head { flex-direction: column; }
-    .cv-tabs { gap: 3px; }
-    .cv-tab { padding: 4px 8px; font-size: 0.72rem; }
+    .cv-tabs { gap: 3px; overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; }
+    .cv-tab { padding: 4px 8px; font-size: 0.72rem; white-space: nowrap; }
+    .tracker-header { flex-direction: column; align-items: flex-start; }
+    .stage-pills { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; width: 100%; }
   }
   @media (max-width: 540px) {
     .modal-actions { flex-wrap: wrap; }
     .modal-actions .btn { flex: 1; justify-content: center; }
     .analytics-grid { grid-template-columns: 1fr; }
+    .tab-content { padding: 12px; }
+    .job-actions { flex-wrap: wrap; }
   }
 </style>
