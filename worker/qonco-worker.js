@@ -3,7 +3,7 @@
  *
  * Routes:
  *   POST /llm              — Groq chat completions (streaming + non-streaming)
- *   POST /whisper          — Groq Whisper audio transcription
+ *   POST /whisper          — Groq Whisper (verbose_json + word timestamps) + CF AI fallback
  *   POST /upload           — Store file in R2 (multipart or raw body)
  *   GET  /file/:key        — Serve file from R2
  *   DELETE /file/:key      — Delete file from R2
@@ -23,6 +23,11 @@
  *   GET  /biorxiv          — bioRxiv/medRxiv feed
  *   GET  /news             — Nature/Cell RSS
  *   GET  /jobs-rss         — Academic/industry job feeds
+ *   POST /audio/session    — Create D1 recording session, returns { sessionId }
+ *   POST /audio/chunk      — Save transcript chunk + word timings to D1
+ *   POST /audio/finalize   — Attach R2 key + generate BGE embedding
+ *   GET  /audio/session/:id — Return recording + all segments
+ *   POST /audio/search     — Semantic search via BGE cosine similarity
  */
 
 const GROQ_API   = 'https://api.groq.com/openai/v1';
@@ -85,6 +90,22 @@ async function initShares(db) {
   )`).run();
 }
 
+async function initAudio(db) {
+  await db.batch([
+    db.prepare(`CREATE TABLE IF NOT EXISTS recordings (
+      id TEXT PRIMARY KEY, r2_key TEXT, title TEXT, note_id TEXT,
+      duration_sec INTEGER, mime_type TEXT, embedding TEXT,
+      created_at INTEGER NOT NULL
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS transcript_segments (
+      id TEXT PRIMARY KEY, recording_id TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL, offset_sec REAL NOT NULL,
+      text TEXT NOT NULL, words TEXT, created_at INTEGER NOT NULL,
+      FOREIGN KEY (recording_id) REFERENCES recordings(id)
+    )`),
+  ]);
+}
+
 export default {
   async fetch(request, env) {
     const origin  = request.headers.get('Origin') ?? '*';
@@ -116,24 +137,49 @@ export default {
 
     // ── POST /whisper ──────────────────────────────────────────────────────────
     if (path === '/whisper' && request.method === 'POST') {
-      if (!env.GROQ_API_KEY) return err('GROQ_API_KEY not configured', 500, allowed);
+      if (!env.GROQ_API_KEY && !env.AI) return err('No transcription service configured', 500, allowed);
       try {
         const formData = await request.formData();
         const audio = formData.get('audio');
         if (!audio) return err('No audio file', 400, allowed);
-        const fd = new FormData();
-        fd.append('file', audio, audio.name || 'recording.webm');
-        fd.append('model', 'whisper-large-v3');
-        fd.append('response_format', 'json');
-        fd.append('language', 'en');
-        const res = await fetch(`${GROQ_API}/audio/transcriptions`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${env.GROQ_API_KEY}` },
-          body: fd,
-        });
-        if (!res.ok) return err(`Whisper error: ${res.status}`, res.status, allowed);
-        const data = await res.json();
-        return json({ text: data.text }, 200, allowed);
+
+        let text = '', words = [];
+
+        // Primary: Groq Whisper with verbose_json + word timestamps
+        if (env.GROQ_API_KEY) {
+          try {
+            const fd = new FormData();
+            fd.append('file', audio, audio.name || 'recording.webm');
+            fd.append('model', 'whisper-large-v3');
+            fd.append('response_format', 'verbose_json');
+            fd.append('timestamp_granularities[]', 'word');
+            fd.append('language', 'en');
+            const gr = await fetch(`${GROQ_API}/audio/transcriptions`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${env.GROQ_API_KEY}` },
+              body: fd,
+            });
+            if (gr.ok) {
+              const d = await gr.json();
+              text = d.text || '';
+              words = d.words ?? [];
+            }
+          } catch { /* fall to CF AI */ }
+        }
+
+        // Fallback: CF Workers AI Whisper
+        if (!text && env.AI) {
+          try {
+            const ab = await audio.arrayBuffer();
+            const cf = await env.AI.run('@cf/openai/whisper-large-v3-turbo', {
+              audio: [...new Uint8Array(ab)],
+            });
+            text = cf.text || '';
+            words = cf.words ?? [];
+          } catch { /* silent */ }
+        }
+
+        return json({ text, words }, 200, allowed);
       } catch (e) { return err(e.message, 500, allowed); }
     }
 
@@ -432,6 +478,109 @@ export default {
         }));
         return json(results, 200, allowed);
       } catch (e) { return err(e.message, 500, allowed); }
+    }
+
+    // ── Audio session routes (QONCO_AUDIO D1) ─────────────────────────────────
+    if (path.startsWith('/audio/')) {
+      if (!env.QONCO_AUDIO) return err('QONCO_AUDIO not configured', 503, allowed);
+      await initAudio(env.QONCO_AUDIO);
+
+      // POST /audio/session — create recording row
+      if (path === '/audio/session' && request.method === 'POST') {
+        try {
+          const sessionId = crypto.randomUUID();
+          await env.QONCO_AUDIO.prepare(
+            'INSERT INTO recordings (id, created_at) VALUES (?, ?)'
+          ).bind(sessionId, Date.now()).run();
+          return json({ sessionId }, 201, allowed);
+        } catch (e) { return err(e.message, 500, allowed); }
+      }
+
+      // POST /audio/chunk — save transcript segment + word timings
+      if (path === '/audio/chunk' && request.method === 'POST') {
+        try {
+          const { sessionId, chunkIndex, offsetSec, text, words } = await request.json();
+          if (!sessionId || chunkIndex === undefined || offsetSec === undefined || !text)
+            return err('Missing required fields', 400, allowed);
+          await env.QONCO_AUDIO.prepare(
+            'INSERT OR REPLACE INTO transcript_segments (id, recording_id, chunk_index, offset_sec, text, words, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          ).bind(
+            `${sessionId}-${chunkIndex}`, sessionId, chunkIndex, offsetSec,
+            text, words ? JSON.stringify(words) : null, Date.now()
+          ).run();
+          return json({ ok: true }, 200, allowed);
+        } catch (e) { return err(e.message, 500, allowed); }
+      }
+
+      // POST /audio/finalize — attach R2 key + generate BGE embedding
+      if (path === '/audio/finalize' && request.method === 'POST') {
+        try {
+          const { sessionId, r2Key, durationSec: dur } = await request.json();
+          if (!sessionId) return err('Missing sessionId', 400, allowed);
+          const { results: segs } = await env.QONCO_AUDIO.prepare(
+            'SELECT text FROM transcript_segments WHERE recording_id=? ORDER BY chunk_index ASC'
+          ).bind(sessionId).all();
+          const fullText = segs.map(s => s.text).join(' ').trim();
+          let embedding = null;
+          if (env.AI && fullText) {
+            try {
+              const emb = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: [fullText] });
+              embedding = JSON.stringify(emb.data[0]);
+            } catch { /* non-fatal */ }
+          }
+          const title = fullText ? fullText.slice(0, 80) + (fullText.length > 80 ? '…' : '') : null;
+          await env.QONCO_AUDIO.prepare(
+            'UPDATE recordings SET r2_key=?, duration_sec=?, embedding=?, title=? WHERE id=?'
+          ).bind(r2Key ?? null, dur ?? null, embedding, title, sessionId).run();
+          return json({ ok: true }, 200, allowed);
+        } catch (e) { return err(e.message, 500, allowed); }
+      }
+
+      // GET /audio/session/:id — return recording + all segments
+      const sessionIdMatch = path.match(/^\/audio\/session\/(.+)$/);
+      if (sessionIdMatch && request.method === 'GET') {
+        try {
+          const id = sessionIdMatch[1];
+          const recording = await env.QONCO_AUDIO.prepare(
+            'SELECT * FROM recordings WHERE id=?'
+          ).bind(id).first();
+          if (!recording) return err('Not found', 404, allowed);
+          const { results: segments } = await env.QONCO_AUDIO.prepare(
+            'SELECT chunk_index, offset_sec, text, words FROM transcript_segments WHERE recording_id=? ORDER BY chunk_index ASC'
+          ).bind(id).all();
+          return json({ recording, segments }, 200, allowed);
+        } catch (e) { return err(e.message, 500, allowed); }
+      }
+
+      // POST /audio/search — BGE semantic similarity search
+      if (path === '/audio/search' && request.method === 'POST') {
+        if (!env.AI) return err('Workers AI not configured', 503, allowed);
+        try {
+          const { query } = await request.json();
+          if (!query) return err('Missing query', 400, allowed);
+          const qEmb = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: [query] });
+          const qVec = qEmb.data[0];
+          const { results } = await env.QONCO_AUDIO.prepare(
+            'SELECT id, title, embedding FROM recordings WHERE embedding IS NOT NULL'
+          ).all();
+          const scored = [];
+          for (const row of results) {
+            try {
+              const emb = JSON.parse(row.embedding);
+              let dot = 0, normA = 0, normB = 0;
+              for (let i = 0; i < qVec.length; i++) {
+                dot += qVec[i] * emb[i];
+                normA += qVec[i] * qVec[i];
+                normB += emb[i] * emb[i];
+              }
+              const score = dot / (Math.sqrt(normA) * Math.sqrt(normB));
+              scored.push({ sessionId: row.id, title: row.title, score: Math.round(score * 1000) / 1000 });
+            } catch { /* skip malformed row */ }
+          }
+          scored.sort((a, b) => b.score - a.score);
+          return json(scored.slice(0, 5), 200, allowed);
+        } catch (e) { return err(e.message, 500, allowed); }
+      }
     }
 
     return new Response('Not found', { status: 404 });

@@ -16,6 +16,15 @@ binding       = "QONCO_MAIL"
 database_name = "qonco-mail"
 database_id   = "6f226e32-33b8-4618-ab49-c95e859b31d7"
 
+[[d1_databases]]
+binding       = "QONCO_AUDIO"
+database_name = "qonco-audio"
+database_id   = "24ecd17a-2893-47b6-b5da-6c12d11923cc"
+
+# ── Workers AI ────────────────────────────────────────────────────────────────
+[ai]
+binding = "AI"
+
 # Secrets (set via Cloudflare dashboard or: wrangler secret put <NAME>)
 #   GROQ_API_KEY
 #   BREVO_API_KEY
