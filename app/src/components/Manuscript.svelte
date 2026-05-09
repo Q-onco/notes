@@ -1517,13 +1517,12 @@
 
   .response-letter-area { box-sizing: border-box; }
 
-  @media (max-width: 900px) {
-    .enzo-assist-panel { display: none; }
-    .sec-list-col { display: none; }
-  }
   @media (max-width: 700px) {
     .ms-list-col { width: 140px; }
+    .sec-list-col { display: none; }
+    .enzo-assist-panel { display: none; }
   }
+
   @media (max-width: 540px) {
     .ms-list-col { display: none; }
     .ms-shell { flex-direction: column; }

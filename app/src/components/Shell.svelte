@@ -1547,15 +1547,6 @@
     }
   }
 
-  /* ── Tablet: slim top bar ── */
-  @media (max-width: 768px) {
-    .enzo-label { display: none; }
-    .tz-seg:not(:first-of-type) { display: none; }
-    .tz-dot { display: none; }
-    .search-trigger-kbd { display: none; }
-    .dna-fact-pill { display: none; }
-  }
-
   /* ── Mobile: bottom nav, trimmed top bar ── */
   @media (max-width: 640px) {
     .top-bar { padding: 0 10px; gap: 6px; }
@@ -1649,26 +1640,5 @@
     .search-trigger { display: none; }
     .enzo-toggle { display: none; }
     .theme-toggle { display: none; }
-  }
-
-  /* ── Search/capture overlay: mobile positioning ── */
-  @media (max-width: 640px) {
-    .search-overlay {
-      top: 56px;
-      width: calc(100vw - 16px);
-      border-radius: var(--radius-sm);
-    }
-    .search-results { max-height: 50vh; }
-    .capture-overlay {
-      top: 56px;
-      width: calc(100vw - 16px);
-      border-radius: var(--radius-sm);
-    }
-    .capture-hint { display: none; }
-    .clock-popover {
-      right: -8px;
-      width: calc(100vw - 16px);
-      max-width: 320px;
-    }
   }
 </style>

@@ -913,9 +913,5 @@
     .tab-btn { padding: 6px 10px; font-size: 0.75rem; white-space: nowrap; }
     .sync-grid { grid-template-columns: 1fr; }
     .save-bar { flex-wrap: wrap; }
-    .model-row { flex-direction: column; gap: 8px; }
-    .model-left { width: 100%; flex-direction: row; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-    .model-id { flex: 1; min-width: 0; }
-    .ai-feature-row { flex-wrap: wrap; gap: 8px; }
   }
 </style>
