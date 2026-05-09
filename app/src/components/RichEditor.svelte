@@ -2,6 +2,8 @@
   import { onMount, onDestroy } from 'svelte';
   import { Editor } from '@tiptap/core';
   import { StarterKit } from '@tiptap/starter-kit';
+  import { Underline } from '@tiptap/extension-underline';
+  import { Link } from '@tiptap/extension-link';
   import { Highlight } from '@tiptap/extension-highlight';
   import { TaskList } from '@tiptap/extension-task-list';
   import { TaskItem } from '@tiptap/extension-task-item';
@@ -58,12 +60,10 @@
     editor = new Editor({
       element: editorEl,
       extensions: [
-        StarterKit.configure({
-          codeBlock: { languageClassPrefix: 'language-' },
-          link: { openOnClick: false },
-          underline: {},
-        }),
+        StarterKit.configure({ codeBlock: { languageClassPrefix: 'language-' } }),
+        Underline,
         Highlight.configure({ multicolor: false }),
+        Link.configure({ openOnClick: false }),
         TaskList,
         TaskItem.configure({ nested: true }),
         Table.configure({ resizable: false }),
@@ -270,13 +270,9 @@
     border-bottom: 1px solid var(--bd);
     background: var(--sf);
     flex-wrap: wrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
   }
-  .re-toolbar::-webkit-scrollbar { display: none; }
 
-  .re-group { display: flex; align-items: center; gap: 1px; flex-shrink: 0; }
+  .re-group { display: flex; align-items: center; gap: 1px; }
   .re-sep { width: 1px; height: 16px; background: var(--bd); margin: 0 3px; flex-shrink: 0; }
 
   .re-btn {
@@ -294,13 +290,6 @@
     cursor: pointer;
     transition: background var(--transition), color var(--transition);
     flex-shrink: 0;
-    touch-action: manipulation;
-  }
-
-  @media (max-width: 640px) {
-    .re-toolbar { flex-wrap: nowrap; padding: 4px 6px; }
-    .re-btn { width: 34px; height: 34px; font-size: 0.82rem; }
-    .re-sep { height: 18px; }
   }
   .re-btn:hover { background: var(--sf2); color: var(--tx); }
   .re-active { background: var(--ac-bg) !important; color: var(--ac) !important; }

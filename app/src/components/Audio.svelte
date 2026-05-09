@@ -21,7 +21,6 @@
 
   // ── Recorder state ──────────────────────────────────────────
   let recording = $state(false);
-  let requestingMic = $state(false);
   let durationSec = $state(0);
   let liveText = $state('');         // text accumulates during recording
   let transcribingCount = $state(0); // pending async transcriptions
@@ -57,15 +56,13 @@
     fullAudioChunks = [];
     whisperUsed = getUsed();
 
-    requestingMic = true;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
-      requestingMic = false;
       showToast('Microphone access denied', 'error');
       return;
     }
-    requestingMic = false;
+
     recording = true;
     isRecordingSession = true;
 
@@ -86,9 +83,7 @@
 
     chunkMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
       ? 'audio/webm;codecs=opus'
-      : MediaRecorder.isTypeSupported('audio/mp4')
-        ? 'audio/mp4'
-        : 'audio/webm';
+      : 'audio/webm';
     chunkBuffer = [];
 
     const mr = new MediaRecorder(stream, { mimeType: chunkMime });
@@ -514,9 +509,9 @@
             <button
               class="btn btn-primary"
               onclick={startRecording}
-              disabled={whisperRemaining <= 0 || requestingMic}
+              disabled={whisperRemaining <= 0}
             >
-              {requestingMic ? 'Requesting mic…' : 'Start recording'}
+              Start recording
             </button>
             {#if whisperRemaining <= 0}
               <p class="text-xs text-mu mt-1">Daily limit reached. Resets at midnight.</p>

@@ -214,12 +214,7 @@
       {@const items = selectedItems()}
       <div class="day-detail">
         <div class="detail-header">
-          <div class="detail-title-row">
-            <h3>{selectedDay.d} {MONTH_NAMES[selectedDay.m]} {selectedDay.y}</h3>
-            <button class="detail-close btn-icon" onclick={() => selectedDay = null} aria-label="Close">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          </div>
+          <h3>{selectedDay.d} {MONTH_NAMES[selectedDay.m]} {selectedDay.y}</h3>
           <div class="detail-legend">
             <span class="legend-item"><span class="dot dot-note"></span> Notes</span>
             <span class="legend-item"><span class="dot dot-journal"></span> Journal</span>
@@ -433,8 +428,6 @@
   }
 
   .detail-header { display: flex; flex-direction: column; gap: 8px; }
-  .detail-title-row { display: flex; align-items: center; justify-content: space-between; }
-  .detail-close { display: none; }
   .detail-header h3 { font-size: 0.95rem; }
 
   .detail-legend { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -490,7 +483,6 @@
       box-shadow: var(--shadow-lg);
       background: var(--sf);
     }
-    .detail-close { display: flex; }
     .cal-body { position: relative; overflow: hidden; }
     .cal-grid-wrap { padding: 12px 14px; }
     .cal-header { padding: 12px 14px; }

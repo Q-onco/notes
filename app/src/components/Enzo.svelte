@@ -986,7 +986,6 @@
         bind:this={inputEl}
         onkeydown={handleKey}
         oninput={onInputChange}
-        onfocus={() => { setTimeout(() => inputEl?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 300); }}
         placeholder="Ask Enzo… or type / for commands"
         rows={2}
         disabled={streaming}
