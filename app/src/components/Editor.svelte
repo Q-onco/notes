@@ -843,6 +843,22 @@
     background: var(--bg); display: flex; flex-direction: column; overflow: hidden;
   }
 
+  /* ── Tablet/mobile responsive ── */
+  @media (max-width: 900px) {
+    .toc-panel { display: none; }
+    .editor-toolbar { padding: 6px 10px; }
+  }
+  @media (max-width: 640px) {
+    .editor-footer { flex-wrap: wrap; gap: 8px 16px; padding: 7px 14px; }
+    .title-input { padding: 10px 14px; font-size: 1.15rem; }
+    .tags-row { padding: 6px 14px; }
+    .toolbar-actions .save-indicator { display: none; }
+  }
+  @media (max-width: 480px) {
+    :global(.note-body-editor .re-content) { padding: 14px !important; }
+    .editor-footer span:last-child, .editor-footer span:nth-child(3) { display: none; }
+  }
+
   /* ── Note link picker (fixed portal) ── */
   .nl-backdrop { position: fixed; inset: 0; z-index: 199; }
   .nl-picker {

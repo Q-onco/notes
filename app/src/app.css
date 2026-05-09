@@ -293,6 +293,30 @@ textarea { resize: vertical; line-height: 1.6; }
   pre { white-space: pre-wrap; word-break: break-word; }
 }
 
+/* ── Tablet (641-900px) helpers ── */
+@media (max-width: 900px) {
+  html { font-size: 14px; }
+  .card { padding: 14px; }
+}
+
+/* ── Mobile base ── */
+@media (max-width: 640px) {
+  html { font-size: 15px; }
+  .card { padding: 12px; }
+  .toast { bottom: 72px; right: 12px; left: 12px; max-width: unset; }
+}
+
+/* ── Touch action: prevent double-tap zoom on buttons ── */
+button, a, input, select, textarea {
+  touch-action: manipulation;
+}
+
+/* ── Prevent text size adjust on orientation change ── */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 /* ── Utility ── */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
 .flex { display: flex; }
