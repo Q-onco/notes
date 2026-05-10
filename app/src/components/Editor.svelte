@@ -4,6 +4,7 @@
   import { exportNote, exportNoteDocx, exportNotePdf } from '../lib/export';
   import RichEditor from './RichEditor.svelte';
   import SlashMenu from './SlashMenu.svelte';
+  import NotesHome from './NotesHome.svelte';
   import { askEnzoInline } from '../lib/groq';
   import type { SlashRef } from './RichEditor.svelte';
 
@@ -103,6 +104,29 @@
   let saveTimer: ReturnType<typeof setTimeout>;
   let tagInput = $state('');
   let focusMode = $state(false);
+
+  // ── Multi-tab ──────────────────────────────────────────────────────────────
+  let openTabs = $state<string[]>([]);
+
+  $effect(() => {
+    const id = store.currentNoteId;
+    if (id && !openTabs.includes(id)) openTabs = [...openTabs, id];
+  });
+
+  $effect(() => {
+    const valid = new Set(store.notes.map(n => n.id));
+    const clean = openTabs.filter(id => valid.has(id));
+    if (clean.length !== openTabs.length) openTabs = clean;
+  });
+
+  function closeTab(id: string, e: MouseEvent) {
+    e.stopPropagation();
+    const idx = openTabs.indexOf(id);
+    openTabs = openTabs.filter(t => t !== id);
+    if (store.currentNoteId === id) {
+      store.currentNoteId = openTabs[Math.max(0, idx - 1)] ?? null;
+    }
+  }
   let showTemplates = $state(false);
   let showSaveTemplate = $state(false);
   let templateLabel = $state('');
@@ -409,21 +433,30 @@
 </script>
 
 <div class="editor">
-  {#if !note}
-    <div class="empty-state">
-      <button class="new-note-big" onclick={() => {
-        const n = { id: nanoid(), title: 'Untitled note', body: '', tags: [], createdAt: Date.now(), updatedAt: Date.now(), pinned: false, archived: false, audioIds: [] };
-        store.notes = [n, ...store.notes];
-        store.currentNoteId = n.id;
-        store.view = 'notes';
-        store.saveNotes();
-      }}>
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-        </svg>
-      </button>
-      <p class="text-mu text-sm">New note</p>
+  <!-- Multi-tab bar (shown when ≥2 notes are open) -->
+  {#if openTabs.length > 1}
+    <div class="editor-tabs">
+      {#each openTabs as tabId (tabId)}
+        {@const tabNote = store.notes.find(n => n.id === tabId)}
+        <button
+          class="editor-tab"
+          class:editor-tab-active={store.currentNoteId === tabId}
+          onclick={() => { store.currentNoteId = tabId; }}
+          title={tabNote?.title || 'Untitled'}
+        >
+          {#if tabNote?.color}
+            <span class="editor-tab-dot" style="background: var(--{tabNote.color})"></span>
+          {/if}
+          <span class="editor-tab-title">{tabNote?.title || 'Untitled'}</span>
+          <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+          <span class="editor-tab-close" onclick={(e) => closeTab(tabId, e)} role="button" tabindex="-1">×</span>
+        </button>
+      {/each}
     </div>
+  {/if}
+
+  {#if !note}
+    <NotesHome {showToast} />
   {:else}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="focus-backdrop" class:focus-active={focusMode} onkeydown={onEditorKey}>
@@ -797,14 +830,32 @@
 <style>
   .editor { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 
-  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 10px; }
-  .new-note-big {
-    width: 56px; height: 56px; border-radius: 50%;
-    background: var(--ac-bg); color: var(--ac); border: 2px dashed var(--ac);
-    display: flex; align-items: center; justify-content: center;
-    cursor: pointer; transition: background var(--transition), transform var(--transition);
+  /* ── Multi-tab bar ── */
+  .editor-tabs {
+    display: flex; align-items: stretch; gap: 0;
+    background: var(--sf); border-bottom: 1px solid var(--bd);
+    overflow-x: auto; flex-shrink: 0;
+    scrollbar-width: none;
   }
-  .new-note-big:hover { background: var(--ac); color: #fff; transform: scale(1.08); }
+  .editor-tabs::-webkit-scrollbar { display: none; }
+  .editor-tab {
+    display: flex; align-items: center; gap: 5px;
+    padding: 6px 12px 6px 10px; border: none; border-right: 1px solid var(--bd);
+    background: var(--sf2); color: var(--tx2); cursor: pointer;
+    font-size: 0.78rem; font-family: var(--font); white-space: nowrap;
+    transition: background var(--transition), color var(--transition);
+    flex-shrink: 0; max-width: 160px; min-width: 80px;
+  }
+  .editor-tab:hover { background: var(--sf); color: var(--tx); }
+  .editor-tab-active { background: var(--bg) !important; color: var(--tx) !important; border-bottom: 2px solid var(--ac); }
+  .editor-tab-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .editor-tab-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+  .editor-tab-close {
+    font-size: 14px; line-height: 1; color: var(--mu); opacity: 0.5;
+    padding: 0 2px; flex-shrink: 0; border-radius: 2px;
+  }
+  .editor-tab:hover .editor-tab-close { opacity: 1; }
+  .editor-tab-close:hover { color: var(--rd); background: var(--rd-bg); }
 
   /* ── Toolbar ── */
   .editor-toolbar {
