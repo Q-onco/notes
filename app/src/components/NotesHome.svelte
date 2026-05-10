@@ -397,16 +397,16 @@
   .nh-view-btn:hover { background: var(--sf2); color: var(--tx); }
   .nh-view-active { background: var(--sf2) !important; color: var(--ac) !important; }
 
-  /* Search row */
-  .nh-search-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; width: 100%; min-width: 0; }
-  .nh-search-wrap { position: relative; flex: 1 1 0; min-width: 0; overflow: hidden; }
-  .nh-search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--mu); pointer-events: none; flex-shrink: 0; z-index: 1; }
-  .nh-search { display: block; width: 100%; box-sizing: border-box; padding: 8px 32px 8px 32px; font-size: 0.85rem; border: 1px solid var(--bd); border-radius: var(--radius-sm); background: var(--sf); color: var(--tx); min-width: 0; }
-  .nh-search::placeholder { color: var(--mu); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .nh-search:focus { border-color: var(--ac); outline: none; box-shadow: 0 0 0 2px var(--ac-bg); }
-  .nh-search-clear { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--mu); cursor: pointer; font-size: 16px; line-height: 1; padding: 0 2px; z-index: 1; }
+  /* Search row — grid gives the input all leftover space, select gets natural size */
+  .nh-search-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .nh-search-wrap { position: relative; min-width: 0; }
+  .nh-search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--mu); pointer-events: none; }
+  .nh-search { width: 100%; box-sizing: border-box; padding: 8px 32px 8px 32px; font-size: 0.85rem; border: 1px solid var(--bd); border-radius: var(--radius-sm); background: var(--sf); color: var(--tx); }
+  .nh-search:focus { border-color: var(--ac); outline: none; box-shadow: 0 0 0 3px var(--ac-bg); }
+  .nh-search-clear { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--mu); cursor: pointer; font-size: 16px; line-height: 1; padding: 0 2px; }
   .nh-search-clear:hover { color: var(--tx); }
-  .nh-sort { padding: 7px 8px; font-size: 0.8rem; border: 1px solid var(--bd); border-radius: var(--radius-sm); background: var(--sf); color: var(--tx); cursor: pointer; flex-shrink: 0; white-space: nowrap; }
+  /* width:auto overrides the global `select { width: 100% }` rule */
+  .nh-sort { width: auto; padding: 8px 8px; font-size: 0.8rem; border: 1px solid var(--bd); border-radius: var(--radius-sm); background: var(--sf); color: var(--tx); cursor: pointer; }
 
   /* Filter pills */
   .nh-filters { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--bd); }
