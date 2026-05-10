@@ -195,11 +195,10 @@
 
   const totalItems = $derived(query.trim() ? flatItems.length : emptyItems.length);
 
-  // Reset selection when results change
+  // Clamp selection when list shrinks; don't reset to 0 while user is navigating
   $effect(() => {
-    // touch reactive deps
-    flatItems; emptyItems;
-    selected = 0;
+    const total = query.trim() ? flatItems.length : emptyItems.length;
+    if (selected >= total) selected = Math.max(0, total - 1);
   });
 
   // ── Activate selected item ───────────────────────────────────────

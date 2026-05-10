@@ -684,9 +684,9 @@
     </div>
 
     <!-- Backlinks panel -->
-    {#if hasBacklinks}
-      <div class="backlinks-panel">
-        <button class="backlinks-toggle" onclick={() => showBacklinks = !showBacklinks}>
+    <div class="backlinks-panel">
+      <button class="backlinks-toggle" onclick={() => hasBacklinks && (showBacklinks = !showBacklinks)}
+        style={!hasBacklinks ? 'opacity:0.45; cursor:default' : ''}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
           </svg>
@@ -742,7 +742,6 @@
           </div>
         {/if}
       </div>
-    {/if}
 
     <!-- Footer -->
     <div class="editor-footer text-xs text-mu">

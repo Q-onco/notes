@@ -188,12 +188,17 @@
   let digestStreaming = $state(false);
   let digestOpen = $state(false);
   let digestAbort: AbortController | null = null;
+  let digestBodyEl = $state<HTMLElement | null>(null);
 
   // ── PI Report ─────────────────────────────────────────────────
   let piText = $state('');
   let piStreaming = $state(false);
   let piOpen = $state(false);
   let piAbort: AbortController | null = null;
+  let piBodyEl = $state<HTMLElement | null>(null);
+
+  $effect(() => { digestText; if (digestBodyEl) digestBodyEl.scrollTop = digestBodyEl.scrollHeight; });
+  $effect(() => { piText;     if (piBodyEl)     piBodyEl.scrollTop     = piBodyEl.scrollHeight; });
 
   async function runPiReport() {
     if (piStreaming) { piAbort?.abort(); piStreaming = false; return; }
@@ -331,7 +336,7 @@
       </div>
       {#if digestOpen && (digestText || digestStreaming)}
         <div class="digest-panel card">
-          <div class="digest-body text-sm">{digestText || '…'}</div>
+          <div class="digest-body text-sm" bind:this={digestBodyEl}>{digestText || '…'}</div>
         </div>
       {/if}
     {/if}
@@ -356,7 +361,7 @@
     </div>
     {#if piOpen && (piText || piStreaming)}
       <div class="digest-panel card pi-report-panel">
-        <div class="digest-body text-sm" style="white-space:pre-wrap">{piText || '…'}</div>
+        <div class="digest-body text-sm" style="white-space:pre-wrap" bind:this={piBodyEl}>{piText || '…'}</div>
       </div>
     {/if}
 
@@ -533,7 +538,8 @@
         <div class="task-rows">
           {#each (store.activeTasks.length > 0 ? store.activeTasks.slice(0, 5) : EX_TASKS) as task}
             <div class="task-row" class:example-row={task.id.startsWith('_')}>
-              <input type="checkbox" checked={task.done} disabled={task.id.startsWith('_')} />
+              <input type="checkbox" checked={task.done} disabled={task.id.startsWith('_')}
+                onchange={() => { task.done = !task.done; store.saveTasks(); }} />
               <span class="task-row-text" class:done={task.done}>{task.text}</span>
               {#if task.id.startsWith('_')}
                 <span class="example-mu">· example</span>
@@ -705,7 +711,7 @@
 
   .digest-row { display: flex; align-items: center; gap: 10px; }
   .digest-panel { padding: 16px; white-space: pre-wrap; line-height: 1.7; }
-  .digest-body { white-space: pre-wrap; }
+  .digest-body { white-space: pre-wrap; max-height: 320px; overflow-y: auto; scroll-behavior: smooth; }
   .pi-report-btn { color: var(--enzo, #a855f7); border-color: rgba(168,85,247,0.25); }
   .pi-report-btn:hover { background: var(--enzo-bg, rgba(168,85,247,0.1)); }
   .pi-report-panel { background: var(--enzo-bg, rgba(168,85,247,0.05)); border-color: rgba(168,85,247,0.2); }
