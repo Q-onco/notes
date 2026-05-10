@@ -9,6 +9,96 @@
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
+  // ── Upload helper (passed to RichEditor) ──────────────────────────────────
+  async function uploadFile(file: File, prefix = 'files'): Promise<{ key: string }> {
+    const base = store.workerBase;
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('prefix', prefix);
+    const res = await fetch(`${base}/upload`, { method: 'POST', body: fd });
+    if (!res.ok) throw new Error('Upload failed');
+    return res.json();
+  }
+
+  // Set global worker base so NodeViews can reach it
+  $effect(() => {
+    (window as any).__qonco_worker = store.workerBase;
+  });
+
+  // ── Inline audio recording ─────────────────────────────────────────────────
+  let recording = $state(false);
+  let recordingMs = $state(0);
+  let recordTimer: ReturnType<typeof setInterval>;
+  let mediaRecorder: MediaRecorder | null = null;
+  let audioChunks: Blob[] = [];
+
+  async function startRecording() {
+    if (recording) return stopRecording();
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunks = [];
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+      mediaRecorder.start(250);
+      recording = true;
+      recordingMs = 0;
+      recordTimer = setInterval(() => recordingMs += 250, 250);
+    } catch {
+      showToast('Microphone access denied', 'error');
+    }
+  }
+
+  async function stopRecording() {
+    if (!mediaRecorder || !recording) return;
+    clearInterval(recordTimer);
+    recording = false;
+    await new Promise<void>(res => {
+      mediaRecorder!.onstop = () => res();
+      mediaRecorder!.stop();
+    });
+    mediaRecorder.stream.getTracks().forEach(t => t.stop());
+    const mime = mediaRecorder.mimeType || 'audio/webm';
+    const blob = new Blob(audioChunks, { type: mime });
+    const durationSec = recordingMs / 1000;
+    try {
+      const { key } = await uploadFile(new File([blob], `clip-${Date.now()}.webm`, { type: mime }), 'note-clips');
+      editorRef?.insertAudioClip({ r2Key: key, durationSec, mimeType: mime, label: `Voice note · ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` });
+      showToast('Voice note inserted');
+    } catch {
+      showToast('Failed to save recording', 'error');
+    }
+    audioChunks = [];
+  }
+
+  // ── Citation lookup ────────────────────────────────────────────────────────
+  let showCitation = $state(false);
+  let citationQuery = $state('');
+  let citationResults = $state<any[]>([]);
+  let citationLoading = $state(false);
+
+  async function searchCitations() {
+    if (!citationQuery.trim()) return;
+    citationLoading = true;
+    try {
+      const res = await fetch(`${store.workerBase}/pubmed?q=${encodeURIComponent(citationQuery)}&max=8`);
+      citationResults = res.ok ? await res.json() : [];
+    } catch { citationResults = []; }
+    finally { citationLoading = false; }
+  }
+
+  function insertCitation(paper: any) {
+    const authors = paper.authors?.[0]?.split(',')[0] ?? 'Author';
+    const year = paper.year ?? '';
+    const label = `${authors} et al., ${year}`;
+    const url = paper.url ?? (paper.doi ? `https://doi.org/${paper.doi}` : '');
+    editorRef?.getEditor()?.chain().focus()
+      .insertContent({ type: 'text', text: label, marks: url ? [{ type: 'link', attrs: { href: url, target: '_blank' } }] : [] })
+      .run();
+    showCitation = false;
+    citationQuery = '';
+    citationResults = [];
+  }
+
   let saving = $state(false);
   let saveTimer: ReturnType<typeof setTimeout>;
   let tagInput = $state('');
@@ -451,6 +541,26 @@
             <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6m5 0V4h4v2"/>
           </svg>
         </button>
+        <!-- Record inline voice note -->
+        <button class="btn-icon" class:rec-active={recording} onclick={recording ? stopRecording : startRecording}
+          title={recording ? `Stop recording (${(recordingMs/1000).toFixed(1)}s)` : 'Record voice note'}>
+          {#if recording}
+            <span class="rec-dot"></span>
+          {:else}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
+              <path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/>
+            </svg>
+          {/if}
+        </button>
+
+        <!-- Citation lookup -->
+        <button class="btn-icon" onclick={() => { showCitation = !showCitation; citationResults = []; citationQuery = ''; }} title="Insert citation (@PubMed)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+          </svg>
+        </button>
+
         <button class="btn-icon focus-btn" class:focus-on={focusMode} onclick={() => focusMode = !focusMode} title="Focus mode (Ctrl+Shift+F)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/>
@@ -458,6 +568,37 @@
         </button>
       </div>
     </div>
+
+    <!-- Citation modal -->
+    {#if showCitation}
+      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+      <div class="citation-backdrop" onclick={() => showCitation = false}></div>
+      <div class="citation-panel">
+        <div class="citation-head">
+          <span class="citation-title">Insert citation</span>
+          <button class="btn-icon btn-xs" onclick={() => showCitation = false}>×</button>
+        </div>
+        <div class="citation-search-row">
+          <input class="citation-input" bind:value={citationQuery} placeholder="Search PubMed (author, title, PMID…)"
+            onkeydown={(e) => e.key === 'Enter' && searchCitations()} autofocus />
+          <button class="btn btn-primary btn-sm" onclick={searchCitations} disabled={citationLoading}>
+            {citationLoading ? '…' : 'Search'}
+          </button>
+        </div>
+        <div class="citation-results">
+          {#if citationResults.length === 0 && !citationLoading}
+            <p class="citation-empty text-mu text-xs">Search PubMed above — results appear here</p>
+          {:else}
+            {#each citationResults as paper}
+              <button class="citation-item" onclick={() => insertCitation(paper)}>
+                <span class="citation-item-title">{paper.title}</span>
+                <span class="citation-item-meta">{paper.authors?.slice(0,2).join(', ')}{paper.authors?.length > 2 ? ' et al.' : ''} · {paper.year} · {paper.journal}</span>
+              </button>
+            {/each}
+          {/if}
+        </div>
+      </div>
+    {/if}
 
     <!-- Enzo analysis panel -->
     {#if showAnalysis}
@@ -538,6 +679,7 @@
           {onNoteLinkQuery}
           {onNoteLinkClose}
           bind:slashRef={editorRef}
+          onUpload={uploadFile}
         />
       </div>
     </div>
@@ -861,4 +1003,40 @@
   .nl-item:hover { background: var(--ac-bg); color: var(--ac); }
   .nl-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nl-empty { padding: 10px 14px; }
+
+  /* ── Recording button ── */
+  .rec-active { color: var(--rd) !important; }
+  .rec-dot {
+    width: 10px; height: 10px; border-radius: 50%; background: var(--rd);
+    animation: rec-pulse 1s ease-in-out infinite;
+  }
+  @keyframes rec-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  /* ── Citation panel ── */
+  .citation-backdrop { position: fixed; inset: 0; z-index: 299; }
+  .citation-panel {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    z-index: 300; width: min(480px, 92vw);
+    background: var(--sf); border: 1px solid var(--bd);
+    border-radius: var(--radius); box-shadow: 0 16px 48px rgba(0,0,0,0.25);
+    display: flex; flex-direction: column; overflow: hidden;
+    max-height: 70vh;
+  }
+  .citation-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; border-bottom: 1px solid var(--bd); flex-shrink: 0;
+  }
+  .citation-title { font-size: 0.85rem; font-weight: 700; color: var(--tx); }
+  .citation-search-row { display: flex; gap: 8px; padding: 10px 14px; flex-shrink: 0; border-bottom: 1px solid var(--bd); }
+  .citation-input { flex: 1; font-size: 0.84rem; }
+  .citation-results { overflow-y: auto; flex: 1; }
+  .citation-empty { padding: 16px 14px; }
+  .citation-item {
+    display: flex; flex-direction: column; gap: 2px; width: 100%;
+    padding: 8px 14px; background: transparent; border: none; border-bottom: 1px solid var(--bd);
+    text-align: left; cursor: pointer; font-family: var(--font);
+  }
+  .citation-item:hover { background: var(--ac-bg); }
+  .citation-item-title { font-size: 0.82rem; font-weight: 600; color: var(--tx); line-height: 1.4; }
+  .citation-item-meta { font-size: 0.72rem; color: var(--mu); }
 </style>

@@ -583,6 +583,42 @@ export default {
       }
     }
 
+    // ── POST /embed-meta  (URL metadata for rich embeds) ─────────────────────
+    if (path === '/embed-meta' && request.method === 'POST') {
+      try {
+        const { url: targetUrl } = await request.json();
+        if (!targetUrl || typeof targetUrl !== 'string') return err('Missing url', 400, allowed);
+
+        // YouTube
+        const ytMatch = targetUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+        if (ytMatch) {
+          const vid = ytMatch[1];
+          return json({ type: 'youtube', videoId: vid, embedUrl: `https://www.youtube.com/embed/${vid}`, title: 'YouTube Video' }, 200, allowed);
+        }
+
+        // Twitter/X
+        const twMatch = targetUrl.match(/(?:twitter\.com|x\.com)\/\w+\/status\/(\d+)/);
+        if (twMatch) {
+          return json({ type: 'tweet', tweetId: twMatch[1], url: targetUrl, title: 'Tweet' }, 200, allowed);
+        }
+
+        // PDF
+        if (targetUrl.match(/\.pdf(\?|$)/i)) {
+          return json({ type: 'pdf', url: targetUrl, title: targetUrl.split('/').pop()?.split('?')[0] ?? 'PDF' }, 200, allowed);
+        }
+
+        // Generic — fetch OG / meta tags
+        const res = await fetch(targetUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; QoncoBot/1.0)' }, signal: AbortSignal.timeout(5000) });
+        const html = await res.text();
+        const getMeta = (prop) => { const m = html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]+content=["']([^"']+)["']`, 'i')) || html.match(new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${prop}["']`, 'i')); return m?.[1] ?? ''; };
+        const title = getMeta('og:title') || html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1] || targetUrl;
+        const description = getMeta('og:description') || getMeta('description');
+        const image = getMeta('og:image');
+        const favicon = `https://www.google.com/s2/favicons?domain=${new URL(targetUrl).hostname}&sz=32`;
+        return json({ type: 'generic', url: targetUrl, title: title.trim().slice(0, 200), description: description.trim().slice(0, 400), image, favicon, hostname: new URL(targetUrl).hostname }, 200, allowed);
+      } catch (e) { return err(e.message, 500, allowed); }
+    }
+
     return new Response('Not found', { status: 404 });
   },
 };
