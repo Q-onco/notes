@@ -61,9 +61,7 @@
 
   function navClick(id: string) {
     store.view = id as ViewId;
-    if (id === 'notes' && !store.currentNoteId && store.recentNotes.length > 0) {
-      store.currentNoteId = store.recentNotes[0].id;
-    }
+    if (id === 'notes') store.currentNoteId = null;
     store.sidebarOpen = false;
     if (NEW_VIEWS.has(id) && !seenViews.has(id)) {
       seenViews = new Set([...seenViews, id]);
