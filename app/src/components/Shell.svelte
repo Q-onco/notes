@@ -23,6 +23,7 @@
   import Weather from './Weather.svelte';
   import Help from './Help.svelte';
   import CommandPalette from './CommandPalette.svelte';
+  import NotesHome from './NotesHome.svelte';
 
   // ── Command palette ──────────────────────────────────────────────
   let paletteOpen = $state(false);
@@ -856,7 +857,11 @@
       {#if store.view === 'dashboard'}
         <Dashboard {showToast} />
       {:else if store.view === 'notes'}
-        <Editor {showToast} />
+        {#if store.currentNoteId}
+          <Editor {showToast} />
+        {:else}
+          <NotesHome {showToast} />
+        {/if}
       {:else if store.view === 'journal'}
         <Journal {showToast} />
       {:else if store.view === 'tasks'}
@@ -912,7 +917,7 @@
       <button
         class="bn-item"
         class:active={store.view === item.id}
-        onclick={() => { store.view = item.id as any; store.sidebarOpen = false; }}
+        onclick={() => { store.view = item.id as any; if (item.id === 'notes') store.currentNoteId = null; store.sidebarOpen = false; }}
         aria-label={item.label}
       >
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
