@@ -257,9 +257,9 @@
   .nh-actions { display: flex; gap: 8px; }
 
   .nh-search-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
-  .nh-search-wrap { position: relative; flex: 1; }
+  .nh-search-wrap { position: relative; flex: 1; min-width: 0; }
   .nh-search-icon { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--mu); pointer-events: none; }
-  .nh-search { width: 100%; padding: 7px 28px 7px 30px; font-size: 0.85rem; border: 1px solid var(--bd); border-radius: var(--radius-sm); background: var(--sf); color: var(--tx); }
+  .nh-search { width: 100%; box-sizing: border-box; padding: 7px 28px 7px 30px; font-size: 0.85rem; border: 1px solid var(--bd); border-radius: var(--radius-sm); background: var(--sf); color: var(--tx); }
   .nh-search:focus { border-color: var(--ac); outline: none; box-shadow: none; }
   .nh-search-clear { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--mu); cursor: pointer; font-size: 16px; line-height: 1; padding: 0; }
   .nh-sort { padding: 6px 8px; font-size: 0.8rem; border: 1px solid var(--bd); border-radius: var(--radius-sm); background: var(--sf); color: var(--tx); cursor: pointer; }
