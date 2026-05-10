@@ -453,6 +453,12 @@
       openCapture();
       return;
     }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      e.preventDefault();
+      newNoteTab();
+      return;
+    }
     if (e.key === 'Escape') {
       if (paletteOpen) { paletteOpen = false; return; }
       if (captureOpen) { captureOpen = false; return; }
