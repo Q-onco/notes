@@ -23,8 +23,9 @@
     clearTimeout(hoverTimer);
     hoverTimer = setTimeout(() => {
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const PREVIEW_H = 180;
       hoverX = rect.right + 10;
-      hoverY = Math.min(rect.top, window.innerHeight - 130);
+      hoverY = Math.min(rect.top, window.innerHeight - PREVIEW_H - 10);
       hoveredNote = n;
     }, 350);
   }

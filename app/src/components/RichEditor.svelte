@@ -731,11 +731,12 @@
   }
   .re-row {
     display: flex; align-items: center; gap: 2px;
-    padding: 4px 6px; flex-wrap: wrap;
+    padding: 4px 6px; flex-wrap: wrap; overflow-x: auto; scrollbar-width: none;
   }
+  .re-row::-webkit-scrollbar { display: none; }
   .re-row2 { border-top: 1px solid var(--bd); background: color-mix(in srgb, var(--sf2) 60%, var(--sf)); }
 
-  .re-group { display: flex; align-items: center; gap: 1px; }
+  .re-group { display: flex; align-items: center; gap: 1px; flex-shrink: 0; }
   .re-sep { width: 1px; height: 16px; background: var(--bd); margin: 0 2px; flex-shrink: 0; }
 
   .re-btn {
