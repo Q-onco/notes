@@ -17,6 +17,7 @@
   import { Subscript } from '@tiptap/extension-subscript';
   import { Superscript } from '@tiptap/extension-superscript';
   import { Placeholder } from '@tiptap/extension-placeholder';
+  import { Typography } from '@tiptap/extension-typography';
   import { marked } from 'marked';
   import 'katex/dist/katex.min.css';
   import {
@@ -29,6 +30,8 @@
     BlockMathExtension,
     ColumnExtension,
     ColumnsExtension,
+    MermaidBlockExtension,
+    DetailsExtension,
     type UploadFn,
   } from '../lib/tiptap-extensions';
 
@@ -72,6 +75,27 @@
   let editorEl: HTMLElement;
   let editor = $state<Editor | null>(null);
   let mounted = $state(false);
+
+  // Bubble menu
+  let bubbleVisible = $state(false);
+  let bubbleX = $state(0);
+  let bubbleY = $state(0);
+
+  // Emoji picker
+  let showEmojiPicker = $state(false);
+
+  const EMOJIS = [
+    '🔬','🧬','🧪','🧫','💊','🩺','🌡️','⚗️','🔭','📡','🫀','🫁',
+    '📊','📈','📉','📋','📄','📝','📌','📍','💾','🖥️','📱','⌨️',
+    '✅','❌','⚠️','💡','🎯','💯','🔥','⭐','🌟','🏆','🎖️','🏅',
+    '🔍','🔎','🔑','📣','💬','🗣️','✉️','📬','🗂️','📦','🗃️','📚',
+    '🌱','🌿','🍀','🌊','🌍','🌙','☀️','❄️','💧','🌡️','🌬️','⚡',
+    '👍','👎','👋','🤝','💪','🤔','💭','❤️','🧠','🙏','👁️','🫶',
+    '🚀','🎉','⚙️','🔧','🛠️','🏗️','🧩','🔮','⚖️','🗺️','🔬','🎓',
+    '→','←','↑','↓','↔','⇒','⟹','∴','∵','≈','≠','≤',
+    '≥','∞','∑','∫','∂','α','β','γ','δ','μ','σ','π',
+    'λ','Δ','Ω','φ','ψ','χ','ρ','ε','θ','η','ξ','ζ',
+  ];
 
   // Find & Replace
   let showFindReplace = $state(false);
@@ -132,7 +156,7 @@
         StarterKit.configure({ codeBlock: { languageClassPrefix: 'language-' } }),
         Underline,
         Highlight.configure({ multicolor: true }),
-        Link.configure({ openOnClick: false }),
+        Link.configure({ openOnClick: false, autolink: true, HTMLAttributes: { rel: 'noopener noreferrer' } }),
         TaskList,
         TaskItem.configure({ nested: true }),
         Table.configure({ resizable: false }),
@@ -152,12 +176,19 @@
         BlockMathExtension,
         ColumnExtension,
         ColumnsExtension,
+        MermaidBlockExtension,
+        DetailsExtension,
+        Typography,
       ],
       content: htmlFromValue(value),
+      onSelectionUpdate: ({ editor: e }) => {
+        updateBubble(e);
+      },
       onUpdate: ({ editor: e }) => {
         const html = e.getHTML();
         value = html;
         onchange?.(html);
+        updateBubble(e);
         const { from } = e.state.selection;
         const textBefore = e.state.doc.textBetween(Math.max(0, from - 80), from, '\n');
         if (textBefore.match(/\[\[([^\]]*)$/)) {
@@ -242,6 +273,35 @@
   }
 
   onDestroy(() => editor?.destroy());
+
+  function updateBubble(e: Editor) {
+    const { from, to, empty } = e.state.selection;
+    if (empty || from === to) { bubbleVisible = false; return; }
+    try {
+      const start = e.view.coordsAtPos(from);
+      const end = e.view.coordsAtPos(to);
+      bubbleX = (start.left + end.right) / 2;
+      bubbleY = Math.min(start.top, end.top) - 46;
+      bubbleVisible = true;
+    } catch { bubbleVisible = false; }
+  }
+
+  function insertEmoji(emoji: string) {
+    editor?.chain().focus().insertContent(emoji).run();
+    showEmojiPicker = false;
+  }
+
+  function insertMermaid() {
+    editor?.chain().focus().insertContent({ type: 'mermaidBlock', attrs: { code: 'graph TD\n  A[HGSOC] --> B[TME]\n  B --> C[CD8+ T cells]\n  B --> D[M2 Macrophages]' } }).run();
+  }
+
+  function insertDetails() {
+    editor?.chain().focus().insertContent({
+      type: 'details',
+      attrs: { open: true, summary: 'Section title' },
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Content here…' }] }],
+    }).run();
+  }
 
   $effect(() => {
     if (!editor || !mounted) return;
@@ -391,6 +451,31 @@
   <!-- Hidden inputs -->
   <input type="file" accept="image/*" bind:this={imgInput} onchange={onImageInputChange} style="display:none" />
   <input type="file" bind:this={fileInput} onchange={onFileInputChange} style="display:none" />
+
+  <!-- Bubble menu (appears on text selection) -->
+  {#if bubbleVisible && mounted && editor}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="re-bubble"
+      style="left:{bubbleX}px; top:{bubbleY}px;"
+      onmousedown={(e) => e.preventDefault()}
+    >
+      <button type="button" class="re-btn" class:re-active={isActive('bold')} onclick={() => cmd('toggleBold')} title="Bold"><b>B</b></button>
+      <button type="button" class="re-btn re-i" class:re-active={isActive('italic')} onclick={() => cmd('toggleItalic')} title="Italic"><i>I</i></button>
+      <button type="button" class="re-btn re-u" class:re-active={isActive('underline')} onclick={() => cmd('toggleUnderline')} title="Underline"><u>U</u></button>
+      <button type="button" class="re-btn re-s" class:re-active={isActive('strike')} onclick={() => cmd('toggleStrike')} title="Strike"><s>S</s></button>
+      <div class="re-bubble-sep"></div>
+      <button type="button" class="re-btn" class:re-active={isActive('link')} onclick={setLink} title="Link">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+      </button>
+      <button type="button" class="re-btn" class:re-active={isActive('highlight')} onclick={() => cmd('toggleHighlight')} title="Highlight">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 11l-4 4 2 4h8l2-4-4-4z"/><path d="M14.5 7l2.5 2.5-8 8"/></svg>
+      </button>
+      <button type="button" class="re-btn" class:re-active={isActive('code')} onclick={() => cmd('toggleCode')} title="Inline code">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+      </button>
+    </div>
+  {/if}
 
   {#if mounted && editor}
   <!-- ── Main toolbar ─────────────────────────────────────────────────────── -->
@@ -556,6 +641,31 @@
         <button type="button" class="re-btn" onclick={insertEmbed} title="Embed URL (YouTube, PDF, link card…)">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 3h6v6M10 14L21 3M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/></svg>
         </button>
+        <button type="button" class="re-btn" onclick={insertMermaid} title="Insert Mermaid diagram">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="19" cy="19" r="2"/><line x1="7" y1="11" x2="17" y2="6"/><line x1="7" y1="13" x2="17" y2="18"/></svg>
+        </button>
+        <button type="button" class="re-btn" onclick={insertDetails} title="Insert collapsible section">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18M3 12h12M3 18h8"/><polyline points="15 15 19 12 15 9" stroke-width="2"/></svg>
+        </button>
+      </div>
+      <div class="re-sep"></div>
+
+      <!-- Emoji picker -->
+      <div class="re-group">
+        <div class="re-dropdown-wrap">
+          <button type="button" class="re-btn" onclick={() => { showEmojiPicker = !showEmojiPicker; }} title="Insert emoji / symbol">
+            <span style="font-size:0.95rem;line-height:1">😊</span>
+          </button>
+          {#if showEmojiPicker}
+            <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+            <div class="re-backdrop" onclick={() => showEmojiPicker = false}></div>
+            <div class="re-emoji-picker">
+              {#each EMOJIS as e}
+                <button class="re-emoji-btn" onclick={() => insertEmoji(e)} title={e}>{e}</button>
+              {/each}
+            </div>
+          {/if}
+        </div>
       </div>
       <div class="re-sep"></div>
 
@@ -864,4 +974,120 @@
 
   /* KaTeX overrides for dark mode */
   :global(.katex) { font-size: 1em !important; color: var(--tx); }
+
+  /* ── Bubble menu (floating on selection) ── */
+  .re-bubble {
+    position: fixed;
+    transform: translateX(-50%);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    background: var(--sf);
+    border: 1px solid var(--bd);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    padding: 3px 5px;
+    pointer-events: all;
+    animation: bubble-in 0.1s ease;
+  }
+  @keyframes bubble-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+  .re-bubble .re-btn { width: 24px; height: 22px; }
+  .re-bubble-sep { width: 1px; height: 14px; background: var(--bd); margin: 0 2px; flex-shrink: 0; }
+
+  /* ── Emoji picker ── */
+  .re-emoji-picker {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 51;
+    background: var(--sf);
+    border: 1px solid var(--bd);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 1px;
+    padding: 6px;
+    width: 300px;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  .re-emoji-btn {
+    width: 22px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.85rem; line-height: 1;
+    background: transparent; border: none; cursor: pointer;
+    border-radius: 3px;
+    transition: background var(--transition);
+  }
+  .re-emoji-btn:hover { background: var(--sf2); }
+
+  /* ── Mermaid NodeView ── */
+  :global(.mermaid-block-node) {
+    position: relative;
+    margin: 1em 0;
+    border: 1px solid var(--bd);
+    border-radius: var(--radius-sm);
+    background: var(--sf);
+    padding: 12px;
+    text-align: center;
+    user-select: none;
+  }
+  :global(.mermaid-block-node:hover) { border-color: var(--ac); }
+  :global(.mermaid-rendered svg) { max-width: 100%; height: auto; }
+  :global(.mermaid-hint) { font-size: 0.68rem; color: var(--mu); margin-top: 6px; }
+  :global(.mermaid-del) {
+    position: absolute; top: 6px; right: 6px;
+    background: var(--sf); border: 1px solid var(--bd);
+    border-radius: 4px; color: var(--mu); cursor: pointer;
+    font-size: 13px; padding: 1px 6px; opacity: 0;
+    transition: opacity var(--transition);
+  }
+  :global(.mermaid-block-node:hover .mermaid-del) { opacity: 1; }
+  :global(.mermaid-del:hover) { color: var(--rd); }
+  :global(.mermaid-err) {
+    text-align: left; font-size: 0.78rem; color: var(--rd);
+    background: var(--rd-bg); border-radius: 4px; padding: 8px;
+    font-family: var(--mono); white-space: pre-wrap; overflow-x: auto;
+  }
+
+  /* ── Details/collapsible NodeView ── */
+  :global(.details-node) {
+    border: 1px solid var(--bd);
+    border-radius: var(--radius-sm);
+    margin: 0.8em 0;
+    overflow: hidden;
+  }
+  :global(.details-header) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--sf);
+    border-bottom: 1px solid var(--bd);
+    cursor: default;
+  }
+  :global(.details-open .details-header) { border-bottom: 1px solid var(--bd); }
+  :global(.details-node:not(.details-open) .details-header) { border-bottom: none; }
+  :global(.details-toggle-btn) {
+    background: transparent; border: none;
+    color: var(--mu); cursor: pointer;
+    padding: 2px; display: flex; align-items: center;
+    flex-shrink: 0;
+    transition: color var(--transition);
+  }
+  :global(.details-toggle-btn:hover) { color: var(--ac); }
+  :global(.details-summary-text) {
+    font-size: 0.88rem; font-weight: 600; color: var(--tx);
+    outline: none; flex: 1; cursor: text;
+  }
+  :global(.details-summary-text:focus) { color: var(--ac); }
+  :global(.details-content) {
+    padding: 10px 14px;
+    background: var(--bg);
+  }
 </style>

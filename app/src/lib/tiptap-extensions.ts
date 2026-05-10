@@ -649,3 +649,190 @@ export const ColumnsExtension = Node.create({
     return ['div', mergeAttributes({ 'data-type': 'columns', class: 'editor-columns' }, HTMLAttributes), 0];
   },
 });
+
+// ─── MermaidBlock ──────────────────────────────────────────────────────────────
+// Renders a Mermaid diagram. Double-click to edit the source code.
+
+export const MermaidBlockExtension = Node.create({
+  name: 'mermaidBlock',
+  group: 'block',
+  atom: true,
+  draggable: true,
+
+  addAttributes() {
+    return { code: { default: 'graph TD\n  A[Start] --> B[End]' } };
+  },
+
+  parseHTML() {
+    return [{ tag: 'div[data-type="mermaid-block"]' }];
+  },
+
+  renderHTML({ HTMLAttributes }) {
+    return ['div', mergeAttributes({ 'data-type': 'mermaid-block' }, HTMLAttributes)];
+  },
+
+  addNodeView() {
+    return ({ node, editor, getPos }) => {
+      const dom = document.createElement('div');
+      dom.className = 'mermaid-block-node';
+      dom.setAttribute('contenteditable', 'false');
+
+      const rendered = document.createElement('div');
+      rendered.className = 'mermaid-rendered';
+      const hint = document.createElement('div');
+      hint.className = 'mermaid-hint';
+      hint.textContent = 'Double-click to edit diagram';
+
+      const del = document.createElement('button');
+      del.className = 'mermaid-del';
+      del.title = 'Remove';
+      del.textContent = '×';
+      del.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        if (typeof getPos !== 'function') return;
+        editor.chain().deleteRange({ from: getPos(), to: getPos() + node.nodeSize }).run();
+      });
+
+      dom.appendChild(del);
+      dom.appendChild(rendered);
+      dom.appendChild(hint);
+
+      let uid = 0;
+      const renderDiagram = async (code: string) => {
+        try {
+          const m = await import('mermaid');
+          m.default.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'loose', fontFamily: 'inherit' });
+          const id = `mmid-${Date.now()}-${++uid}`;
+          const { svg } = await m.default.render(id, code);
+          rendered.innerHTML = svg;
+        } catch {
+          rendered.innerHTML = `<pre class="mermaid-err">${code.replace(/</g, '&lt;')}</pre>`;
+        }
+      };
+      renderDiagram(node.attrs.code);
+
+      dom.addEventListener('dblclick', () => {
+        const code = prompt('Mermaid diagram code:', node.attrs.code);
+        if (code !== null && typeof getPos === 'function') {
+          editor.chain().setNodeSelection(getPos()).updateAttributes('mermaidBlock', { code }).run();
+        }
+      });
+
+      return {
+        dom,
+        update: (n) => { renderDiagram(n.attrs.code); return true; },
+        stopEvent: () => false,
+        ignoreMutation: () => true,
+      };
+    };
+  },
+
+  addInputRules() {
+    return [
+      new InputRule({
+        find: /^```mermaid\s*$/,
+        handler: ({ state, range }) => {
+          const node = state.schema.nodes.mermaidBlock?.create({ code: 'graph TD\n  A[Start] --> B[End]' });
+          if (!node) return;
+          state.tr.replaceWith(range.from, range.to, node);
+        },
+      }),
+    ];
+  },
+});
+
+// ─── Details (collapsible section) ────────────────────────────────────────────
+// A toggleable block whose content is always in the document; hidden via
+// display:none when collapsed so ProseMirror never loses it.
+
+export const DetailsExtension = Node.create({
+  name: 'details',
+  group: 'block',
+  content: 'block+',
+  defining: true,
+  isolating: true,
+
+  addAttributes() {
+    return {
+      open:    { default: true },
+      summary: { default: 'Click to expand' },
+    };
+  },
+
+  parseHTML() {
+    return [{ tag: 'div[data-type="details"]' }];
+  },
+
+  renderHTML({ HTMLAttributes }) {
+    return ['div', mergeAttributes({ 'data-type': 'details', class: 'details-node' }, HTMLAttributes), 0];
+  },
+
+  addNodeView() {
+    return ({ node, editor, getPos }) => {
+      const dom = document.createElement('div');
+      dom.className = 'details-node';
+
+      const header = document.createElement('div');
+      header.className = 'details-header';
+
+      const toggleBtn = document.createElement('button');
+      toggleBtn.className = 'details-toggle-btn';
+      toggleBtn.type = 'button';
+
+      const summaryEl = document.createElement('span');
+      summaryEl.className = 'details-summary-text';
+      summaryEl.contentEditable = 'true';
+
+      const content = document.createElement('div');
+      content.className = 'details-content';
+
+      let currentOpen = node.attrs.open;
+
+      const render = (n: typeof node) => {
+        currentOpen = n.attrs.open;
+        toggleBtn.innerHTML = currentOpen
+          ? `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`
+          : `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>`;
+        summaryEl.textContent = n.attrs.summary || 'Click to expand';
+        content.style.display = currentOpen ? '' : 'none';
+        dom.classList.toggle('details-open', currentOpen);
+      };
+      render(node);
+
+      toggleBtn.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        if (typeof getPos !== 'function') return;
+        editor.chain().setNodeSelection(getPos()).updateAttributes('details', { open: !currentOpen }).run();
+      });
+
+      summaryEl.addEventListener('blur', () => {
+        if (typeof getPos !== 'function') return;
+        editor.chain().setNodeSelection(getPos()).updateAttributes('details', { summary: summaryEl.textContent ?? '' }).run();
+      });
+
+      summaryEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); summaryEl.blur(); }
+        e.stopPropagation();
+      });
+
+      header.appendChild(toggleBtn);
+      header.appendChild(summaryEl);
+      dom.appendChild(header);
+      dom.appendChild(content);
+
+      return {
+        dom,
+        contentDOM: content,
+        update: (n) => { render(n); return true; },
+        stopEvent: (e) => {
+          if ((e.target as Node) === summaryEl || summaryEl.contains(e.target as Node)) return true;
+          return false;
+        },
+        ignoreMutation: (mutation) => {
+          if ((mutation.target as Node) === summaryEl || summaryEl.contains(mutation.target as Node)) return true;
+          return false;
+        },
+      };
+    };
+  },
+});
