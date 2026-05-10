@@ -142,6 +142,7 @@ class Store {
   // UI
   view = $state<View>('dashboard');
   currentNoteId = $state<string | null>(null);
+  openTabs = $state<string[]>([]);
   sidebarOpen = $state(true);
   enzoOpen = $state(true);
   loading = $state(false);
