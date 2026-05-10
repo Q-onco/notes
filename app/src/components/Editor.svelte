@@ -82,7 +82,7 @@
     try {
       const res = await fetch(`${store.workerBase}/pubmed?q=${encodeURIComponent(citationQuery)}&max=8`);
       citationResults = res.ok ? await res.json() : [];
-    } catch { citationResults = []; }
+    } catch { citationResults = []; showToast('Citation search failed', 'error'); }
     finally { citationLoading = false; }
   }
 
@@ -116,14 +116,6 @@
     if (clean.length !== store.openTabs.length) store.openTabs = clean;
   });
 
-  function closeTab(id: string, e: MouseEvent) {
-    e.stopPropagation();
-    const idx = store.openTabs.indexOf(id);
-    store.openTabs = store.openTabs.filter(t => t !== id);
-    if (store.currentNoteId === id) {
-      store.currentNoteId = store.openTabs[Math.max(0, idx - 1)] ?? null;
-    }
-  }
   let showTemplates = $state(false);
   let showSaveTemplate = $state(false);
   let templateLabel = $state('');
@@ -321,6 +313,7 @@
 
   async function archiveNote() {
     if (!note) return;
+    if (!confirm(`Archive "${note.title}"?`)) return;
     note.archived = true;
     store.currentNoteId = null;
     await store.saveNotes();
@@ -430,28 +423,6 @@
 </script>
 
 <div class="editor">
-  <!-- Multi-tab bar (shown when ≥2 notes are open) -->
-  {#if store.openTabs.length > 1}
-    <div class="editor-tabs">
-      {#each store.openTabs as tabId (tabId)}
-        {@const tabNote = store.notes.find(n => n.id === tabId)}
-        <button
-          class="editor-tab"
-          class:editor-tab-active={store.currentNoteId === tabId}
-          onclick={() => { store.currentNoteId = tabId; }}
-          title={tabNote?.title || 'Untitled'}
-        >
-          {#if tabNote?.color}
-            <span class="editor-tab-dot" style="background: var(--{tabNote.color})"></span>
-          {/if}
-          <span class="editor-tab-title">{tabNote?.title || 'Untitled'}</span>
-          <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-          <span class="editor-tab-close" onclick={(e) => closeTab(tabId, e)} role="button" tabindex="-1">×</span>
-        </button>
-      {/each}
-    </div>
-  {/if}
-
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="focus-backdrop" class:focus-active={focusMode} onkeydown={onEditorKey}>
     {#key note.id}
@@ -570,7 +541,7 @@
         </button>
         <!-- Record inline voice note -->
         <button class="btn-icon" class:rec-active={recording} onclick={recording ? stopRecording : startRecording}
-          title={recording ? `Stop recording (${(recordingMs/1000).toFixed(1)}s)` : 'Record voice note'}>
+          title={recording ? `Stop recording (${Math.floor(recordingMs/60000)}:${String(Math.floor((recordingMs%60000)/1000)).padStart(2,'0')})` : 'Record voice note'}>
           {#if recording}
             <span class="rec-dot"></span>
           {:else}
@@ -707,6 +678,7 @@
           {onNoteLinkClose}
           bind:slashRef={editorRef}
           onUpload={uploadFile}
+          onError={(msg) => showToast(msg, 'error')}
         />
       </div>
     </div>
@@ -822,33 +794,6 @@
 
 <style>
   .editor { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
-
-  /* ── Multi-tab bar ── */
-  .editor-tabs {
-    display: flex; align-items: stretch; gap: 0;
-    background: var(--sf); border-bottom: 1px solid var(--bd);
-    overflow-x: auto; flex-shrink: 0;
-    scrollbar-width: none;
-  }
-  .editor-tabs::-webkit-scrollbar { display: none; }
-  .editor-tab {
-    display: flex; align-items: center; gap: 5px;
-    padding: 6px 12px 6px 10px; border: none; border-right: 1px solid var(--bd);
-    background: var(--sf2); color: var(--tx2); cursor: pointer;
-    font-size: 0.78rem; font-family: var(--font); white-space: nowrap;
-    transition: background var(--transition), color var(--transition);
-    flex-shrink: 0; max-width: 160px; min-width: 80px;
-  }
-  .editor-tab:hover { background: var(--sf); color: var(--tx); }
-  .editor-tab-active { background: var(--bg) !important; color: var(--tx) !important; border-bottom: 2px solid var(--ac); }
-  .editor-tab-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-  .editor-tab-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-  .editor-tab-close {
-    font-size: 14px; line-height: 1; color: var(--mu); opacity: 0.5;
-    padding: 0 2px; flex-shrink: 0; border-radius: 2px;
-  }
-  .editor-tab:hover .editor-tab-close { opacity: 1; }
-  .editor-tab-close:hover { color: var(--rd); background: var(--rd-bg); }
 
   /* ── Toolbar ── */
   .editor-toolbar {

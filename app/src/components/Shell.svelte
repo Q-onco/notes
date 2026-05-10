@@ -422,6 +422,14 @@
     captureOpen = false;
   }
 
+  function newNoteTab() {
+    const n = { id: nanoid(), title: 'Untitled note', body: '', tags: [], createdAt: Date.now(), updatedAt: Date.now(), pinned: false, archived: false, audioIds: [] };
+    store.notes = [n, ...store.notes];
+    store.currentNoteId = n.id;
+    store.view = 'notes';
+    store.saveNotes();
+  }
+
   function navigateToResult(result: SearchResult) {
     searchOpen = false;
     if (result.section === 'enzo') {
@@ -857,6 +865,32 @@
       {#if store.view === 'dashboard'}
         <Dashboard {showToast} />
       {:else if store.view === 'notes'}
+        {#if store.openTabs.length > 0}
+          <div class="notes-tabbar">
+            {#each store.openTabs as tabId (tabId)}
+              {@const tabNote = store.notes.find(n => n.id === tabId)}
+              <button
+                class="notes-tab"
+                class:notes-tab-active={store.currentNoteId === tabId}
+                onclick={() => { store.currentNoteId = tabId; }}
+                title={tabNote?.title || 'Untitled'}
+              >
+                {#if tabNote?.color}<span class="notes-tab-dot" style="background:var(--{tabNote.color})"></span>{/if}
+                <span class="notes-tab-title">{tabNote?.title || 'Untitled'}</span>
+                <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+                <span class="notes-tab-close" role="button" tabindex="-1"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    const idx = store.openTabs.indexOf(tabId);
+                    store.openTabs = store.openTabs.filter(t => t !== tabId);
+                    if (store.currentNoteId === tabId)
+                      store.currentNoteId = store.openTabs[Math.max(0, idx - 1)] ?? null;
+                  }}>×</span>
+              </button>
+            {/each}
+            <button class="notes-tab-add" onclick={newNoteTab} title="New note">+</button>
+          </div>
+        {/if}
         {#if store.currentNoteId}
           <Editor {showToast} />
         {:else}
@@ -1476,6 +1510,80 @@
     display: flex;
     flex-direction: column;
   }
+
+  /* ── Notes tab bar ─────────────────────────────────────────────────────── */
+  .notes-tabbar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 8px 0;
+    background: var(--sf);
+    border-bottom: 1px solid var(--bd);
+    overflow-x: auto;
+    flex-shrink: 0;
+    scrollbar-width: none;
+  }
+  .notes-tabbar::-webkit-scrollbar { display: none; }
+
+  .notes-tab {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px 5px 10px;
+    border-radius: 6px 6px 0 0;
+    border: 1px solid transparent;
+    border-bottom: none;
+    background: transparent;
+    color: var(--tx2);
+    font-size: 0.78rem;
+    cursor: pointer;
+    max-width: 160px;
+    min-width: 80px;
+    transition: background var(--transition), color var(--transition);
+    flex-shrink: 0;
+    position: relative;
+    bottom: -1px;
+  }
+  .notes-tab:hover { background: var(--sf2); color: var(--tx); }
+  .notes-tab-active {
+    background: var(--bg) !important;
+    color: var(--tx) !important;
+    border-color: var(--bd);
+    border-bottom-color: var(--bg);
+  }
+  .notes-tab-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .notes-tab-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+  .notes-tab-close {
+    opacity: 0;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+    border-radius: 3px;
+    color: var(--mu);
+    flex-shrink: 0;
+    transition: opacity var(--transition), color var(--transition), background var(--transition);
+  }
+  .notes-tab:hover .notes-tab-close { opacity: 1; }
+  .notes-tab-close:hover { color: var(--rd, #e85d5d); background: color-mix(in srgb, var(--rd, #e85d5d) 12%, transparent); }
+
+  .notes-tab-add {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    border: 1px dashed var(--bd);
+    background: transparent;
+    color: var(--mu);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 4px;
+    transition: all var(--transition);
+  }
+  .notes-tab-add:hover { border-color: var(--ac); color: var(--ac); background: var(--ac-bg); }
 
   .enzo-panel {
     width: 320px;

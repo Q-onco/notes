@@ -69,6 +69,7 @@
     onNoteLinkClose?: () => void;
     slashRef?: SlashRef | null;
     onUpload?: UploadFn;
+    onError?: (msg: string) => void;
     class?: string;
   } = $props();
 
@@ -352,7 +353,7 @@
         type: 'imageBlock',
         attrs: { src: `${workerUrl}/file/${key}`, alt: file.name, align: 'center', width: 80 }
       }).run();
-    } catch (e) { console.error('Image upload failed', e); }
+    } catch { onError?.('Image upload failed'); }
     imgInput.value = '';
   }
 
@@ -365,7 +366,7 @@
     try {
       const { key } = await doUpload(file, 'note-files');
       slashRef?.insertAttachment({ r2Key: key, name: file.name, size: file.size, mimeType: file.type });
-    } catch (e) { console.error('File upload failed', e); }
+    } catch { onError?.('File upload failed'); }
     fileInput.value = '';
   }
 
@@ -442,8 +443,10 @@
         text = text.slice(0, idx) + replaceText + text.slice(idx + findText.length);
       }
     });
+    const prevCount = findCount;
     editor.view.dispatch(tr);
     doFind();
+    if (prevCount > 0) onError?.(`Replaced ${prevCount} instance${prevCount > 1 ? 's' : ''}`);
   }
 </script>
 

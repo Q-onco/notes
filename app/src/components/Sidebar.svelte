@@ -201,7 +201,7 @@
           <span class="note-time">{relTime(note.updatedAt)}</span>
         </button>
       {:else}
-        <p class="empty-hint">{activeTagFilter ? `No notes tagged "${activeTagFilter}"` : 'No notes yet — press + to start'}</p>
+        <p class="empty-hint">{activeTagFilter ? `No notes tagged "${activeTagFilter}"` : search ? `No notes match "${search}"` : 'No notes yet — press + to start'}</p>
       {/each}
     </div>
 
