@@ -4,7 +4,6 @@
   import { exportNote, exportNoteDocx, exportNotePdf } from '../lib/export';
   import RichEditor from './RichEditor.svelte';
   import SlashMenu from './SlashMenu.svelte';
-  import NotesHome from './NotesHome.svelte';
   import { askEnzoInline } from '../lib/groq';
   import type { SlashRef } from './RichEditor.svelte';
 
@@ -106,25 +105,23 @@
   let focusMode = $state(false);
 
   // ── Multi-tab ──────────────────────────────────────────────────────────────
-  let openTabs = $state<string[]>([]);
-
   $effect(() => {
     const id = store.currentNoteId;
-    if (id && !openTabs.includes(id)) openTabs = [...openTabs, id];
+    if (id && !store.openTabs.includes(id)) store.openTabs = [...store.openTabs, id];
   });
 
   $effect(() => {
     const valid = new Set(store.notes.map(n => n.id));
-    const clean = openTabs.filter(id => valid.has(id));
-    if (clean.length !== openTabs.length) openTabs = clean;
+    const clean = store.openTabs.filter(id => valid.has(id));
+    if (clean.length !== store.openTabs.length) store.openTabs = clean;
   });
 
   function closeTab(id: string, e: MouseEvent) {
     e.stopPropagation();
-    const idx = openTabs.indexOf(id);
-    openTabs = openTabs.filter(t => t !== id);
+    const idx = store.openTabs.indexOf(id);
+    store.openTabs = store.openTabs.filter(t => t !== id);
     if (store.currentNoteId === id) {
-      store.currentNoteId = openTabs[Math.max(0, idx - 1)] ?? null;
+      store.currentNoteId = store.openTabs[Math.max(0, idx - 1)] ?? null;
     }
   }
   let showTemplates = $state(false);
@@ -434,9 +431,9 @@
 
 <div class="editor">
   <!-- Multi-tab bar (shown when ≥2 notes are open) -->
-  {#if openTabs.length > 1}
+  {#if store.openTabs.length > 1}
     <div class="editor-tabs">
-      {#each openTabs as tabId (tabId)}
+      {#each store.openTabs as tabId (tabId)}
         {@const tabNote = store.notes.find(n => n.id === tabId)}
         <button
           class="editor-tab"
@@ -455,11 +452,8 @@
     </div>
   {/if}
 
-  {#if !note}
-    <NotesHome {showToast} />
-  {:else}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="focus-backdrop" class:focus-active={focusMode} onkeydown={onEditorKey}>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="focus-backdrop" class:focus-active={focusMode} onkeydown={onEditorKey}>
     {#key note.id}
 
     <!-- Toolbar -->
@@ -790,7 +784,6 @@
 
     {/key}
     </div>
-  {/if}
 </div>
 
 <!-- Note link picker — fixed position portal -->
