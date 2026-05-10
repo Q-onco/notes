@@ -18,11 +18,11 @@ export function createImageBlock(opts: { onUpload: UploadFn }) {
 
     addAttributes() {
       return {
-        src:     { default: null },
-        alt:     { default: '' },
-        align:   { default: 'center' },
-        width:   { default: 80 },
-        caption: { default: '' },
+        src:     { default: null,     parseHTML: el => el.querySelector('img')?.getAttribute('src') ?? null },
+        alt:     { default: '',       parseHTML: el => el.querySelector('img')?.getAttribute('alt') ?? '' },
+        align:   { default: 'center', parseHTML: el => el.getAttribute('data-align') ?? 'center' },
+        width:   { default: 80,       parseHTML: el => parseInt(el.getAttribute('data-width') ?? '80', 10) },
+        caption: { default: '',       parseHTML: el => el.querySelector('figcaption')?.textContent ?? '' },
       };
     },
 
