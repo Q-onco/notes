@@ -1,11 +1,14 @@
 <script lang="ts">
   import { store } from '../lib/store.svelte';
   import { nanoid } from 'nanoid';
-  import { exportNote, exportNoteDocx, exportNotePdf } from '../lib/export';
+  import { exportNote, exportNoteDocx, exportNotePdf, exportNoteTex } from '../lib/export';
   import RichEditor from './RichEditor.svelte';
   import SlashMenu from './SlashMenu.svelte';
+  import PdfAnnotator from './PdfAnnotator.svelte';
   import { askEnzoInline } from '../lib/groq';
   import { marked } from 'marked';
+  import { decryptObjWithToken } from '../lib/crypto';
+  import type { Note } from '../lib/types';
   import type { SlashRef } from './RichEditor.svelte';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
@@ -145,6 +148,109 @@
 
   // Backlinks
   let showBacklinks = $state(false);
+
+  // ── Version history ────────────────────────────────────────────────────────
+  type DiffPart = { type: 'equal' | 'add' | 'del'; text: string };
+  let showHistory      = $state(false);
+  let historyLoading   = $state(false);
+  let historyCommits   = $state<{ sha: string; date: string; msg: string }[]>([]);
+  let historySha       = $state<string | null>(null);
+  let historyDiff      = $state<DiffPart[] | null>(null);
+  let historyDiffLoad  = $state(false);
+
+  function wordDiff(before: string, after: string): DiffPart[] {
+    const tok = (s: string) => s.match(/\S+|\s+/g) ?? [];
+    const a = tok(before.slice(0, 2500));
+    const b = tok(after.slice(0, 2500));
+    const n = a.length, m = b.length;
+    if (n * m > 300000) return [
+      { type: 'del', text: before.slice(0, 800) },
+      { type: 'add', text: after.slice(0, 800) },
+    ];
+    const dp = Array.from({ length: n + 1 }, () => new Int32Array(m + 1));
+    for (let i = 1; i <= n; i++)
+      for (let j = 1; j <= m; j++)
+        dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] + 1 : Math.max(dp[i-1][j], dp[i][j-1]);
+    const parts: DiffPart[] = [];
+    let i = n, j = m;
+    while (i > 0 || j > 0) {
+      if (i > 0 && j > 0 && a[i-1] === b[j-1]) { parts.unshift({ type: 'equal', text: a[i-1] }); i--; j--; }
+      else if (j > 0 && (i === 0 || dp[i][j-1] >= dp[i-1][j])) { parts.unshift({ type: 'add', text: b[j-1] }); j--; }
+      else { parts.unshift({ type: 'del', text: a[i-1] }); i--; }
+    }
+    return parts;
+  }
+
+  async function openHistory() {
+    if (!note) return;
+    showHistory = !showHistory;
+    if (!showHistory) return;
+    if (historyCommits.length) return;
+    historyLoading = true;
+    try {
+      const res = await fetch(
+        'https://api.github.com/repos/Q-onco/notes/commits?path=data%2Fnotes.enc&per_page=12',
+        { headers: { Authorization: `token ${store.tok}`, Accept: 'application/vnd.github.v3+json' } }
+      );
+      const list = res.ok ? await res.json() : [];
+      historyCommits = list.map((c: any) => ({
+        sha: c.sha as string,
+        date: c.commit.author.date as string,
+        msg: (c.commit.message as string).split('\n')[0],
+      }));
+    } catch { historyCommits = []; }
+    finally { historyLoading = false; }
+  }
+
+  async function loadHistoryDiff(sha: string) {
+    if (!note) return;
+    historySha = sha;
+    historyDiffLoad = true;
+    historyDiff = null;
+    try {
+      const res = await fetch(
+        `https://api.github.com/repos/Q-onco/notes/contents/data%2Fnotes.enc?ref=${sha}`,
+        { headers: { Authorization: `token ${store.tok}`, Accept: 'application/vnd.github.v3+json' } }
+      );
+      if (!res.ok) throw new Error('fetch failed');
+      const json = await res.json();
+      const raw = decodeURIComponent(escape(atob(json.content.replace(/\n/g, ''))));
+      const oldNotes = await decryptObjWithToken<Note[]>(raw, store.tok!);
+      const old = oldNotes.find(n => n.id === note!.id);
+      if (!old) { historyDiff = [{ type: 'del', text: '(this note did not exist at this commit)' }]; return; }
+      const strip = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      historyDiff = wordDiff(strip(old.body), strip(note!.body));
+    } catch { historyDiff = [{ type: 'del', text: 'Could not load this version' }]; }
+    finally { historyDiffLoad = false; }
+  }
+
+  // ── PDF annotation ─────────────────────────────────────────────────────────
+  let showPdfAnnotator = $state(false);
+  let pdfAnnotatorUrl  = $state('');
+  let showPdfPicker    = $state(false);
+
+  const pdfEmbeds = $derived((() => {
+    if (!note) return [] as { url: string; title: string }[];
+    const doc = new DOMParser().parseFromString(note.body, 'text/html');
+    return Array.from(doc.querySelectorAll('div[data-type="embed-block"]'))
+      .filter(el => el.getAttribute('type') === 'pdf' && el.getAttribute('url'))
+      .map(el => ({ url: el.getAttribute('url')!, title: el.getAttribute('title') || 'PDF' }));
+  })());
+
+  function openPdfAnnotator(url: string) {
+    pdfAnnotatorUrl = url;
+    showPdfAnnotator = true;
+  }
+
+  function handlePdfAnnotation(text: string, calloutType: string, page: number) {
+    editorRef?.getEditor()?.chain().focus().insertContent({
+      type: 'callout',
+      attrs: { type: calloutType },
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: `[PDF p.${page}] ${text}` }] }],
+    }).run();
+    const html = editorRef?.getEditor()?.getHTML() ?? note!.body;
+    onBodyChange(html);
+  }
 
   // Note links ([[…]] picker)
   let nlVisible = $state(false);
@@ -565,6 +671,45 @@
             <path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/>
           </svg>
         </button>
+
+        <!-- Version History -->
+        <button class="btn-icon" class:active={showHistory} onclick={openHistory} title="Version history">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+          </svg>
+        </button>
+
+        <!-- PDF annotate — only visible when note has embedded PDFs -->
+        {#if pdfEmbeds.length > 0}
+          <div class="pdf-ann-wrap">
+            <button class="btn-icon pdf-ann-btn" onclick={() => {
+              if (pdfEmbeds.length === 1) { openPdfAnnotator(pdfEmbeds[0].url); }
+              else { showPdfPicker = !showPdfPicker; }
+            }} title="Annotate PDF">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                <line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/>
+              </svg>
+            </button>
+            {#if showPdfPicker}
+              <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+              <div class="pdf-pick-backdrop" onclick={() => showPdfPicker = false}></div>
+              <div class="pdf-pick-menu">
+                {#each pdfEmbeds as pdf}
+                  <button class="pdf-pick-item" onclick={() => { openPdfAnnotator(pdf.url); showPdfPicker = false; }}>{pdf.title}</button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/if}
+
+        <!-- LaTeX export -->
+        <button class="btn-icon" onclick={() => exportNoteTex(note!)} title="Export as LaTeX (.tex)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
+            <path d="M9 15l2 2 4-4"/>
+          </svg>
+        </button>
       </div>
     </div>
 
@@ -621,6 +766,58 @@
           {:else}
             {@html marked.parse(analyseResult)}
           {/if}
+        </div>
+      </div>
+    {/if}
+
+    <!-- Version history panel -->
+    {#if showHistory}
+      <div class="history-panel">
+        <div class="history-head">
+          <span class="history-title">Version History</span>
+          {#if historyLoading}<span class="history-spin"></span>{/if}
+          <button class="btn-icon btn-xs" onclick={() => showHistory = false} title="Close">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="history-body">
+          <!-- Commit list -->
+          <div class="history-commits">
+            {#each historyCommits as c}
+              <button
+                class="hc-item"
+                class:hc-active={historySha === c.sha}
+                onclick={() => loadHistoryDiff(c.sha)}
+              >
+                <span class="hc-date">{new Date(c.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })}</span>
+                <span class="hc-msg">{c.msg.length > 36 ? c.msg.slice(0, 34) + '…' : c.msg}</span>
+              </button>
+            {:else}
+              {#if !historyLoading}
+                <p class="history-empty text-mu text-xs">No version history found. Requires GitHub token.</p>
+              {/if}
+            {/each}
+          </div>
+          <!-- Diff view -->
+          <div class="history-diff">
+            {#if !historySha}
+              <p class="history-empty text-mu text-xs">Select a commit on the left to see the diff.</p>
+            {:else if historyDiffLoad}
+              <span class="text-mu text-xs">Loading diff…</span>
+            {:else if historyDiff}
+              <div class="diff-view">
+                {#each historyDiff as part}
+                  {#if part.type === 'add'}
+                    <span class="diff-add">{part.text}</span>
+                  {:else if part.type === 'del'}
+                    <span class="diff-del">{part.text}</span>
+                  {:else}
+                    <span class="diff-eq">{part.text}</span>
+                  {/if}
+                {/each}
+              </div>
+            {/if}
+          </div>
         </div>
       </div>
     {/if}
@@ -774,6 +971,15 @@
       {/each}
     {/if}
   </div>
+{/if}
+
+<!-- PDF annotator overlay -->
+{#if showPdfAnnotator}
+  <PdfAnnotator
+    url={pdfAnnotatorUrl}
+    onInsert={handlePdfAnnotation}
+    onClose={() => showPdfAnnotator = false}
+  />
 {/if}
 
 <!-- Slash command menu — fixed position portal -->
@@ -997,6 +1203,58 @@
   .nl-item:hover { background: var(--ac-bg); color: var(--ac); }
   .nl-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nl-empty { padding: 10px 14px; }
+
+  /* ── PDF picker dropdown ── */
+  .pdf-ann-wrap { position: relative; }
+  .pdf-pick-backdrop { position: fixed; inset: 0; z-index: 50; }
+  .pdf-pick-menu {
+    position: absolute; right: 0; top: calc(100% + 4px); z-index: 51;
+    background: var(--sf); border: 1px solid var(--bd);
+    border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+    min-width: 200px; overflow: hidden;
+  }
+  .pdf-pick-item {
+    display: block; width: 100%; text-align: left;
+    padding: 7px 12px; background: transparent; border: none; border-bottom: 1px solid var(--bd);
+    font-size: 0.8rem; color: var(--tx2); cursor: pointer; font-family: var(--font);
+  }
+  .pdf-pick-item:last-child { border-bottom: none; }
+  .pdf-pick-item:hover { background: var(--sf2); color: var(--ac); }
+
+  /* ── Version history panel ── */
+  .history-panel {
+    border-bottom: 1px solid var(--bd); flex-shrink: 0;
+    background: var(--sf); display: flex; flex-direction: column; max-height: 260px;
+  }
+  .history-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 14px; border-bottom: 1px solid var(--bd); flex-shrink: 0;
+  }
+  .history-title { font-size: 0.78rem; font-weight: 700; color: var(--tx); flex: 1; }
+  .history-spin {
+    width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0;
+    border: 2px solid var(--bd); border-top-color: var(--ac);
+    animation: spin-sm 0.7s linear infinite;
+  }
+  .history-body { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+  .history-commits {
+    width: 190px; flex-shrink: 0; overflow-y: auto; border-right: 1px solid var(--bd);
+  }
+  .hc-item {
+    display: flex; flex-direction: column; gap: 2px; width: 100%;
+    padding: 7px 10px; background: transparent; border: none; border-bottom: 1px solid var(--bd);
+    text-align: left; cursor: pointer; font-family: var(--font);
+  }
+  .hc-item:hover { background: var(--sf2); }
+  .hc-active { background: var(--ac-bg) !important; }
+  .hc-date { font-size: 0.68rem; color: var(--mu); }
+  .hc-msg  { font-size: 0.75rem; color: var(--tx2); line-height: 1.3; }
+  .history-diff { flex: 1; overflow-y: auto; padding: 8px 12px; }
+  .history-empty { padding: 10px; }
+  .diff-view { font-size: 0.8rem; line-height: 1.7; white-space: pre-wrap; word-break: break-word; font-family: var(--mono, monospace); }
+  .diff-add { background: color-mix(in srgb, var(--gn) 18%, transparent); color: var(--gn); }
+  .diff-del { background: color-mix(in srgb, var(--rd) 18%, transparent); color: var(--rd); text-decoration: line-through; }
+  .diff-eq  { color: var(--tx2); }
 
   /* ── Recording button ── */
   .rec-active { color: var(--rd) !important; }

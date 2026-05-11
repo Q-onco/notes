@@ -16,13 +16,17 @@
   ];
 
   const NEW_FEATURES = [
+    { color: 'ac',   icon: 'M5 3l14 9-14 9V3z', title: 'Note Knowledge Graph', desc: 'Visualise all your notes as a force-directed graph. Node size = word count, edges = [[note]] links. Drag nodes, click to open. Find it via the Graph button in the Notes header.' },
+    { color: 'yw',   icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', title: 'Version History', desc: 'See every saved version of a note with a word-level diff. Click the clock icon in the note toolbar, pick a commit, and the diff panel highlights what changed.' },
+    { color: 'pu',   icon: 'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z', title: 'PDF Annotator', desc: 'When a note contains an embedded PDF, a document icon appears in the toolbar. Click it to open the PDF full-screen, navigate pages, write annotations, and insert them as callout blocks directly in your note.' },
+    { color: 'enzo', icon: 'M13 10V3L4 14h7v7l9-11h-7z', title: 'AI Inline Continuation', desc: 'Select any text in a note and press the "Continue →" button in the bubble menu. Enzo (Llama 8B) streams a continuation at the cursor position. Press the button again to abort.' },
+    { color: 'gn',   icon: 'M9 15l2 2 4-4M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z', title: 'LaTeX Export', desc: 'Export any note as a fully structured .tex file. Click the checkmark-document icon in the note toolbar. All Tiptap blocks — math, callouts, tables, code, headings — are converted to idiomatic LaTeX.' },
     { color: 'ac',   icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', title: 'Manuscript Writer', desc: 'Full paper writing environment. Structure your paper section by section — Abstract through Discussion — with Enzo assisting at each stage and one-click citations from your reading list.' },
     { color: 'gn',   icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2', title: 'Research Tracker', desc: 'Track grant applications, conference abstract submissions, and peer review assignments in one dedicated section. Never miss a deadline.' },
-    { color: 'enzo', icon: 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z', title: 'Enzo Intelligence', desc: 'New Enzo modes: paper critique with structured breakdown, devil\'s advocate against your hypotheses, and weekly PI report generation from all your app activity.' },
+    { color: 'enzo', icon: 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z', title: 'Enzo Intelligence', desc: 'Enzo modes in notes: Summarise, Key Findings, and Devil\'s Advocate — all streaming directly in the editor toolbar. Plus inline continuation anywhere you select text.' },
     { color: 'pu',   icon: 'M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 016 0v6a3 3 0 01-3 3z', title: 'Voice → Research Events', desc: 'After transcription, Enzo parses your voice notes for hypotheses, tasks, and paper links. One tap to approve and connect them to your pipeline runs.' },
-    { color: 'yw',   icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z', title: 'Dashboard Analytics', desc: 'Mood trend sparklines, weekly task velocity, papers-read chart, and live publication citation counts pulled from OpenAlex — your research rhythm at a glance.' },
     { color: 'rd',   icon: 'M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', title: 'Interview Intelligence', desc: 'For every saved job, Enzo generates role-specific interview questions from the job description and your CV profile. Draft and refine your answers with AI feedback.' },
-    { color: 'ac',   icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z', title: 'Extended Global Search', desc: 'Global search now covers every section — protocols, hypotheses, pipeline runs, files, pinned papers, grants, and manuscripts. Nothing is hidden.' },
+    { color: 'ac',   icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z', title: 'Extended Global Search', desc: 'Global search covers every section — protocols, hypotheses, pipeline runs, files, pinned papers, grants, and manuscripts.' },
     { color: 'gn',   icon: 'M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4', title: 'WYSIWYG Everywhere', desc: 'TipTap rich editor with full formatting toolbar deployed across notes, journal, protocols, hypotheses, cover letters, manuscript sections, and more.' },
   ];
 
@@ -37,7 +41,7 @@
 
   const ALL_MODULES = [
     { id: 'dashboard',     label: 'Dashboard',      color: 'ac',   icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6', desc: 'Overview of all your research activity, stats, analytics, and daily focus.' },
-    { id: 'notes',         label: 'Notes',           color: 'ac',   icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', desc: 'Rich-text notes with tags, templates, focus mode, tasks, and export.' },
+    { id: 'notes',         label: 'Notes',           color: 'ac',   icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', desc: 'Rich-text notes with tags, templates, focus mode, tasks, version history, PDF annotator, AI continuation, LaTeX export, and knowledge graph.' },
     { id: 'journal',       label: 'Journal',         color: 'enzo', icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253', desc: 'Daily research journal with mood tracking, context tags, and audio links.' },
     { id: 'tasks',         label: 'Tasks',           color: 'rd',   icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4', desc: 'Priority-ranked task list with due dates, note linking, and repeat options.' },
     { id: 'calendar',      label: 'Calendar',        color: 'yw',   icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z', desc: 'Calendar with iCal import and clock widget showing Heidelberg + Chennai time.' },
@@ -62,6 +66,10 @@
     { group: 'Notes', items: [
       { key: '⌘⇧F', desc: 'Focus / Zen writing mode' },
       { key: 'Template', desc: 'Toolbar → insert structured template' },
+      { key: '/', desc: 'Slash command menu (blocks, embeds, AI)' },
+      { key: '[[', desc: 'Insert a [[note link]] picker' },
+      { key: 'Ctrl+Enter', desc: 'Insert annotation in PDF Annotator' },
+      { key: 'Continue →', desc: 'Bubble menu: AI inline continuation (select text first)' },
     ]},
     { group: 'Present mode', items: [
       { key: '← →', desc: 'Navigate slides' },

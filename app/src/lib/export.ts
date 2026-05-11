@@ -153,6 +153,128 @@ export function exportPapersDocx(papers: PaperResult[], label = 'Research Papers
   download('qonco-research.doc', wordHtml(label, html), 'application/msword');
 }
 
+// ── LaTeX ─────────────────────────────────────────────────────────────────────
+
+function escapeTex(s: string): string {
+  return s
+    .replace(/\\/g, '\\textbackslash{}')
+    .replace(/&/g, '\\&')
+    .replace(/%/g, '\\%')
+    .replace(/\$/g, '\\$')
+    .replace(/#/g, '\\#')
+    .replace(/_/g, '\\_')
+    .replace(/\{/g, '\\{')
+    .replace(/\}/g, '\\}')
+    .replace(/~/g, '\\textasciitilde{}')
+    .replace(/\^/g, '\\textasciicircum{}');
+}
+
+function tableToTex(table: Element): string {
+  const rows = Array.from(table.querySelectorAll('tr'));
+  if (!rows.length) return '';
+  const colCount = Math.max(...rows.map(r => r.querySelectorAll('th,td').length));
+  if (!colCount) return '';
+  const spec = Array(colCount).fill('l').join(' | ');
+  const lines = [`\\begin{tabular}{| ${spec} |}`, '\\hline'];
+  rows.forEach((row, i) => {
+    const cells = Array.from(row.querySelectorAll('th,td'))
+      .map(c => Array.from(c.childNodes).map(domToTex).join('').trim());
+    lines.push(cells.join(' & ') + ' \\\\');
+    if (i === 0) lines.push('\\hline');
+  });
+  lines.push('\\hline', '\\end{tabular}');
+  return `\n\n${lines.join('\n')}\n\n`;
+}
+
+function domToTex(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) return escapeTex(node.textContent ?? '');
+  const el = node as Element;
+  const dtype = el.getAttribute?.('data-type');
+  const kids = () => Array.from(el.childNodes).map(domToTex).join('');
+  const tag = el.tagName?.toLowerCase();
+
+  if (dtype === 'math-inline') return `$${el.getAttribute('data-formula') ?? ''}$`;
+  if (dtype === 'math-block')  return `\n\n\\[\n${el.getAttribute('data-formula') ?? ''}\n\\]\n\n`;
+  if (dtype === 'image-block') {
+    const img = el.querySelector('img');
+    const cap = el.getAttribute('data-caption') ?? '';
+    return `\n\n\\begin{figure}[h!]\n\\centering\n\\includegraphics[width=0.8\\textwidth]{${img?.getAttribute('src') ?? ''}}` +
+      (cap ? `\n\\caption{${escapeTex(cap)}}` : '') + `\n\\end{figure}\n\n`;
+  }
+  if (dtype === 'mermaid-block') return '';
+  if (dtype === 'callout') {
+    const t = (el.className.match(/callout-(\w+)/)?.[1]) ?? 'info';
+    const labels: Record<string,string> = { info:'Note', warning:'Warning', important:'Important', hypothesis:'Hypothesis', result:'Result' };
+    return `\n\n\\begin{quote}\n\\textbf{${labels[t] ?? 'Note'}:} ${kids()}\\end{quote}\n\n`;
+  }
+  if (dtype === 'details') {
+    const summary = el.getAttribute('summary') ?? el.getAttribute('data-summary') ?? 'Section';
+    return `\n\n\\paragraph{${escapeTex(summary)}}\n${kids()}\n`;
+  }
+  if (dtype === 'audio-clip' || dtype === 'attachment-block' || dtype === 'embed-block') return '';
+  if (dtype === 'columns' || dtype === 'column') return kids();
+
+  switch (tag) {
+    case 'h1': return `\n\n\\section{${kids()}}\n`;
+    case 'h2': return `\n\n\\subsection{${kids()}}\n`;
+    case 'h3': return `\n\n\\subsubsection{${kids()}}\n`;
+    case 'p':  { const t = kids().trim(); return t ? `\n\n${t}\n` : ''; }
+    case 'strong': case 'b': return `\\textbf{${kids()}}`;
+    case 'em':     case 'i': return `\\textit{${kids()}}`;
+    case 'u': return `\\underline{${kids()}}`;
+    case 's': return `\\sout{${kids()}}`;
+    case 'code': return `\\texttt{${escapeTex(el.textContent ?? '')}}`;
+    case 'pre': return `\n\n\\begin{verbatim}\n${el.textContent ?? ''}\n\\end{verbatim}\n\n`;
+    case 'blockquote': return `\n\n\\begin{quote}\n${kids()}\\end{quote}\n\n`;
+    case 'hr': return `\n\n\\noindent\\rule{\\linewidth}{0.4pt}\n\n`;
+    case 'ul': return `\n\n\\begin{itemize}\n${kids()}\\end{itemize}\n\n`;
+    case 'ol': return `\n\n\\begin{enumerate}\n${kids()}\\end{enumerate}\n\n`;
+    case 'li': return `  \\item ${kids().trim()}\n`;
+    case 'a': {
+      const href = el.getAttribute('href') ?? '';
+      const txt = kids();
+      return href.startsWith('note:') ? txt : `\\href{${href}}{${txt}}`;
+    }
+    case 'sup': return `$^{${kids()}}$`;
+    case 'sub': return `$_{${kids()}}$`;
+    case 'br':  return '\\\\\n';
+    case 'mark': return `\\colorbox{yellow!30}{${kids()}}`;
+    case 'table': return tableToTex(el);
+    case 'thead': case 'tbody': case 'tfoot':
+    case 'tr': case 'th': case 'td': return '';
+    default: return kids();
+  }
+}
+
+export function exportNoteTex(note: Note): void {
+  const doc = new DOMParser().parseFromString(note.body, 'text/html');
+  const body = Array.from(doc.body.childNodes).map(domToTex).join('').replace(/\n{3,}/g, '\n\n').trim();
+  const tags = note.tags.length ? `% Tags: ${note.tags.join(', ')}\n` : '';
+  const tex = `\\documentclass[12pt,a4paper]{article}
+\\usepackage[utf8]{inputenc}
+\\usepackage[T1]{fontenc}
+\\usepackage{amsmath,amssymb}
+\\usepackage{graphicx}
+\\usepackage{hyperref}
+\\usepackage{verbatim}
+\\usepackage{geometry}
+\\usepackage{soul}
+\\usepackage{xcolor}
+\\geometry{margin=2.5cm}
+${tags}
+\\title{${escapeTex(note.title)}}
+\\date{${new Date(note.updatedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}}
+
+\\begin{document}
+\\maketitle
+
+${body}
+
+\\end{document}
+`;
+  download(`${slug(note.title) || 'note'}.tex`, tex, 'text/plain');
+}
+
 // ── CV ─────────────────────────────────────────────────────────────────────────
 
 export function exportCvHtml(mdContent: string, title = 'Curriculum Vitae'): void {

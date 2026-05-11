@@ -343,6 +343,31 @@ export async function askEnzoInline(
   return full;
 }
 
+// ── Inline text continuation ──────────────────────────────────
+export async function continueWriting(
+  contextBefore: string,
+  selectedText: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const userName = store.settings.userName || 'Amritha';
+  await streamGroq(
+    MODELS.quick,
+    [
+      {
+        role: 'system',
+        content: `You are Enzo, a scientific writing assistant for ${userName}. Your task: continue the text provided. Match the tone, style, vocabulary, and scientific register exactly. Output ONLY the continuation — no preamble, no repetition of the input, no commentary.`,
+      },
+      {
+        role: 'user',
+        content: `Context before:\n${contextBefore}\n\nContinue from:\n${selectedText}`,
+      },
+    ],
+    onChunk,
+    signal
+  );
+}
+
 // ── Public API ─────────────────────────────────────────────────
 export async function askEnzo(
   messages: { role: 'user' | 'assistant'; content: string }[],

@@ -20,6 +20,7 @@
   import { Typography } from '@tiptap/extension-typography';
   import { marked } from 'marked';
   import 'katex/dist/katex.min.css';
+  import { continueWriting } from '../lib/groq';
   import {
     createImageBlock,
     createAudioClipExtension,
@@ -98,6 +99,32 @@
     '≥','∞','∑','∫','∂','α','β','γ','δ','μ','σ','π',
     'λ','Δ','Ω','φ','ψ','χ','ρ','ε','θ','η','ξ','ζ',
   ];
+
+  // AI continuation
+  let continuing = $state(false);
+  let continueAbort: AbortController | null = null;
+
+  async function doContinue() {
+    if (!editor || continuing) return;
+    const { from, to, empty } = editor.state.selection;
+    if (empty) return;
+    const selected = editor.state.doc.textBetween(from, to, ' ');
+    const contextBefore = editor.state.doc.textBetween(Math.max(0, from - 500), from, ' ');
+    editor.commands.setTextSelection(to);
+    bubbleVisible = false;
+    continueAbort?.abort();
+    continueAbort = new AbortController();
+    continuing = true;
+    try {
+      await continueWriting(contextBefore, selected, (chunk) => {
+        editor?.commands.insertContent(chunk);
+      }, continueAbort.signal);
+    } catch (e: any) {
+      if (e?.name !== 'AbortError') onError?.('Enzo continuation failed');
+    } finally {
+      continuing = false;
+    }
+  }
 
   // Find & Replace
   let showFindReplace = $state(false);
@@ -477,6 +504,14 @@
       </button>
       <button type="button" class="re-btn" class:re-active={isActive('code')} onclick={() => cmd('toggleCode')} title="Inline code">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+      </button>
+      <div class="re-bubble-sep"></div>
+      <button type="button" class="re-btn re-continue-btn" onclick={doContinue} disabled={continuing} title="Enzo: continue writing (Llama 8B)">
+        {#if continuing}
+          <span class="re-spin-xs"></span>
+        {:else}
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14"/><polyline points="12 5 19 12 12 19"/></svg>
+        {/if}
       </button>
     </div>
   {/if}
@@ -1002,6 +1037,16 @@
   }
   .re-bubble .re-btn { width: 24px; height: 22px; }
   .re-bubble-sep { width: 1px; height: 14px; background: var(--bd); margin: 0 2px; flex-shrink: 0; }
+  .re-continue-btn { color: var(--enzo) !important; }
+  .re-continue-btn:hover { background: color-mix(in srgb, var(--enzo) 12%, var(--sf2)) !important; }
+  .re-continue-btn:disabled { opacity: 0.5; cursor: default; }
+  .re-spin-xs {
+    width: 10px; height: 10px; border-radius: 50%;
+    border: 1.5px solid color-mix(in srgb, var(--enzo) 30%, transparent);
+    border-top-color: var(--enzo);
+    animation: spin-xs 0.7s linear infinite; display: inline-block;
+  }
+  @keyframes spin-xs { to { transform: rotate(360deg); } }
 
   /* ── Emoji picker ── */
   .re-emoji-picker {
