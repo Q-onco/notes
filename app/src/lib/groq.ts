@@ -874,3 +874,196 @@ export async function comparePapers(
   ];
   await streamGroq(MODELS.enzo, messages, onChunk, signal);
 }
+
+export async function analyzeNoteGraph(
+  notes: { id: string; title: string; snippet: string; tags: string[] }[],
+  signal?: AbortSignal
+): Promise<{ clusters: { label: string; ids: string[] }[]; semantic_edges: { a: string; b: string }[]; gaps: string[] }> {
+  const noteList = notes.map(n =>
+    `{"id":"${n.id}","title":${JSON.stringify(n.title)},"tags":${JSON.stringify(n.tags)},"snippet":${JSON.stringify(n.snippet.slice(0, 200))}}`
+  ).join('\n');
+
+  const messages = [
+    {
+      role: 'system' as const,
+      content: 'You are Enzo, an expert scientific knowledge graph analyst. Output ONLY valid JSON — no prose, no markdown code fences, no commentary before or after the JSON object.'
+    },
+    {
+      role: 'user' as const,
+      content: `Analyse these research notes and return a JSON object with three keys:
+1. "clusters": array of {label: string, ids: string[]} — thematic groups (2–5 groups, each with a concise scientific label)
+2. "semantic_edges": array of {a: string, b: string} — pairs of note IDs that are semantically related but NOT already linked by shared tags (max 15 pairs, only high-confidence connections)
+3. "gaps": array of strings — 3–5 research gap observations based on what topics are missing or underrepresented
+
+Notes:\n${noteList}
+
+Return ONLY the JSON object. Example structure: {"clusters":[{"label":"PARPi Resistance","ids":["id1","id2"]}],"semantic_edges":[{"a":"id1","b":"id3"}],"gaps":["Limited coverage of immune evasion mechanisms"]}`
+    }
+  ];
+
+  let buffer = '';
+  await streamGroq(MODELS.enzo, messages, chunk => { buffer += chunk; }, signal);
+  const match = buffer.match(/\{[\s\S]*\}/);
+  if (!match) return { clusters: [], semantic_edges: [], gaps: [] };
+  try {
+    return JSON.parse(match[0]);
+  } catch {
+    return { clusters: [], semantic_edges: [], gaps: [] };
+  }
+}
+
+export async function synthesizeNotes(
+  notes: { title: string; body: string }[],
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const noteBlocks = notes.map(n =>
+    `**${n.title}**\n${n.body.slice(0, 600)}`
+  ).join('\n\n---\n\n');
+
+  const messages = [
+    {
+      role: 'system' as const,
+      content: 'You are Enzo, an expert oncology research assistant. Synthesise research notes into cohesive academic prose. Identify convergent themes, highlight contradictions, and surface open questions. Output plain prose — no markdown headers, no bullet lists.'
+    },
+    {
+      role: 'user' as const,
+      content: `Synthesise the following ${notes.length} research notes into a single cohesive paragraph (200–350 words). Identify the central emerging theme, highlight where the notes converge or contradict, and close with the most important unresolved question these notes collectively point toward.\n\n${noteBlocks}`
+    }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
+export async function generateSlidesDeck(
+  topic: string,
+  count: number,
+  sources: { type: string; title: string; content: string; doi?: string }[],
+  mode: 'standard' | 'journal_club' | 'lab_meeting' | 'grant_narrative',
+  signal?: AbortSignal
+): Promise<Array<{ title: string; bullets: string[]; speaker_notes: string; source_refs: string[] }>> {
+  const modeInstructions: Record<string, string> = {
+    standard: 'A clear scientific presentation suitable for a general academic audience.',
+    journal_club: 'A journal club presentation: background, methods critique, key results, limitations, and implications. Be analytical.',
+    lab_meeting: 'An informal lab meeting update: progress, data highlights, blockers, and next steps. Keep it concise and actionable.',
+    grant_narrative: 'A grant proposal narrative: significance, innovation, approach, and preliminary data. Use persuasive scientific language.',
+  };
+
+  const sourceBlocks = sources.slice(0, 12).map(s =>
+    `[${s.type.toUpperCase()}] ${s.title}${s.doi ? ` (DOI: ${s.doi})` : ''}\n${s.content.slice(0, 400)}`
+  ).join('\n\n');
+
+  const messages = [
+    {
+      role: 'system' as const,
+      content: 'You are Enzo, a scientific presentation specialist. Output ONLY a valid JSON array — no markdown fences, no prose outside the JSON. Each element must have exactly: title (string), bullets (string[], 3–5 items), speaker_notes (string, 1–2 sentences), source_refs (string[], DOIs or short author+year citations used on this slide).'
+    },
+    {
+      role: 'user' as const,
+      content: `Create a ${count}-slide presentation deck on: "${topic}"
+
+Presentation mode: ${modeInstructions[mode]}
+
+Source materials:
+${sourceBlocks || '(No sources provided — generate from domain knowledge, note this in speaker_notes)'}
+
+Rules:
+- Exactly ${count} slides
+- First slide is title/overview, last slide is conclusions/next-steps
+- Bullets are concise (≤12 words each)
+- source_refs lists only references actually used on that slide
+- Output ONLY the JSON array`
+    }
+  ];
+
+  let buffer = '';
+  await streamGroq(MODELS.enzo, messages, chunk => { buffer += chunk; }, signal);
+  const match = buffer.match(/\[[\s\S]*\]/);
+  if (!match) return [];
+  try {
+    return JSON.parse(match[0]);
+  } catch {
+    return [];
+  }
+}
+
+export async function findMissingCitations(
+  themeTitle: string,
+  reviewScope: string,
+  themeText: string,
+  existingTitles: string[],
+  signal?: AbortSignal
+): Promise<Array<{ claim: string; search_query: string; relevance_note: string }>> {
+  const existing = existingTitles.slice(0, 20).map(t => `- ${t}`).join('\n');
+
+  const messages = [
+    {
+      role: 'system' as const,
+      content: 'You are Enzo, an expert oncology literature analyst. Output ONLY valid JSON — no prose, no markdown fences.'
+    },
+    {
+      role: 'user' as const,
+      content: `You are helping find missing citations for a review article section.
+
+**Review scope:** ${reviewScope}
+**Section/theme:** ${themeTitle}
+**Section text:**
+${themeText.slice(0, 1200)}
+
+**Papers already in this section:**
+${existing || '(none yet)'}
+
+Identify 4–8 specific claims or statements in the section text that would benefit from a citation NOT already in the list above. For each, generate a precise PubMed/OpenAlex search query.
+
+Output ONLY a JSON array. Each element: {"claim": "exact phrase or claim from the text", "search_query": "optimised search query string", "relevance_note": "why this citation matters (1 sentence)"}`
+    }
+  ];
+
+  let buffer = '';
+  await streamGroq(MODELS.enzo, messages, chunk => { buffer += chunk; }, signal);
+  const match = buffer.match(/\[[\s\S]*\]/);
+  if (!match) return [];
+  try {
+    return JSON.parse(match[0]);
+  } catch {
+    return [];
+  }
+}
+
+export async function analyzeReviewGaps(
+  themeTitle: string,
+  outlineText: string,
+  paperSummaries: { title: string; abstract: string }[],
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const papers = paperSummaries.slice(0, 10).map(p =>
+    `- ${p.title}: ${p.abstract.slice(0, 300)}`
+  ).join('\n');
+
+  const messages = [
+    {
+      role: 'system' as const,
+      content: 'You are Enzo, an expert oncology review analyst. Identify research gaps with scientific precision. Be specific — name the missing experiments, populations, or mechanistic questions. Output as a concise numbered list.'
+    },
+    {
+      role: 'user' as const,
+      content: `Analyse the following review section and its assigned papers for research gaps.
+
+**Section:** ${themeTitle}
+**Current outline:**
+${outlineText.slice(0, 600) || '(no outline yet)'}
+
+**Assigned papers:**
+${papers || '(no papers assigned)'}
+
+List 4–6 specific research gaps:
+1. Topics the section covers that lack strong experimental evidence in the assigned papers
+2. Populations or contexts (e.g. platinum-resistant HGSOC, elderly patients) not addressed
+3. Mechanistic questions the papers raise but do not resolve
+4. Missing methodologies (e.g. single-cell, spatial transcriptomics, in vivo validation)
+
+Be specific and actionable. Number each gap. Keep each to 2–3 sentences.`
+    }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}

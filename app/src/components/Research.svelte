@@ -139,7 +139,82 @@
   let summaryLoading = $state<Record<string, boolean>>({});
   let summaryText = $state<Record<string, string>>({});
   let summaryStreaming = $state<Record<string, boolean>>({});
-  let researchTab = $state<'results' | 'reading-list' | 'radar' | 'markers' | 'network'>('results');
+  let researchTab = $state<'results' | 'reading-list' | 'radar' | 'markers' | 'network' | 'saved'>('results');
+
+  // ── Abstract keyword highlighting ──────────────────────────────
+  const HGSOC_TERMS = ['TP53','BRCA1','BRCA2','PARPi','PARP inhibitor','olaparib','niraparib','rucaparib','veliparib','HGSOC','high-grade serous','homologous recombination','HRD','TME','tumour microenvironment','tumor microenvironment','CD8','PD-1','PD-L1','CAF','scRNA-seq','spatial transcriptomics','BRCAness','platinum resistance','FOLR1','mirvetuximab','ascites','peritoneal'];
+  function highlightAbstract(text: string): string {
+    if (!text) return '';
+    let result = text;
+    for (const term of HGSOC_TERMS) {
+      const re = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+      result = result.replace(re, '<mark class="kw-hi">$1</mark>');
+    }
+    return result;
+  }
+
+  // ── BibTeX import ──────────────────────────────────────────────
+  let showBibTexModal = $state(false);
+  let bibTexInput = $state('');
+  let bibTexImporting = $state(false);
+
+  function parseBibTeX(raw: string): PaperResult[] {
+    const entries: PaperResult[] = [];
+    const blocks = raw.match(/@\w+\s*\{[^@]+\}/g) ?? [];
+    for (const block of blocks) {
+      const getField = (key: string) => {
+        const m = block.match(new RegExp(`${key}\\s*=\\s*[{"]([^}"]+)[}"]`, 'i'));
+        return m?.[1]?.trim() ?? '';
+      };
+      const title = getField('title');
+      if (!title) continue;
+      const authorRaw = getField('author');
+      const authors = authorRaw ? authorRaw.split(' and ').map(a => a.trim()) : [];
+      const year = parseInt(getField('year')) || 0;
+      const journal = getField('journal') || getField('booktitle') || getField('publisher') || '';
+      const doi = getField('doi');
+      const abstract = getField('abstract');
+      entries.push({
+        id: doi ? `doi:${doi}` : nanoid(),
+        title, authors, year, journal, doi, abstract,
+        url: doi ? `https://doi.org/${doi}` : '',
+        source: 'pubmed',
+      });
+    }
+    return entries;
+  }
+
+  async function importBibTeX() {
+    if (!bibTexInput.trim()) return;
+    bibTexImporting = true;
+    const entries = parseBibTeX(bibTexInput);
+    let added = 0;
+    for (const paper of entries) {
+      if (!store.readingList.some(r => r.paper.title === paper.title)) {
+        store.readingList = [{ id: nanoid(), paper, addedAt: Date.now(), note: '', read: false, priority: 'medium' }, ...store.readingList];
+        added++;
+      }
+    }
+    await store.saveResearch();
+    bibTexInput = '';
+    showBibTexModal = false;
+    bibTexImporting = false;
+    showToast(`Imported ${added} paper${added !== 1 ? 's' : ''} from BibTeX`);
+    researchTab = 'reading-list';
+  }
+
+  // ── Inline paper notes ─────────────────────────────────────────
+  let expandedNoteId = $state<string | null>(null);
+
+  async function saveItemNote(id: string, note: string) {
+    store.readingList = store.readingList.map(r => r.id === id ? { ...r, note } : r);
+    await store.saveResearch();
+  }
+
+  // ── Radar digest history ───────────────────────────────────────
+  type RadarHistoryEntry = { ts: number; digest: string; paperCount: number };
+  let radarHistory = $state<RadarHistoryEntry[]>([]);
+  let showRadarHistory = $state(false);
 
   // ── Radar tab state ────────────────────────────────────────────
   type RadarCard = { pmid: string; title: string; authors: string; journal: string; year: number; abstract: string; doi: string; added: boolean };
@@ -226,6 +301,9 @@
       await streamRadarSummary(papersToSummarise, existingTopics, chunk => { radarDigest += chunk; }, radarDigestAbort.signal);
     } catch { /* aborted */ }
     radarDigestStreaming = false;
+    if (radarDigest.trim()) {
+      radarHistory = [{ ts: Date.now(), digest: radarDigest, paperCount: papersToSummarise.length }, ...radarHistory.slice(0, 9)];
+    }
   }
 
   // ── Markers tab state ──────────────────────────────────────────
@@ -1076,7 +1154,19 @@ Format your response as:
         >
           Network
         </button>
+        <button
+          class="tab-btn"
+          class:active={researchTab === 'saved'}
+          onclick={() => researchTab = 'saved'}
+        >
+          Saved {#if store.savedSearches.length > 0}<span class="tab-count">{store.savedSearches.length}</span>{/if}
+        </button>
       </div>
+      <!-- BibTeX import button -->
+      <button class="btn btn-ghost btn-sm" onclick={() => showBibTexModal = true} title="Import from BibTeX">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+        BibTeX
+      </button>
       <!-- DOI resolver -->
       <div class="doi-wrap">
         <button class="btn btn-ghost btn-sm" onclick={() => doiOpen = !doiOpen} title="Resolve a DOI to add a paper">
@@ -1388,9 +1478,11 @@ Format your response as:
           {#if expandedId === paper.id}
             <div class="abstract-box">
               {#if abstractText[paper.id]}
-                <p class="text-sm">{abstractText[paper.id]}</p>
+                <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+                <p class="text-sm">{@html highlightAbstract(abstractText[paper.id])}</p>
               {:else if paper.abstract}
-                <p class="text-sm">{paper.abstract}</p>
+                <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+                <p class="text-sm">{@html highlightAbstract(paper.abstract)}</p>
               {:else}
                 <p class="text-sm text-mu">Loading abstract…</p>
               {/if}
@@ -1611,6 +1703,25 @@ Format your response as:
                   {#if item.paper.authors.length > 0}
                     <p class="text-xs text-mu">{item.paper.authors.slice(0, 4).join(', ')}{item.paper.authors.length > 4 ? ' et al.' : ''} · ~{readingTimeMins(item.paper)} min</p>
                   {/if}
+                  <!-- Per-paper inline note -->
+                  <div class="rl-note-row">
+                    <button class="rl-note-toggle text-xs" onclick={() => expandedNoteId = expandedNoteId === item.id ? null : item.id}>
+                      {#if item.note}<span class="rl-note-dot"></span>{/if}
+                      {expandedNoteId === item.id ? '▲ Note' : '▼ Note'}
+                    </button>
+                    {#if item.note && expandedNoteId !== item.id}
+                      <span class="rl-note-preview text-xs text-mu">{item.note.slice(0, 80)}{item.note.length > 80 ? '…' : ''}</span>
+                    {/if}
+                  </div>
+                  {#if expandedNoteId === item.id}
+                    <textarea
+                      class="rl-note-textarea"
+                      value={item.note}
+                      placeholder="Your notes on this paper…"
+                      rows={3}
+                      oninput={(e) => saveItemNote(item.id, (e.target as HTMLTextAreaElement).value)}
+                    ></textarea>
+                  {/if}
                   <!-- Related papers inline -->
                   {#if relatedForId === item.paper.id}
                     <div class="related-panel">
@@ -1732,14 +1843,65 @@ Format your response as:
               {#if radarDigest && !radarDigestStreaming}
                 <button class="btn btn-ghost btn-sm" onclick={() => navigator.clipboard.writeText(radarDigest).then(() => showToast('Copied'))}>Copy</button>
               {/if}
+              {#if radarHistory.length > 0}
+                <button class="btn btn-ghost btn-sm" onclick={() => showRadarHistory = !showRadarHistory}>
+                  History ({radarHistory.length})
+                </button>
+              {/if}
             </div>
             {#if radarDigest}
               <div class="summary-body text-sm">{radarDigest}</div>
             {:else if !radarDigestStreaming}
               <p class="text-sm text-mu">Click "Summarise new papers" to get Enzo's synthesis of what's new.</p>
             {/if}
+            {#if showRadarHistory && radarHistory.length > 0}
+              <div class="radar-history">
+                <div class="radar-history-label text-xs text-mu">Previous digests</div>
+                {#each radarHistory as h, i}
+                  <details class="radar-hist-entry">
+                    <summary class="text-xs">{new Date(h.ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })} — {h.paperCount} papers</summary>
+                    <p class="text-xs radar-hist-text">{h.digest}</p>
+                  </details>
+                {/each}
+              </div>
+            {/if}
           </div>
         {/if}
+      {/if}
+    </div>
+
+  {:else if researchTab === 'saved'}
+    <!-- ── Saved searches tab ── -->
+    <div class="saved-view">
+      {#if store.savedSearches.length === 0}
+        <div class="empty-state">
+          <p class="text-mu">No saved searches yet.</p>
+          <p class="text-xs text-mu">Run a search and click the save icon to save it.</p>
+        </div>
+      {:else}
+        {#each store.savedSearches as ss (ss.id)}
+          <div class="saved-item card">
+            <div class="saved-item-head">
+              <span class="saved-label">{ss.label}</span>
+              <div class="saved-item-actions">
+                <button class="btn btn-primary btn-sm" onclick={() => { runSavedSearch(ss); researchTab = 'results'; }}>Run</button>
+                <button class="btn-icon" onclick={() => deleteSavedSearch(ss.id)} title="Delete">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+            </div>
+            <p class="text-xs text-mu saved-query">"{ss.query}"</p>
+            <div class="saved-meta">
+              {#each ss.sources as src}
+                <span class="tag {SOURCE_CLS[src] || ''}">{SOURCE_LABELS[src] || src}</span>
+              {/each}
+              {#if ss.lastRunAt}
+                <span class="text-xs text-mu">Last run: {new Date(ss.lastRunAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
+              {/if}
+              <span class="text-xs text-mu">× {ss.runCount}</span>
+            </div>
+          </div>
+        {/each}
       {/if}
     </div>
 
@@ -1910,6 +2072,29 @@ Format your response as:
     </div>
   {/if}
 </div>
+{/if}
+
+<!-- BibTeX import modal -->
+{#if showBibTexModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="modal-backdrop" onclick={() => showBibTexModal = false}></div>
+  <div class="bibtex-modal card">
+    <h3>Import from BibTeX</h3>
+    <p class="text-xs text-mu">Paste your .bib file contents below. All entries will be added to your reading list.</p>
+    <textarea
+      class="bibtex-textarea"
+      bind:value={bibTexInput}
+      placeholder="Paste .bib file contents here…"
+      rows={12}
+    ></textarea>
+    <div class="bibtex-actions">
+      <button class="btn btn-ghost" onclick={() => showBibTexModal = false}>Cancel</button>
+      <button class="btn btn-primary" onclick={importBibTeX} disabled={!bibTexInput.trim() || bibTexImporting}>
+        {#if bibTexImporting}Importing…{:else}Import{/if}
+      </button>
+    </div>
+  </div>
 {/if}
 
 <style>
@@ -2548,4 +2733,52 @@ Format your response as:
   .related-item:last-child { border-bottom: none; }
   .related-title { font-size: 0.82rem; font-weight: 600; color: var(--tx); line-height: 1.4; }
   .related-actions { display: flex; gap: 4px; margin-top: 3px; }
+
+  /* ── Per-paper note ──────────────────────────────────────────── */
+  .rl-note-row { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+  .rl-note-toggle { background: none; border: none; color: var(--mu); cursor: pointer; font-size: 0.72rem; padding: 1px 0; }
+  .rl-note-toggle:hover { color: var(--tx); }
+  .rl-note-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--ac); margin-right: 3px; }
+  .rl-note-preview { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rl-note-textarea {
+    width: 100%; font-size: 0.8rem; resize: vertical;
+    border: 1px solid var(--bd); border-radius: var(--radius-sm);
+    background: var(--sf2); color: var(--tx); padding: 6px 8px;
+    font-family: var(--font); line-height: 1.5;
+  }
+  .rl-note-textarea:focus { outline: none; border-color: var(--ac); }
+
+  /* ── Keyword highlighting ────────────────────────────────────── */
+  :global(.kw-hi) {
+    background: color-mix(in srgb, var(--yw, #f5a623) 22%, transparent);
+    color: var(--tx); border-radius: 2px; padding: 0 1px; font-weight: 500;
+  }
+
+  /* ── Saved searches tab ──────────────────────────────────────── */
+  .saved-view { display: flex; flex-direction: column; gap: 8px; padding: 12px; overflow-y: auto; }
+  .saved-item { display: flex; flex-direction: column; gap: 6px; }
+  .saved-item-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .saved-label { font-size: 0.86rem; font-weight: 600; color: var(--tx); }
+  .saved-item-actions { display: flex; align-items: center; gap: 6px; }
+  .saved-query { font-style: italic; }
+  .saved-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+  /* ── Radar history ───────────────────────────────────────────── */
+  .radar-history { margin-top: 10px; border-top: 1px solid var(--bd); padding-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .radar-history-label { padding-bottom: 4px; }
+  .radar-hist-entry { border: 1px solid var(--bd); border-radius: 5px; padding: 4px 8px; }
+  .radar-hist-entry summary { cursor: pointer; color: var(--tx2); }
+  .radar-hist-text { color: var(--tx2); line-height: 1.6; margin-top: 4px; white-space: pre-wrap; }
+
+  /* ── BibTeX modal ────────────────────────────────────────────── */
+  .modal-backdrop { position: fixed; inset: 0; z-index: 8999; background: rgba(0,0,0,0.4); }
+  .bibtex-modal {
+    position: fixed; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 9000; width: min(560px, 92vw);
+    padding: 24px; display: flex; flex-direction: column; gap: 14px;
+  }
+  .bibtex-modal h3 { margin: 0; font-size: 1rem; }
+  .bibtex-textarea { font-size: 0.8rem; font-family: var(--mono); resize: vertical; }
+  .bibtex-actions { display: flex; justify-content: flex-end; gap: 8px; }
 </style>
