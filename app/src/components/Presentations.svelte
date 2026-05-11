@@ -2,7 +2,7 @@
   import { store } from '../lib/store.svelte';
   import { nanoid } from 'nanoid';
   import { marked } from 'marked';
-  import { generateSlides, askEnzoInline } from '../lib/groq';
+  import { generateSlides, askEnzoInline, generateSlidesDeck } from '../lib/groq';
   import RichEditor from './RichEditor.svelte';
   import type { Presentation, Slide, PresTheme } from '../lib/types';
 
@@ -29,6 +29,14 @@
   let showTemplates   = $state(false);
   let activeSlideIdx  = $state(0);
   let enzoLoadingIdx  = $state<number | null>(null);
+
+  // ── Enhanced generation state ─────────────────────────────────
+  let genMode         = $state<'standard' | 'journal_club' | 'lab_meeting' | 'grant_narrative'>('standard');
+  let pickedNoteIds   = $state(new Set<string>());
+  let pickedPaperIds  = $state(new Set<string>());
+  let sourcePickerTab = $state<'notes' | 'papers'>('notes');
+  let showSourceSidebar = $state(false);
+  let fillTemplateIdx = $state<number | null>(null); // index of template being Enzo-filled
 
   // ── Presenter timer ───────────────────────────────────────────
   let presentTimer    = $state(0);
@@ -113,7 +121,79 @@
       name: 'Acknowledgements',
       html: '<h2>Acknowledgements</h2><p style="font-size:0.85em"><strong>Funding:</strong> [Grant agency, grant number]</p><p style="font-size:0.85em"><strong>Collaborators:</strong> [Names]</p><p style="font-size:0.85em"><strong>Lab members:</strong> [Names]</p>',
     },
+    // ── Research-specific templates ────────────────────────────
+    {
+      name: 'Conference: Talk overview',
+      html: '<h2 style="font-size:1.6em">Talk Title</h2><p style="font-size:0.85em;opacity:0.75">Conference Name · Date · City</p><div style="margin-top:1.2em;font-size:0.82em"><strong>Take-home message:</strong> [One sentence that encapsulates your main finding]</div>',
+    },
+    {
+      name: 'Conference: Key result',
+      html: '<h2>Key Result</h2><div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5em;font-size:0.82em"><div><h3 style="font-size:0.9em;margin:0 0 0.5em">Finding</h3><p>[Describe the main finding with quantitative detail]</p></div><div><h3 style="font-size:0.9em;margin:0 0 0.5em">Significance</h3><p>[Clinical or mechanistic implication]</p></div></div><p style="font-size:0.7em;opacity:0.6;margin-top:1em">[Author et al., Journal Year] — [DOI or PMID]</p>',
+    },
+    {
+      name: 'Thesis: Chapter overview',
+      html: '<h2>Chapter [N]: [Title]</h2><ul style="font-size:0.85em"><li><strong>Background:</strong> [Context and rationale]</li><li><strong>Aim:</strong> [Specific objective]</li><li><strong>Approach:</strong> [Experimental strategy]</li><li><strong>Outcome:</strong> [Key findings]</li></ul>',
+    },
+    {
+      name: 'Thesis: Conclusion + Future',
+      html: '<h2>Conclusions &amp; Future Directions</h2><h3 style="font-size:0.9em">Conclusions</h3><ul style="font-size:0.8em"><li>[Main conclusion 1]</li><li>[Main conclusion 2]</li></ul><h3 style="font-size:0.9em;margin-top:0.8em">Future Work</h3><ul style="font-size:0.8em"><li>[Proposed experiment or direction]</li><li>[Longer-term vision]</li></ul>',
+    },
+    {
+      name: 'Grant: Significance',
+      html: '<h2>Significance</h2><p style="font-size:0.85em"><strong>Problem:</strong> [What is the unmet need or knowledge gap?]</p><p style="font-size:0.85em"><strong>Impact:</strong> [How will this project change the field / benefit patients?]</p><p style="font-size:0.85em"><strong>Evidence base:</strong> [Key statistics or findings that justify the work]</p>',
+    },
+    {
+      name: 'Grant: Innovation',
+      html: '<h2>Innovation</h2><ul style="font-size:0.85em"><li><strong>Novel approach:</strong> [What is conceptually new?]</li><li><strong>New tools/methods:</strong> [Technology or model not used before in this context]</li><li><strong>Paradigm shift:</strong> [What assumption does this challenge?]</li></ul>',
+    },
+    {
+      name: 'Grant: Approach / Aim',
+      html: '<h2>Aim [N]: [Title]</h2><p style="font-size:0.82em"><strong>Rationale:</strong> [Why this aim?]</p><ol style="font-size:0.82em"><li>[Experiment / analysis 1]</li><li>[Experiment / analysis 2]</li></ol><p style="font-size:0.78em;opacity:0.7"><strong>Expected outcome:</strong> [Result] &nbsp;·&nbsp; <strong>Contingency:</strong> [Alternative]</p>',
+    },
+    {
+      name: 'Journal club: Paper summary',
+      html: '<h2>Paper Summary</h2><p style="font-size:0.78em;opacity:0.75">[Author et al., Journal Year] — <em>[Paper title]</em></p><div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2em;font-size:0.8em;margin-top:0.8em"><div><strong>Question:</strong><p>[Central research question]</p></div><div><strong>Key finding:</strong><p>[Main result in one sentence]</p></div><div><strong>Methods:</strong><p>[Experimental approach]</p></div><div><strong>Limitation:</strong><p>[Critical weakness]</p></div></div>',
+    },
+    {
+      name: 'Lab meeting: Progress update',
+      html: '<h2>Progress Update — [Date]</h2><div style="font-size:0.82em;display:grid;grid-template-columns:1fr 1fr;gap:1em"><div><h3 style="font-size:0.9em">✓ Done since last meeting</h3><ul><li>[Completed task]</li></ul></div><div><h3 style="font-size:0.9em">⏳ In progress</h3><ul><li>[Current task + status]</li></ul></div><div><h3 style="font-size:0.9em">🚧 Blockers</h3><ul><li>[Issue needing team input]</li></ul></div><div><h3 style="font-size:0.9em">→ Next steps</h3><ul><li>[Planned action]</li></ul></div></div>',
+    },
+    {
+      name: 'Methods: Workflow',
+      html: '<h2>Experimental Workflow</h2><ol style="font-size:0.82em"><li><strong>Sample collection:</strong> [Patient cohort / cell line / mouse model]</li><li><strong>Processing:</strong> [Preparation steps]</li><li><strong>Assay:</strong> [Sequencing / staining / functional assay]</li><li><strong>Analysis:</strong> [Bioinformatics pipeline / statistical test]</li><li><strong>Validation:</strong> [Orthogonal method]</li></ol>',
+    },
+    {
+      name: 'Data: Results story',
+      html: '<h2>Results</h2><p style="font-size:0.85em"><strong>Question asked:</strong> [Specific hypothesis tested]</p><div style="border:2px dashed rgba(128,128,128,0.35);border-radius:8px;padding:1.5em;text-align:center;font-size:0.78em;opacity:0.6;margin:0.8em 0">[ Figure — describe what to insert ]</div><p style="font-size:0.82em"><strong>Interpretation:</strong> [What the data show] — <strong>n =</strong> [sample size], <em>p</em> = [statistic]</p>',
+    },
   ];
+
+  async function enzoFillTemplate(idx: number) {
+    const tpl = SLIDE_TEMPLATES[idx];
+    if (!tpl) return;
+    fillTemplateIdx = idx;
+    try {
+      const context = pickedPaperIds.size > 0
+        ? store.readingList.filter(r => pickedPaperIds.has(r.id)).map(r =>
+            `${r.paper.title} (${r.paper.authors[0] ?? ''} et al.): ${r.paper.abstract?.slice(0, 400) ?? ''}`
+          ).join('\n\n')
+        : pickedNoteIds.size > 0
+          ? store.notes.filter(n => pickedNoteIds.has(n.id)).map(n =>
+              `${n.title}: ${n.body.replace(/<[^>]+>/g, ' ').slice(0, 400)}`
+            ).join('\n\n')
+          : '';
+      const result = await askEnzoInline(
+        `Fill in this slide template with real scientific content. ${context ? `Use the following context:\n${context}\n\n` : ''}Replace all placeholder text in brackets with specific, accurate content. Keep the same HTML structure. Return only the filled HTML.`,
+        tpl.html
+      );
+      const cleaned = result.replace(/^```(?:html)?\n?/i, '').replace(/\n?```$/, '').trim();
+      insertTemplate(cleaned);
+    } catch {
+      showToast('Enzo fill failed', 'error');
+    } finally {
+      fillTemplateIdx = null;
+    }
+  }
 
   function insertTemplate(html: string) {
     if (!pres) return;
@@ -281,29 +361,64 @@
   }
 
   // ── AI generation ─────────────────────────────────────────────
+  function buildSources() {
+    const sources: { type: string; title: string; content: string; doi?: string }[] = [];
+    for (const id of pickedNoteIds) {
+      const n = store.notes.find(x => x.id === id);
+      if (n) sources.push({ type: 'note', title: n.title || 'Untitled', content: n.body.replace(/<[^>]+>/g, ' ').slice(0, 800) });
+    }
+    for (const id of pickedPaperIds) {
+      const r = store.readingList.find(x => x.id === id);
+      if (r) sources.push({ type: 'paper', title: r.paper.title, content: r.paper.abstract ?? '', doi: (r.paper as any).doi });
+    }
+    return sources;
+  }
+
   async function runGenerate() {
     if (!pres) return;
     generating = true;
+    const useDeck = genMode !== 'standard' || pickedNoteIds.size > 0 || pickedPaperIds.size > 0;
     try {
-      let context = '';
-      if (genFrom === 'note' && genNoteId) {
-        const n = store.notes.find(n => n.id === genNoteId);
-        if (n) context = n.body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-      } else if (genFrom === 'paper' && genPaperId) {
-        const p = store.readingList.find(r => r.id === genPaperId);
-        if (p) context = `Title: ${p.paper.title}\nAuthors: ${p.paper.authors.join(', ')}\nAbstract: ${p.paper.abstract}`;
+      if (useDeck) {
+        // New structured path: JSON schema output
+        let topic = genTopic;
+        if (!topic) {
+          if (pickedNoteIds.size > 0) topic = store.notes.find(n => pickedNoteIds.has(n.id))?.title ?? 'Research Presentation';
+          else if (pickedPaperIds.size > 0) topic = store.readingList.find(r => pickedPaperIds.has(r.id))?.paper.title ?? 'Research Presentation';
+          else topic = 'Research Presentation';
+        }
+        const sources = buildSources();
+        const deck = await generateSlidesDeck(topic, genCount, sources, genMode);
+        if (!deck.length) throw new Error('Enzo returned an empty deck');
+        mutate(p => {
+          p.slides = deck.map(s => ({
+            id: nanoid(),
+            content: `<h2>${s.title}</h2><ul>${s.bullets.map(b => `<li>${b}</li>`).join('')}</ul>${s.source_refs.length ? `<p class="cite-strip">${s.source_refs.join(' · ')}</p>` : ''}`,
+            notes: s.speaker_notes,
+          }));
+        });
+      } else {
+        // Legacy path for simple prompt/note/paper
+        let context = '';
+        if (genFrom === 'note' && genNoteId) {
+          const n = store.notes.find(n => n.id === genNoteId);
+          if (n) context = n.body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        } else if (genFrom === 'paper' && genPaperId) {
+          const p = store.readingList.find(r => r.id === genPaperId);
+          if (p) context = `Title: ${p.paper.title}\nAuthors: ${p.paper.authors.join(', ')}\nAbstract: ${p.paper.abstract}`;
+        }
+        const topic = genFrom === 'prompt' ? genTopic : (genFrom === 'note' ? (store.notes.find(n => n.id === genNoteId)?.title ?? genTopic) : (store.readingList.find(r => r.id === genPaperId)?.paper.title ?? genTopic));
+        const raw = await generateSlides(topic, genCount, context);
+        mutate(p => {
+          p.slides = raw.map(s => ({
+            id: nanoid(),
+            content: `<h2>${s.title}</h2>${s.content}`,
+            notes: s.notes,
+          }));
+        });
       }
-      const topic = genFrom === 'prompt' ? genTopic : (genFrom === 'note' ? (store.notes.find(n => n.id === genNoteId)?.title ?? genTopic) : (store.readingList.find(r => r.id === genPaperId)?.paper.title ?? genTopic));
-      const raw = await generateSlides(topic, genCount, context);
-      mutate(p => {
-        p.slides = raw.map(s => ({
-          id: nanoid(),
-          content: `<h2>${s.title}</h2>${s.content}`,
-          notes: s.notes,
-        }));
-      });
       genOpen = false;
-      showToast(`${raw.length} slides generated`);
+      showToast(`Slides generated`);
     } catch (e) {
       showToast('Generation failed: ' + (e as Error).message, 'error');
     } finally {
@@ -421,32 +536,62 @@
   <div class="modal-backdrop" onclick={() => genOpen = false}></div>
   <div class="gen-modal card">
     <h3>Generate slides with Enzo</h3>
+
+    <!-- Presentation mode -->
+    <div class="gen-section-label">Presentation type</div>
     <div class="gen-tabs">
-      {#each (['prompt', 'note', 'paper'] as const) as t}
-        <button class="gen-tab" class:active={genFrom === t} onclick={() => genFrom = t}>
-          {t === 'prompt' ? 'Topic / Prompt' : t === 'note' ? 'From Note' : 'From Paper'}
-        </button>
+      {#each ([['standard','Standard'],['journal_club','Journal Club'],['lab_meeting','Lab Meeting'],['grant_narrative','Grant Narrative']] as const) as [m, label]}
+        <button class="gen-tab" class:active={genMode === m} onclick={() => genMode = m}>{label}</button>
       {/each}
     </div>
 
-    {#if genFrom === 'prompt'}
-      <textarea class="gen-textarea" bind:value={genTopic} placeholder="e.g. PARPi resistance mechanisms in HGSOC — 2024 updates" rows={4}></textarea>
-    {:else if genFrom === 'note'}
-      <select class="gen-select" bind:value={genNoteId}>
-        <option value="">Select a note…</option>
-        {#each store.notes.filter(n => !n.archived) as n}
-          <option value={n.id}>{n.title}</option>
-        {/each}
-      </select>
-    {:else}
-      <select class="gen-select" bind:value={genPaperId}>
-        <option value="">Select a paper…</option>
-        {#each store.readingList as r}
-          <option value={r.id}>{r.paper.title.slice(0, 70)}…</option>
-        {/each}
-      </select>
-    {/if}
+    <!-- Topic -->
+    <div class="gen-section-label">Topic / prompt</div>
+    <textarea class="gen-textarea" bind:value={genTopic} placeholder="e.g. PARPi resistance mechanisms in HGSOC — 2024 updates" rows={3}></textarea>
 
+    <!-- Source picker (Notes + Papers) -->
+    <div class="gen-section-label">
+      Sources <span class="gen-source-count">{pickedNoteIds.size + pickedPaperIds.size} selected</span>
+    </div>
+    <div class="gen-source-tabs">
+      <button class="gen-source-tab" class:active={sourcePickerTab === 'notes'} onclick={() => sourcePickerTab = 'notes'}>
+        Notes ({store.notes.filter(n => !n.archived).length})
+      </button>
+      <button class="gen-source-tab" class:active={sourcePickerTab === 'papers'} onclick={() => sourcePickerTab = 'papers'}>
+        Papers ({store.readingList.length})
+      </button>
+    </div>
+    <div class="gen-source-list">
+      {#if sourcePickerTab === 'notes'}
+        {#each store.notes.filter(n => !n.archived) as n (n.id)}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <label class="source-item" class:picked={pickedNoteIds.has(n.id)}>
+            <input type="checkbox" checked={pickedNoteIds.has(n.id)} onchange={() => {
+              const next = new Set(pickedNoteIds);
+              if (next.has(n.id)) next.delete(n.id); else next.add(n.id);
+              pickedNoteIds = next;
+            }} />
+            <span class="source-title">{n.title || 'Untitled'}</span>
+          </label>
+        {/each}
+      {:else}
+        {#each store.readingList as r (r.id)}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <label class="source-item" class:picked={pickedPaperIds.has(r.id)}>
+            <input type="checkbox" checked={pickedPaperIds.has(r.id)} onchange={() => {
+              const next = new Set(pickedPaperIds);
+              if (next.has(r.id)) next.delete(r.id); else next.add(r.id);
+              pickedPaperIds = next;
+            }} />
+            <span class="source-title">{r.paper.title.slice(0, 72)}</span>
+          </label>
+        {/each}
+      {/if}
+    </div>
+
+    <!-- Slide count -->
     <div class="gen-count-row">
       <label class="text-sm">Slides:</label>
       {#each [5, 8, 10, 12, 15] as n}
@@ -460,7 +605,7 @@
       <button
         class="btn btn-primary"
         onclick={runGenerate}
-        disabled={generating || (genFrom === 'prompt' && !genTopic.trim()) || (genFrom === 'note' && !genNoteId) || (genFrom === 'paper' && !genPaperId)}
+        disabled={generating || (!genTopic.trim() && pickedNoteIds.size === 0 && pickedPaperIds.size === 0)}
       >
         {#if generating}Generating…{:else}Generate<span class="model-pill">[70B]</span>{/if}
       </button>
@@ -630,11 +775,19 @@
             </button>
             {#if showTemplates}
               <div class="templates-dropdown card">
-                <p class="templates-hint text-xs text-mu">Insert layout at current slide position</p>
-                {#each SLIDE_TEMPLATES as tpl}
-                  <button class="template-item" onclick={() => insertTemplate(tpl.html)}>
-                    {tpl.name}
-                  </button>
+                <p class="templates-hint text-xs text-mu">Insert layout · click name to insert, E to Enzo-fill</p>
+                {#each SLIDE_TEMPLATES as tpl, idx}
+                  <div class="template-row">
+                    <button class="template-item" onclick={() => insertTemplate(tpl.html)}>{tpl.name}</button>
+                    <button
+                      class="template-enzo-fill"
+                      onclick={() => enzoFillTemplate(idx)}
+                      disabled={fillTemplateIdx !== null}
+                      title="Enzo fill this template with content from selected sources"
+                    >
+                      {fillTemplateIdx === idx ? '…' : 'E'}
+                    </button>
+                  </div>
                 {/each}
               </div>
             {/if}
@@ -643,12 +796,52 @@
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Export HTML
           </button>
+          <!-- Source sidebar toggle -->
+          {#if pickedNoteIds.size + pickedPaperIds.size > 0}
+            <button class="btn btn-ghost btn-sm" class:active={showSourceSidebar} onclick={() => showSourceSidebar = !showSourceSidebar} title="Toggle source sidebar">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+              Sources ({pickedNoteIds.size + pickedPaperIds.size})
+            </button>
+          {/if}
           <button class="btn btn-primary btn-sm" onclick={startPresent}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
             Present
           </button>
         </div>
       </div>
+
+      <!-- Source sidebar + slide editor layout -->
+      <div class="slides-editor-wrap">
+
+      <!-- Source sidebar -->
+      {#if showSourceSidebar && (pickedNoteIds.size + pickedPaperIds.size > 0)}
+        <div class="source-sidebar">
+          <div class="source-sidebar-header">
+            <span class="source-sidebar-title">Sources</span>
+            <button class="source-sidebar-close" onclick={() => showSourceSidebar = false}>×</button>
+          </div>
+          <div class="source-sidebar-body">
+            {#if pickedNoteIds.size > 0}
+              <div class="source-group-label">Notes</div>
+              {#each store.notes.filter(n => pickedNoteIds.has(n.id)) as n}
+                <div class="source-entry">
+                  <span class="source-entry-title">{n.title || 'Untitled'}</span>
+                  <p class="source-entry-snippet">{n.body.replace(/<[^>]+>/g, ' ').trim().slice(0, 120)}…</p>
+                </div>
+              {/each}
+            {/if}
+            {#if pickedPaperIds.size > 0}
+              <div class="source-group-label">Papers</div>
+              {#each store.readingList.filter(r => pickedPaperIds.has(r.id)) as r}
+                <div class="source-entry">
+                  <span class="source-entry-title">{r.paper.title.slice(0, 60)}</span>
+                  <p class="source-entry-snippet">{r.paper.abstract?.slice(0, 120) ?? ''}…</p>
+                </div>
+              {/each}
+            {/if}
+          </div>
+        </div>
+      {/if}
 
       <!-- Slide editor -->
       <div class="slides-editor">
@@ -735,6 +928,7 @@
           </div>
         {/each}
       </div>
+      </div> <!-- slides-editor-wrap -->
     {/if}
   </div>
 </div>
@@ -1163,4 +1357,45 @@
   .count-chip.active { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); }
   .count-input { width: 56px; font-size: 0.82rem; padding: 3px 6px; text-align: center; }
   .gen-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .gen-section-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--mu); margin-bottom: -6px; }
+  .gen-source-count { font-weight: 400; text-transform: none; color: var(--ac); margin-left: 4px; }
+  .gen-source-tabs { display: flex; gap: 4px; }
+  .gen-source-tab { padding: 4px 10px; border-radius: var(--radius-sm); font-size: 0.78rem; background: transparent; border: 1px solid var(--bd); color: var(--mu); cursor: pointer; }
+  .gen-source-tab.active { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); }
+  .gen-source-list { max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--bd); border-radius: var(--radius-sm); padding: 4px; }
+  .source-item { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
+  .source-item:hover { background: var(--hv); }
+  .source-item.picked { background: var(--ac-bg); }
+  .source-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--tx); }
+
+  /* Templates with Enzo fill */
+  .template-row { display: flex; align-items: center; gap: 4px; }
+  .template-item { flex: 1; text-align: left; padding: 6px 8px; border-radius: 4px; font-size: 0.82rem; color: var(--tx); background: transparent; border: none; cursor: pointer; transition: background var(--transition); }
+  .template-item:hover { background: var(--hv); }
+  .template-enzo-fill { flex-shrink: 0; width: 22px; height: 22px; border-radius: 4px; border: 1px solid var(--bd); background: transparent; color: var(--enzo); font-size: 0.78rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .template-enzo-fill:hover { background: var(--enzo)11; border-color: var(--enzo); }
+  .template-enzo-fill:disabled { opacity: 0.4; cursor: default; }
+
+  /* Source sidebar */
+  .slides-editor-wrap { display: flex; flex: 1; overflow: hidden; }
+  .source-sidebar {
+    width: 230px; flex-shrink: 0;
+    border-right: 1px solid var(--bd);
+    background: var(--sf);
+    display: flex; flex-direction: column;
+  }
+  .source-sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--bd); flex-shrink: 0; }
+  .source-sidebar-title { font-size: 0.78rem; font-weight: 600; color: var(--tx); }
+  .source-sidebar-close { background: none; border: none; color: var(--mu); cursor: pointer; font-size: 1rem; line-height: 1; }
+  .source-sidebar-body { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+  .source-group-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--mu); padding: 4px 0 2px; }
+  .source-entry { border: 1px solid var(--bd); border-radius: 5px; padding: 6px 8px; }
+  .source-entry-title { font-size: 0.77rem; font-weight: 500; color: var(--tx); display: block; }
+  .source-entry-snippet { font-size: 0.72rem; color: var(--mu); margin: 3px 0 0; line-height: 1.5; }
+
+  /* Citation strip in slides */
+  :global(.slide-rich-editor .cite-strip) {
+    font-size: 0.65em; color: var(--mu); margin-top: 0.8em;
+    padding-top: 0.4em; border-top: 1px solid rgba(128,128,128,0.2);
+  }
 </style>

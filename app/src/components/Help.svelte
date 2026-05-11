@@ -36,6 +36,22 @@
     { color: 'rd',   icon: 'M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', title: 'Interview Intelligence', desc: 'For every saved job, Enzo generates role-specific interview questions from the job description and your CV profile. Draft and refine your answers with AI feedback.' },
     { color: 'ac',   icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z', title: 'Extended Global Search', desc: 'Global search covers every section — protocols, hypotheses, pipeline runs, files, pinned papers, grants, and manuscripts.' },
     { color: 'gn',   icon: 'M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4', title: 'WYSIWYG Everywhere', desc: 'TipTap rich editor with full formatting toolbar deployed across notes, journal, protocols, hypotheses, cover letters, manuscript sections, and more.' },
+    // ── New batch ──
+    { color: 'pu',   icon: 'M13 10V3L4 14h7v7l9-11h-7z', title: 'Note Graph: Enzo Cluster + Semantic Analysis', desc: 'Click "Enzo Analyse" in the graph toolbar to have Enzo cluster your notes into thematic groups, draw dashed semantic edges between related notes, and list 3–5 research gaps. Results overlay the graph live.' },
+    { color: 'ac',   icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z', title: 'Note Graph: Search + Focus Mode', desc: 'Type in the search bar in the graph header to highlight matching nodes. Click a node to enter focus mode — only that node and its 1-hop neighbours remain visible. Click again or "Clear focus" to reset.' },
+    { color: 'gn',   icon: 'M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7', title: 'Note Graph: Multi-select & Synthesis', desc: 'Click "Select" in the graph toolbar to enter multi-select mode. Check any nodes, then click "Synthesise" to have Enzo stream a synthesis paragraph across all selected notes. The result appears in a side panel.' },
+    { color: 'enzo', icon: 'M4 6h16M4 10h16M4 14h10', title: 'Presentations: Multi-source + Mode Generation', desc: 'The Generate modal now has source pickers for Notes and Papers — select as many as you like and Enzo uses them as context. Choose a Presentation type: Standard, Journal Club, Lab Meeting, or Grant Narrative. Slides are returned as a structured JSON schema with title, bullets, speaker notes, and citation strips.' },
+    { color: 'yw',   icon: 'M4 6h16M4 10h16M4 14h10', title: 'Presentations: Research Templates + Enzo Fill', desc: '11 new research-specific slide templates: Conference talk overview, Thesis chapters, Grant significance/innovation/approach, Journal club paper summary, Lab meeting progress update, Methods workflow, and Data results story. Each template has an "E" button to Enzo-fill it with content from your selected sources.' },
+    { color: 'pu',   icon: 'M4 6h16M4 10h16M4 14h10', title: 'Presentations: Source Sidebar', desc: 'After generating with sources, a "Sources (N)" button appears in the toolbar. Click it to open a sidebar showing the full content of all selected notes and papers — keep your reference material visible while editing slides.' },
+    { color: 'gn',   icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z', title: 'Research: Saved Searches Tab', desc: 'A new "Saved" tab in Research displays all your saved searches with their source badges, run counts, and last-run date. Click "Run" to re-execute any search and switch back to Results.' },
+    { color: 'ac',   icon: 'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z', title: 'Research: BibTeX Import', desc: 'Click the "BibTeX" button in the Research toolbar to paste a .bib file and batch-import all papers into your reading list. Duplicates are skipped by title matching.' },
+    { color: 'yw',   icon: 'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z', title: 'Research: Per-paper Inline Notes', desc: 'Every reading-list paper now has a collapsible "▼ Note" section. Click it to expand a text area for your personal notes on that paper. A blue dot on the toggle indicates a saved note.' },
+    { color: 'rd',   icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', title: 'Research: Abstract Keyword Highlighting', desc: 'When you expand a paper\'s abstract, HGSOC-relevant terms are automatically highlighted: TP53, BRCA1/2, PARPi, olaparib, HGSOC, TME, CD8, CAF, scRNA-seq, spatial transcriptomics, and more.' },
+    { color: 'enzo', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', title: 'Research: Radar Digest History', desc: 'Every time Enzo generates a Radar digest, it\'s saved to a history log. Click "History (N)" in the digest panel to expand and read past digests with timestamps and paper counts.' },
+    { color: 'gn',   icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', title: 'Reviews: Bibliography Export', desc: 'Click "Bib" in the Corpus/Themes toolbar to export your full review corpus bibliography in APA, Vancouver, or BibTeX format — download as a file or copy to clipboard.' },
+    { color: 'ac',   icon: 'M13 10V3L4 14h7v7l9-11h-7z', title: 'Reviews: Citation Suggestions Panel', desc: 'A new "Suggestions" tab in the Review middle panel. Select a theme and Enzo analyses your draft to identify claims needing citations, generates PubMed search queries for each, and lets you search + add papers to corpus or pin to Research.' },
+    { color: 'pu',   icon: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z', title: 'Reviews: Per-theme Gap Analysis', desc: 'In the right-side theme editor, click "Gap analysis" next to the Enzo synthesis button. Enzo streams a structured list of 4–6 specific research gaps for the selected theme based on its outline and assigned papers.' },
+    { color: 'yw',   icon: 'M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4', title: 'Reviews: LaTeX Export', desc: 'Click "LaTeX" in the Review toolbar to export a complete .tex file with \\section{} per theme, auto-generated \\cite{} markers, and an appended references.bib block — ready for Overleaf or any LaTeX editor.' },
   ];
 
   const STEPS = [
@@ -53,10 +69,10 @@
     { id: 'journal',       label: 'Journal',         color: 'enzo', icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253', desc: 'Daily research journal with mood tracking, context tags, and audio links.' },
     { id: 'tasks',         label: 'Tasks',           color: 'rd',   icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4', desc: 'Priority-ranked task list with due dates, note linking, and repeat options.' },
     { id: 'calendar',      label: 'Calendar',        color: 'yw',   icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z', desc: 'Calendar with iCal import and clock widget showing Heidelberg + Chennai time.' },
-    { id: 'research',      label: 'Research',        color: 'pu',   icon: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z', desc: 'Multi-source paper search, reading list with 3-state progress (unread → in-progress → done), paper collections/folders, Enzo paper compare, related papers via OpenAlex, DOI resolver, citation formatter, Deep Read with Enzo, Radar & Marker tabs.' },
+    { id: 'research',      label: 'Research',        color: 'pu',   icon: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z', desc: 'Multi-source paper search (PubMed, OpenAlex, Europe PMC, bioRxiv, Nature, Cell), reading list with 3-state progress, paper collections, Enzo compare, related papers via OpenAlex, DOI resolver, BibTeX import, per-paper inline notes, abstract keyword highlighting, citation formatter, Deep Read, Radar digest history, Saved searches tab, Markers, and Citation Network tabs.' },
     { id: 'pipeline',      label: 'Pipeline',        color: 'gn',   icon: 'M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v10a2 2 0 002 2h10a2 2 0 002-2V5M9 13H5a2 2 0 00-2 2v4a2 2 0 002 2h4a2 2 0 002-2v-4a2 2 0 00-2-2z', desc: 'Bioinformatics pipeline tracker, protocol library, and hypothesis log.' },
     { id: 'jobs',          label: 'Jobs & Career',   color: 'ac',   icon: 'M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', desc: 'Job tracker, CV builder, cover letter generator, contacts, salary data, interview prep.' },
-    { id: 'presentations', label: 'Presentations',   color: 'yw',   icon: 'M2 3h20v14H2zM8 21h8M12 17v4', desc: 'Slide editor with Enzo AI generation, custom present mode, and reveal.js HTML export.' },
+    { id: 'presentations', label: 'Presentations',   color: 'yw',   icon: 'M2 3h20v14H2zM8 21h8M12 17v4', desc: 'Slide editor with 4 Enzo generation modes (Standard, Journal Club, Lab Meeting, Grant Narrative), multi-source picker (Notes + Papers), 21 templates including 11 research-specific (Conference, Thesis, Grant, Journal Club, Lab Meeting, Methods, Results), Enzo-fill per template, source sidebar, citation strip, slide thumbnail strip, drag-to-reorder, present mode with timer, and reveal.js HTML export.' },
     { id: 'files',         label: 'Files',           color: 'gn',   icon: 'M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z', desc: 'Upload files, rename inline, create a note directly from PDF text, image gallery with lightbox, bulk select + move/delete, link external URLs, inline viewer for PDF/image/CSV/code.' },
     { id: 'manuscript',    label: 'Manuscript',      color: 'pu',   icon: 'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z', desc: 'Structured paper writing with section-by-section Enzo assistance and reading list citations.' },
     { id: 'grants',        label: 'Research Tracker', color: 'gn',  icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2', desc: 'Grant applications, conference abstract tracker, and peer review log.' },
@@ -100,6 +116,30 @@
       { key: 'Checkbox', desc: 'Select paper for Enzo compare (pick 2–3, then click Compare with Enzo)' },
       { key: '📁 select', desc: 'Assign paper to a named collection; filter list by clicking a collection pill' },
       { key: '🔍 magnifier', desc: 'Fetch citing papers from OpenAlex (requires DOI)' },
+      { key: '▼ Note toggle', desc: 'Expand/collapse inline notes per paper — blue dot = note exists' },
+    ]},
+    { group: 'Research — Toolbar', items: [
+      { key: 'BibTeX button', desc: 'Import multiple papers at once from a .bib file — paste and click Import' },
+      { key: 'Saved tab', desc: 'View, run, and manage your saved searches in one place' },
+    ]},
+    { group: 'Note Knowledge Graph', items: [
+      { key: 'Click node', desc: 'Enter focus mode — dim all nodes except the clicked node and its direct connections' },
+      { key: 'Dbl-click node', desc: 'Open the note for editing' },
+      { key: 'Select mode → checkboxes', desc: 'Multi-select nodes, then Synthesise to get an Enzo synthesis of selected notes' },
+      { key: 'Enzo Analyse', desc: 'One-click: cluster notes, draw semantic edges, list research gaps' },
+      { key: 'Tag color toggle', desc: 'Re-colour nodes by their first tag (deterministic colour hash per tag name)' },
+    ]},
+    { group: 'Presentations', items: [
+      { key: 'Generate → Presentation type', desc: 'Choose Standard / Journal Club / Lab Meeting / Grant Narrative before generating' },
+      { key: 'Generate → Sources', desc: 'Select notes and papers as context — Enzo uses them to fill slide content and source_refs' },
+      { key: 'Templates → E button', desc: 'Enzo-fill any template with content from your currently selected sources' },
+      { key: 'Sources (N) button', desc: 'Toggle source sidebar during editing — see note/paper content alongside your slides' },
+    ]},
+    { group: 'Reviews', items: [
+      { key: 'Suggestions tab', desc: 'Enzo analyses current theme text and suggests claims that need citations + PubMed queries' },
+      { key: 'Gap analysis button', desc: 'Next to Synthesize — streams 4–6 research gaps for the selected theme' },
+      { key: 'Bib button', desc: 'Export corpus bibliography in APA / Vancouver / BibTeX, copy or download' },
+      { key: 'LaTeX button', desc: 'Export full review as .tex file with sections, cites, and .bib appendix' },
     ]},
     { group: 'Files', items: [
       { key: 'Pencil icon (hover filename)', desc: 'Rename file inline — Enter to save, Esc to cancel' },
@@ -416,18 +456,221 @@
         <div class="section-wrap">
           <div class="section-head">
             <h2>Enzo guide</h2>
-            <p class="section-sub">A know-it-all super dog who has read every HGSOC paper</p>
+            <p class="section-sub">Everything Enzo can do — with click-by-click flows</p>
           </div>
 
           <div class="enzo-who card-inset">
             <div class="enzo-orb"></div>
             <div>
               <strong>Who is Enzo?</strong>
-              <p style="margin-top:4px;font-size:0.85rem;line-height:1.6;color:var(--tx2)">Enzo is a brilliant, opinionated research AI specialising in HGSOC, tumour microenvironment, scRNA-seq, spatial transcriptomics, and PARP inhibitor biology. She knows your journal entries, pinned papers, and active tasks — and uses all of it to give context-specific answers. She's good at pushing back when your hypothesis has gaps.</p>
+              <p style="margin-top:4px;font-size:0.85rem;line-height:1.6;color:var(--tx2)">Enzo is a brilliant, opinionated research AI specialising in HGSOC, tumour microenvironment, scRNA-seq, spatial transcriptomics, and PARP inhibitor biology. She runs on Llama 70B via Groq and knows your journal, pinned papers, and active tasks. She pushes back when your hypothesis has gaps.</p>
             </div>
           </div>
 
-          <h4 class="sub-heading">Special Enzo modes</h4>
+          <!-- ── Flow diagrams ── -->
+          <h4 class="sub-heading">Enzo in Notes</h4>
+          <div class="flow-grid">
+            <div class="flow-card">
+              <div class="flow-title">Summarise / Key Findings / Devil's Advocate</div>
+              <div class="flow-steps">
+                <div class="fs">1. Open any note</div>
+                <div class="fa">↓</div>
+                <div class="fs">2. Click <strong>Summarise</strong>, <strong>Key findings</strong>, or <strong>Devil's advocate</strong> in the toolbar</div>
+                <div class="fa">↓ streams via Llama 70B</div>
+                <div class="fs">3. Response appears below toolbar — click <strong>Insert</strong> to add to note</div>
+              </div>
+            </div>
+            <div class="flow-card">
+              <div class="flow-title">AI Inline Continuation</div>
+              <div class="flow-steps">
+                <div class="fs">1. Select any text in the editor</div>
+                <div class="fa">↓</div>
+                <div class="fs">2. Click <strong>Continue →</strong> in the bubble menu</div>
+                <div class="fa">↓ streams via Llama 8B</div>
+                <div class="fs">3. Text appended at cursor — click again to stop</div>
+              </div>
+            </div>
+            <div class="flow-card">
+              <div class="flow-title">Word-count Goal Bar</div>
+              <div class="flow-steps">
+                <div class="fs">1. In any note, click the <strong>pencil icon</strong> in the footer</div>
+                <div class="fa">↓</div>
+                <div class="fs">2. Type target word count → press Enter</div>
+                <div class="fa">↓</div>
+                <div class="fs">3. Progress bar: green ≥100%, blue ≥60%, yellow &lt;60%</div>
+              </div>
+            </div>
+          </div>
+
+          <h4 class="sub-heading">Enzo in Research</h4>
+          <div class="flow-grid">
+            <div class="flow-card">
+              <div class="flow-title">Paper Compare</div>
+              <div class="flow-steps">
+                <div class="fs">1. Go to Research → Reading List tab</div>
+                <div class="fa">↓</div>
+                <div class="fs">2. Check 2–3 paper checkboxes</div>
+                <div class="fa">↓</div>
+                <div class="fs">3. Click <strong>Compare with Enzo</strong> in the compare bar</div>
+                <div class="fa">↓ streams via Llama 70B</div>
+                <div class="fs">4. Markdown comparison table + synthesis paragraph appear</div>
+              </div>
+            </div>
+            <div class="flow-card">
+              <div class="flow-title">Deep Read</div>
+              <div class="flow-steps">
+                <div class="fs">1. Expand any paper in Results or Reading List</div>
+                <div class="fa">↓</div>
+                <div class="fs">2. Click <strong>Deep Read</strong></div>
+                <div class="fa">↓ streams via GPT-OSS 120B</div>
+                <div class="fs">3. 5 Socratic questions for critical engagement appear</div>
+              </div>
+            </div>
+            <div class="flow-card">
+              <div class="flow-title">Paper Critique</div>
+              <div class="flow-steps">
+                <div class="fs">1. Expand a paper</div>
+                <div class="fa">↓</div>
+                <div class="fs">2. Click <strong>Critique</strong></div>
+                <div class="fa">↓ streams via Llama 70B</div>
+                <div class="fs">3. Structured breakdown: question, methods, novelty, relevance, limitations</div>
+              </div>
+            </div>
+            <div class="flow-card">
+              <div class="flow-title">Radar Digest</div>
+              <div class="flow-steps">
+                <div class="fs">1. Go to Research → Radar tab</div>
+                <div class="fa">↓</div>
+                <div class="fs">2. Click <strong>Scan PubMed</strong> — fetches new papers across your terms</div>
+                <div class="fa">↓</div>
+                <div class="fs">3. Click <strong>Summarise new papers</strong></div>
+                <div class="fa">↓ streams via Llama 70B</div>
+                <div class="fs">4. Digest saved to History — browse past scans with timestamps</div>
+              </div>
+            </div>
+            <div class="flow-card">
+              <div class="flow-title">Marker Lookup</div>
+              <div class="flow-steps">
+                <div class="fs">1. Go to Research → Markers tab</div>
+                <div class="fa">↓</div>
+                <div class="fs">2. Type a gene symbol (e.g. FOLR1, CD8A, FOXP3)</div>
+                <div class="fa">↓</div>
+                <div class="fs">3. Click <strong>Ask Enzo</strong></div>
+                <div class="fa">↓ streams via Llama 70B</div>
+                <div class="fs">4. HGSOC-specific cell-type expression, pathway role, and clinical relevance</div>
+              </div>
+            </div>
+          </div>
+
+          <h4 class="sub-heading">Enzo in Note Knowledge Graph</h4>
+          <div class="flow-grid">
+            <div class="flow-card">
+              <div class="flow-title">Graph Analysis (Clusters + Semantic Edges + Gaps)</div>
+              <div class="flow-steps">
+                <div class="fs">1. Open Notes → click <strong>Graph</strong> button in header</div>
+                <div class="fa">↓</div>
+                <div class="fs">2. Click <strong>Enzo Analyse</strong> in the graph toolbar</div>
+                <div class="fa">↓ Llama 70B receives all note titles + tags + snippets</div>
+                <div class="fs">3. Graph re-renders: cluster labels appear, dashed orange edges connect semantically related notes</div>
+                <div class="fa">↓</div>
+                <div class="fs">4. Click <strong>Gaps (N)</strong> to open the side panel — 3–5 research gap observations</div>
+              </div>
+            </div>
+            <div class="flow-card">
+              <div class="flow-title">Multi-note Synthesis</div>
+              <div class="flow-steps">
+                <div class="fs">1. In the graph, click <strong>Select</strong></div>
+                <div class="fa">↓</div>
+                <div class="fs">2. Click nodes to select (white dot = selected)</div>
+                <div class="fa">↓</div>
+                <div class="fs">3. Click <strong>Synthesise</strong></div>
+                <div class="fa">↓ streams via Llama 70B</div>
+                <div class="fs">4. Synthesis paragraph appears in right side panel</div>
+              </div>
+            </div>
+          </div>
+
+          <h4 class="sub-heading">Enzo in Presentations</h4>
+          <div class="flow-grid">
+            <div class="flow-card">
+              <div class="flow-title">Generate Slide Deck (JSON Schema Mode)</div>
+              <div class="flow-steps">
+                <div class="fs">1. Open Presentations → select or create a presentation</div>
+                <div class="fa">↓</div>
+                <div class="fs">2. Click <strong>Generate [70B]</strong></div>
+                <div class="fa">↓</div>
+                <div class="fs">3. Choose presentation type: Standard / Journal Club / Lab Meeting / Grant Narrative</div>
+                <div class="fa">↓</div>
+                <div class="fs">4. Select sources: check Notes and/or Papers tabs</div>
+                <div class="fa">↓</div>
+                <div class="fs">5. Set slide count → click <strong>Generate</strong></div>
+                <div class="fa">↓ Llama 70B returns JSON: {'{'}title, bullets[], speaker_notes, source_refs[]{'}'}</div>
+                <div class="fs">6. Slides appear in editor — speaker notes pre-filled, citation strips at slide footers</div>
+              </div>
+            </div>
+            <div class="flow-card">
+              <div class="flow-title">Enzo Fill Template</div>
+              <div class="flow-steps">
+                <div class="fs">1. Select sources (Notes/Papers) in the Generate modal, then close</div>
+                <div class="fa">↓</div>
+                <div class="fs">2. Click <strong>Templates</strong> in the toolbar</div>
+                <div class="fa">↓</div>
+                <div class="fs">3. Click the orange <strong>E</strong> button next to any template</div>
+                <div class="fa">↓ Llama 70B fills placeholder brackets with real content</div>
+                <div class="fs">4. Filled slide inserted at current position</div>
+              </div>
+            </div>
+            <div class="flow-card">
+              <div class="flow-title">Enzo Improve Single Slide</div>
+              <div class="flow-steps">
+                <div class="fs">1. In slide editor, click the <strong>E</strong> button in the slide header</div>
+                <div class="fa">↓ Llama 70B rewrites slide for clarity and precision</div>
+                <div class="fs">2. Slide content replaced inline — undo with Ctrl+Z</div>
+              </div>
+            </div>
+          </div>
+
+          <h4 class="sub-heading">Enzo in Reviews</h4>
+          <div class="flow-grid">
+            <div class="flow-card">
+              <div class="flow-title">Theme Synthesis</div>
+              <div class="flow-steps">
+                <div class="fs">1. Open Reviews → select article → select a theme</div>
+                <div class="fa">↓</div>
+                <div class="fs">2. Add papers to the theme via the Corpus tab checkboxes</div>
+                <div class="fa">↓</div>
+                <div class="fs">3. Click <strong>Synthesize theme</strong> in the right panel</div>
+                <div class="fa">↓ streams via Llama 70B using papers + outline</div>
+                <div class="fs">4. Click <strong>Replace draft</strong> or <strong>Append to draft</strong></div>
+              </div>
+            </div>
+            <div class="flow-card">
+              <div class="flow-title">Gap Analysis (per theme)</div>
+              <div class="flow-steps">
+                <div class="fs">1. Select a theme with an outline and assigned papers</div>
+                <div class="fa">↓</div>
+                <div class="fs">2. Click <strong>Gap analysis</strong> next to the Synthesize button</div>
+                <div class="fa">↓ streams via Llama 70B</div>
+                <div class="fs">3. 4–6 specific gaps appear: missing methods, populations, mechanisms, evidence</div>
+              </div>
+            </div>
+            <div class="flow-card">
+              <div class="flow-title">Citation Suggestions</div>
+              <div class="flow-steps">
+                <div class="fs">1. Select a theme with draft content</div>
+                <div class="fa">↓</div>
+                <div class="fs">2. Click the <strong>Suggestions</strong> tab in the middle panel</div>
+                <div class="fa">↓ Llama 70B reads draft + existing corpus</div>
+                <div class="fs">3. Each suggestion shows: the claim, why it needs a citation, and a PubMed query</div>
+                <div class="fa">↓</div>
+                <div class="fs">4. Click <strong>Search PubMed</strong> → results appear inline</div>
+                <div class="fa">↓</div>
+                <div class="fs">5. Click <strong>+ Corpus</strong> to add to review, or <strong>Pin to Research</strong></div>
+              </div>
+            </div>
+          </div>
+
+          <h4 class="sub-heading">Enzo special modes</h4>
           <div class="enzo-modes">
             <div class="enzo-mode">
               <span class="em-badge badge-rd">Devil's Advocate</span>
@@ -435,11 +678,11 @@
             </div>
             <div class="enzo-mode">
               <span class="em-badge badge-pu">Paper Critique</span>
-              <p>Paste any abstract and get a structured breakdown: research question, methodology, novelty, HGSOC relevance, limitations.</p>
+              <p>Structured breakdown: research question, methodology, novelty, HGSOC relevance, limitations. Available on any paper in Research.</p>
             </div>
             <div class="enzo-mode">
               <span class="em-badge badge-gn">Deep Read</span>
-              <p>5 pointed Socratic questions to force critical engagement. Available on any paper in the Research section.</p>
+              <p>5 pointed Socratic questions to force critical engagement. Available on any paper via Deep Read button.</p>
             </div>
             <div class="enzo-mode">
               <span class="em-badge badge-yw">PI Report</span>

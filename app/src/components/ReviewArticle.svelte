@@ -2,7 +2,7 @@
   import { store } from '../lib/store.svelte';
   import { nanoid } from 'nanoid';
   import { searchPubMed } from '../lib/pubmed';
-  import { synthesizeReviewTheme } from '../lib/groq';
+  import { synthesizeReviewTheme, findMissingCitations, analyzeReviewGaps } from '../lib/groq';
   import RichEditor from './RichEditor.svelte';
   import type { ReviewArticle, ReviewTheme, ReviewPaper, ReviewArticleStatus, ReviewThemeStatus, PaperResult } from '../lib/types';
 
@@ -11,7 +11,7 @@
   // ── Selection state ────────────────────────────────────────────
   let selectedId      = $state<string | null>(null);
   let selectedThemeId = $state<string | null>(null);
-  let middleTab       = $state<'corpus' | 'themes'>('themes');
+  let middleTab       = $state<'corpus' | 'themes' | 'suggestions'>('themes');
   let themeMode       = $state<'outline' | 'draft'>('outline');
 
   // ── New article form ───────────────────────────────────────────
@@ -39,6 +39,27 @@
   let synthText      = $state('');
   let synthStreaming  = $state(false);
   let synthAbort     = $state<AbortController | null>(null);
+
+  // ── Gap analysis state ─────────────────────────────────────────
+  let gapText       = $state('');
+  let gapStreaming  = $state(false);
+  let gapAbort      = $state<AbortController | null>(null);
+  let gapThemeId    = $state<string | null>(null);
+
+  // ── Citation suggestions state ─────────────────────────────────
+  type CiteSuggestion = { claim: string; search_query: string; relevance_note: string; results?: PaperResult[] };
+  let suggestThemeId   = $state<string | null>(null);
+  let suggestions      = $state<CiteSuggestion[]>([]);
+  let suggestLoading   = $state(false);
+  let suggestError     = $state('');
+  let searchingSuggIdx = $state<number | null>(null);
+
+  // ── Bibliography state ─────────────────────────────────────────
+  let showBibModal  = $state(false);
+  let bibFormat     = $state<'apa' | 'vancouver' | 'bibtex'>('apa');
+
+  // ── LaTeX export ───────────────────────────────────────────────
+  // (no extra state needed — pure function)
 
   // ── Autosave ───────────────────────────────────────────────────
   let saveTimer: ReturnType<typeof setTimeout>;
@@ -238,6 +259,138 @@
     scheduleSave();
   }
 
+  // ── Gap analysis ───────────────────────────────────────────────
+  async function doGapAnalysis() {
+    if (!ra || !theme) return;
+    if (gapStreaming) { gapAbort?.abort(); gapStreaming = false; return; }
+    gapAbort = new AbortController();
+    gapText = ''; gapStreaming = true; gapThemeId = theme.id;
+    try {
+      await analyzeReviewGaps(
+        theme.title, theme.outline,
+        themeCorpus.map(p => ({ title: p.title, abstract: p.abstract })),
+        (chunk) => { gapText += chunk; },
+        gapAbort.signal
+      );
+    } catch { /* aborted */ }
+    gapStreaming = false;
+  }
+
+  // ── Citation suggestions ───────────────────────────────────────
+  async function doFindCitations() {
+    if (!ra || !theme) return;
+    suggestThemeId = theme.id;
+    suggestions = []; suggestLoading = true; suggestError = '';
+    try {
+      const result = await findMissingCitations(
+        theme.title, ra.scope,
+        theme.content || theme.outline,
+        themeCorpus.map(p => p.title)
+      );
+      suggestions = result.map(r => ({ ...r, results: [] }));
+      if (!suggestions.length) suggestError = 'No suggestions found for this theme.';
+    } catch {
+      suggestError = 'Suggestion fetch failed.';
+    }
+    suggestLoading = false;
+  }
+
+  async function searchSuggestion(idx: number, query: string) {
+    searchingSuggIdx = idx;
+    try {
+      const { searchPubMed } = await import('../lib/pubmed');
+      const papers = await searchPubMed(query, 6);
+      suggestions = suggestions.map((s, i) => i === idx ? { ...s, results: papers } : s);
+    } catch { /* ignore */ }
+    searchingSuggIdx = null;
+  }
+
+  function pinSuggestionToResearch(paper: PaperResult) {
+    store.pinPaper(paper);
+    showToast('Pinned to Research');
+  }
+
+  // ── Bibliography ───────────────────────────────────────────────
+  function buildBibliography(format: 'apa' | 'vancouver' | 'bibtex'): string {
+    if (!ra) return '';
+    return ra.corpus.map((p, i) => {
+      if (format === 'bibtex') {
+        const key = (p.authors.split(',')[0]?.trim().split(' ').pop() ?? 'Unknown') + p.year;
+        return `@article{${key},\n  author  = {${p.authors}},\n  title   = {${p.title}},\n  journal = {${p.journal}},\n  year    = {${p.year}},${p.doi ? '\n  doi     = {' + p.doi + '},' : ''}\n}`;
+      } else if (format === 'vancouver') {
+        return `${i + 1}. ${p.authors}. ${p.title}. ${p.journal}. ${p.year}${p.doi ? ';doi:' + p.doi : ''}.`;
+      } else {
+        // APA
+        return `${p.authors} (${p.year}). ${p.title}. *${p.journal}*. ${p.doi ? 'https://doi.org/' + p.doi : p.url || ''}`;
+      }
+    }).join(format === 'bibtex' ? '\n\n' : '\n');
+  }
+
+  async function exportBibliography() {
+    const text = buildBibliography(bibFormat);
+    const ext = bibFormat === 'bibtex' ? '.bib' : '.txt';
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), {
+      href: url,
+      download: `${ra!.title.replace(/\s+/g, '-').slice(0, 50)}${ext}`
+    });
+    a.click(); URL.revokeObjectURL(url);
+    showBibModal = false;
+    showToast('Bibliography exported');
+  }
+
+  // ── LaTeX export ───────────────────────────────────────────────
+  function exportLatex() {
+    if (!ra) return;
+    const bibtexEntries = ra.corpus.map(p => {
+      const key = (p.authors.split(',')[0]?.trim().split(' ').pop() ?? 'Unknown') + p.year;
+      return `@article{${key},\n  author  = {${p.authors}},\n  title   = {${p.title}},\n  journal = {${p.journal}},\n  year    = {${p.year}},${p.doi ? '\n  doi     = {' + p.doi + '},' : ''}\n}`;
+    }).join('\n\n');
+
+    const sections = ra.themes.map(t => {
+      const body = t.content
+        ? t.content.replace(/<[^>]+>/g, '').replace(/\[([^\]]+)\]/g, '\\cite{$1}').trim()
+        : `% TODO: write section content — outline:\n% ${t.outline.replace(/\n/g, '\n% ')}`;
+      return `\\section{${t.title.replace(/[&%$#_{}~^\\]/g, '\\$&')}}\n${body}`;
+    }).join('\n\n');
+
+    const tex = `\\documentclass[12pt]{article}
+\\usepackage{geometry}[margin=2.5cm]
+\\usepackage{hyperref}
+\\usepackage{natbib}
+
+\\title{${ra.title.replace(/[&%$#_{}~^\\]/g, '\\$&')}}
+\\author{[Author names]}
+\\date{\\today}
+
+\\begin{document}
+\\maketitle
+
+\\begin{abstract}
+${ra.scope.replace(/[&%$#_{}~^\\]/g, '\\$&') || '[Abstract goes here]'}
+\\end{abstract}
+
+${sections}
+
+\\bibliographystyle{vancouver}
+\\bibliography{references}
+
+\\end{document}
+
+%% ========== BIBLIOGRAPHY (references.bib) ==========
+${bibtexEntries}`;
+
+    const blob = new Blob([tex], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), {
+      href: url,
+      download: `${ra.title.replace(/\s+/g, '-').slice(0, 50)}.tex`
+    });
+    a.click(); URL.revokeObjectURL(url);
+    showToast('LaTeX file exported');
+  }
+
   // ── Example data ───────────────────────────────────────────────
   function loadExamples() {
     const ex: ReviewArticle[] = [
@@ -408,6 +561,19 @@
         <button class="ra-tab" class:ra-tab-active={middleTab === 'corpus'} onclick={() => middleTab = 'corpus'}>
           Corpus <span class="tab-badge">{ra.corpus.length}</span>
         </button>
+        <button class="ra-tab" class:ra-tab-active={middleTab === 'suggestions'} onclick={() => { middleTab = 'suggestions'; if (theme && suggestThemeId !== theme.id) doFindCitations(); }}>
+          Suggestions
+        </button>
+        <div class="ra-mid-actions">
+          <button class="btn btn-ghost btn-sm" onclick={() => showBibModal = true} title="Export bibliography">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 2h16a2 2 0 012 2v16a2 2 0 01-2 2H4a2 2 0 01-2-2V4a2 2 0 012-2z"/><path d="M7 8h10M7 12h10M7 16h6"/></svg>
+            Bib
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick={exportLatex} title="Export LaTeX (.tex)">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            LaTeX
+          </button>
+        </div>
       </div>
 
       <!-- Themes tab -->
@@ -453,6 +619,61 @@
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               Add theme
             </button>
+          {/if}
+        </div>
+
+      <!-- Suggestions tab -->
+      {:else if middleTab === 'suggestions'}
+        <div class="ra-mid-body">
+          {#if !theme}
+            <p class="ra-tab-empty">Select a theme to get citation suggestions.</p>
+          {:else if suggestLoading}
+            <div class="suggest-loading">
+              <span class="spinner-xs"></span>
+              <p class="text-xs text-mu">Enzo is analysing your theme…</p>
+            </div>
+          {:else if suggestError}
+            <p class="ra-tab-empty">{suggestError}</p>
+          {:else if suggestions.length === 0}
+            <div class="suggest-empty">
+              <p class="text-xs text-mu">Select a theme and click "Find citations" to get Enzo's suggestions.</p>
+              <button class="btn btn-primary btn-sm" onclick={doFindCitations}>Find citations for "{theme.title}"</button>
+            </div>
+          {:else}
+            <div class="suggest-header">
+              <p class="text-xs text-mu">Enzo found {suggestions.length} claims that may need citations in <em>{theme.title}</em></p>
+              <button class="btn btn-ghost btn-sm" onclick={doFindCitations}>Refresh</button>
+            </div>
+            {#each suggestions as s, idx}
+              <div class="suggest-item card">
+                <div class="suggest-claim">"{s.claim}"</div>
+                <p class="text-xs text-mu suggest-note">{s.relevance_note}</p>
+                <div class="suggest-search-row">
+                  <span class="suggest-query text-xs">{s.search_query}</span>
+                  <button class="btn btn-ghost btn-xs" onclick={() => searchSuggestion(idx, s.search_query)} disabled={searchingSuggIdx === idx}>
+                    {searchingSuggIdx === idx ? '…' : 'Search PubMed'}
+                  </button>
+                </div>
+                {#if s.results && s.results.length > 0}
+                  <div class="suggest-results">
+                    {#each s.results as p}
+                      <div class="suggest-result-item">
+                        <div class="sri-title">{p.title}</div>
+                        <div class="sri-meta">{p.authors[0] ?? ''}{p.authors.length > 1 ? ' et al.' : ''} · {p.journal} · {p.year}</div>
+                        <div class="suggest-result-actions">
+                          <button class="btn btn-ghost btn-xs" onclick={() => addToCorpus(p)} disabled={ra.corpus.some(c => c.id === p.id)}>
+                            {ra.corpus.some(c => c.id === p.id) ? 'In corpus' : '+ Corpus'}
+                          </button>
+                          <button class="btn btn-ghost btn-xs" onclick={() => pinSuggestionToResearch(p)}>
+                            Pin to Research
+                          </button>
+                        </div>
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
+            {/each}
           {/if}
         </div>
 
@@ -637,7 +858,17 @@
             >
               {#if synthStreaming}Stop{:else}{synthText ? 'Re-synthesize' : 'Synthesize theme'}<span class="model-pill">[70B]</span>{/if}
             </button>
+            <button class="btn btn-ghost btn-sm" onclick={doGapAnalysis} title="Enzo: identify research gaps in this theme">
+              {#if gapStreaming && gapThemeId === theme.id}Stop gap analysis{:else}Gap analysis{/if}
+            </button>
           </div>
+          {#if gapText && gapThemeId === theme.id}
+            <div class="gap-analysis-box">
+              <div class="gap-analysis-label text-xs">Research gaps</div>
+              <p class="text-sm gap-analysis-text">{gapText}{#if gapStreaming}<span class="synth-cursor">▌</span>{/if}</p>
+              {#if !gapStreaming}<button class="btn btn-ghost btn-xs" onclick={() => { gapText = ''; gapThemeId = null; }}>Dismiss</button>{/if}
+            </div>
+          {/if}
           {#if synthText || synthStreaming}
             <div class="synth-output" class:synth-streaming={synthStreaming}>
               {synthText}{#if synthStreaming}<span class="synth-cursor">▌</span>{/if}
@@ -702,6 +933,37 @@
     <div class="modal-actions">
       <button class="btn btn-primary" onclick={createArticle} disabled={!newTitle.trim()}>Create</button>
       <button class="btn btn-ghost" onclick={() => newOpen = false}>Cancel</button>
+    </div>
+  </div>
+{/if}
+
+<!-- Bibliography modal -->
+{#if showBibModal && ra}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="modal-overlay" onclick={() => showBibModal = false}></div>
+  <div class="bib-modal card">
+    <h3>Export Bibliography</h3>
+    <p class="text-xs text-mu">{ra.corpus.length} papers in corpus</p>
+    <div class="bib-format-row">
+      {#each (['apa', 'vancouver', 'bibtex'] as const) as fmt}
+        <button class="bib-fmt-btn" class:active={bibFormat === fmt} onclick={() => bibFormat = fmt}>
+          {fmt === 'apa' ? 'APA' : fmt === 'vancouver' ? 'Vancouver' : 'BibTeX'}
+        </button>
+      {/each}
+    </div>
+    <div class="bib-preview">
+      {#each ra.corpus.slice(0, 3) as p, i}
+        <p class="bib-preview-entry text-xs">{buildBibliography(bibFormat).split(bibFormat === 'bibtex' ? '\n\n' : '\n')[i] ?? ''}</p>
+      {/each}
+      {#if ra.corpus.length > 3}
+        <p class="text-xs text-mu">…and {ra.corpus.length - 3} more</p>
+      {/if}
+    </div>
+    <div class="bib-actions">
+      <button class="btn btn-ghost" onclick={() => showBibModal = false}>Cancel</button>
+      <button class="btn btn-ghost" onclick={() => { navigator.clipboard.writeText(buildBibliography(bibFormat)); showToast('Copied to clipboard'); showBibModal = false; }}>Copy</button>
+      <button class="btn btn-primary" onclick={exportBibliography}>Export file</button>
     </div>
   </div>
 {/if}
@@ -1581,4 +1843,48 @@
     .ra-sidebar { display: none; }
     .ra-middle { border-right: none; max-height: 240px; }
   }
+
+  /* ── Mid tab actions ──────────────────────────────────── */
+  .ra-mid-tabs { flex-wrap: wrap; gap: 2px; }
+  .ra-mid-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+
+  /* ── Gap analysis ─────────────────────────────────────── */
+  .gap-analysis-box {
+    margin-top: 8px; padding: 10px 12px;
+    background: color-mix(in srgb, var(--gn) 8%, var(--sf));
+    border: 1px solid color-mix(in srgb, var(--gn) 30%, var(--bd));
+    border-radius: var(--radius-sm);
+  }
+  .gap-analysis-label { font-weight: 700; color: var(--gn); margin-bottom: 4px; }
+  .gap-analysis-text { white-space: pre-wrap; line-height: 1.7; color: var(--tx); margin: 0; }
+
+  /* ── Suggestions panel ────────────────────────────────── */
+  .suggest-loading { display: flex; align-items: center; gap: 8px; padding: 20px; }
+  .suggest-empty { display: flex; flex-direction: column; gap: 8px; padding: 16px; align-items: flex-start; }
+  .suggest-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; }
+  .suggest-item { display: flex; flex-direction: column; gap: 6px; }
+  .suggest-claim { font-size: 0.82rem; font-style: italic; color: var(--tx); }
+  .suggest-note { color: var(--mu); }
+  .suggest-search-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .suggest-query { color: var(--ac); font-family: var(--mono); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .suggest-results { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding: 8px; background: var(--sf2); border-radius: 5px; }
+  .suggest-result-item { display: flex; flex-direction: column; gap: 2px; padding-bottom: 6px; border-bottom: 1px solid var(--bd); }
+  .suggest-result-item:last-child { border-bottom: none; padding-bottom: 0; }
+  .suggest-result-actions { display: flex; gap: 4px; margin-top: 3px; }
+
+  /* ── Bibliography modal ───────────────────────────────── */
+  .modal-overlay { position: fixed; inset: 0; z-index: 8999; background: rgba(0,0,0,0.45); }
+  .bib-modal {
+    position: fixed; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 9000; width: min(500px, 90vw);
+    padding: 24px; display: flex; flex-direction: column; gap: 14px;
+  }
+  .bib-modal h3 { margin: 0; font-size: 1rem; }
+  .bib-format-row { display: flex; gap: 6px; }
+  .bib-fmt-btn { padding: 4px 12px; border-radius: var(--radius-sm); border: 1px solid var(--bd); background: transparent; color: var(--tx2); cursor: pointer; font-size: 0.8rem; }
+  .bib-fmt-btn.active { background: var(--ac-bg); border-color: var(--ac); color: var(--ac); }
+  .bib-preview { max-height: 180px; overflow-y: auto; background: var(--sf2); border-radius: 5px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .bib-preview-entry { font-family: var(--mono); word-break: break-word; line-height: 1.5; margin: 0; }
+  .bib-actions { display: flex; gap: 8px; justify-content: flex-end; }
 </style>
