@@ -4,13 +4,14 @@ import type {
   ReadingListItem, SavedSearch, PipelineRun, Protocol,
   SavedJob, ResearcherProfile, Hypothesis,
   CvProfile, CoverLetter, JobContact, JobEmailTemplate, SalaryEntry, JobDeadline,
-  Presentation, FileRecord,
+  Presentation, FileRecord, FileVersion,
   Grant, ConferenceAbstract, PeerReview, Manuscript,
   MailContact, MailSent, MailDraft, MailComposeDraft,
   ReviewArticle, PaperCollection
 } from './types';
 import { loadEncFile, saveEncFile, PATHS, validateToken } from './github';
 import { WORKER_URL } from './groq';
+import { idbGet, idbSet } from './idb';
 
 type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs' | 'presentations' | 'files' | 'grants' | 'manuscript' | 'review' | 'mail';
 
@@ -220,6 +221,11 @@ class Store {
   async loadAll(): Promise<void> {
     if (!this.tok) return;
     this.loadingMsg = 'Decrypting your research...';
+    // F2: show previously cached files immediately while GitHub fetches run
+    if (this.filesSha) {
+      const cached = await idbGet<FileRecord[]>(`files:${this.filesSha}`);
+      if (cached) this.files = cached;
+    }
 
     const [n, j, t, c, a, pp, s, res, pip, jb, jbx, cv, cl, prf, pres, fi, gr, conf, pr, ms, rv] = await Promise.all([
       loadEncFile<Note[]>(this.tok, PATHS.notes, []),
@@ -276,7 +282,13 @@ class Store {
     this.coverLetters = cl.data; this.coverLettersSha = cl.sha;
     this.profile = { ...DEFAULT_PROFILE, ...prf.data }; this.profileSha = prf.sha;
     this.presentations = pres.data; this.presentationsSha = pres.sha;
-    this.files = fi.data; this.filesSha = fi.sha;
+    // F1: strip legacy base64 blobs — r2Key is source of truth
+    this.files = (fi.data as FileRecord[]).map(f =>
+      f.r2Key ? (({ data: _, ...rest }) => rest as FileRecord)(f) : f
+    );
+    this.filesSha = fi.sha;
+    // F2: persist to IDB for instant display on next session
+    if (fi.sha) idbSet(`files:${fi.sha}`, this.files).catch(() => {});
     this.grants = gr.data; this.grantsSha = gr.sha;
     this.conferences = conf.data; this.conferencesSha = conf.sha;
     this.peerReviews = pr.data; this.peerReviewsSha = pr.sha;

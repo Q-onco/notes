@@ -42,6 +42,29 @@
   let lightboxIdx    = $state(0);
   let lightboxOpen   = $state(false);
 
+  // ── F4a sort ──────────────────────────────────────────────────
+  let sortBy        = $state<'date'|'name'|'size'|'type'>('date');
+  // ── F4c star filter ───────────────────────────────────────────
+  let starredOnly   = $state(false);
+  // ── F4f hover preview ─────────────────────────────────────────
+  let hoverFileId   = $state<string|null>(null);
+  let hoverTimer: ReturnType<typeof setTimeout> | null = null;
+  let hoverX        = $state(0);
+  let hoverY        = $state(0);
+  // ── F4i upload progress ───────────────────────────────────────
+  let uploadPct     = $state(0);
+  // ── F4l PDF template chooser ──────────────────────────────────
+  let showPdfTemplates = $state(false);
+  // ── F3 link panels ────────────────────────────────────────────
+  let linkPresOpen  = $state(false);
+  let linkPaperOpen = $state(false);
+  let linkJournalOpen = $state(false);
+  let linkTaskOpen  = $state(false);
+  let linkGrantOpen = $state(false);
+  let linkMsOpen    = $state(false);
+  // ── F4h version history ───────────────────────────────────────
+  let showVersions  = $state(false);
+
   const selectedFile = $derived(store.files.find(f => f.id === selectedId) ?? null);
   const allTags      = $derived([...new Set(store.files.flatMap(f => f.tags))].sort());
   const allFolders   = $derived([...new Set(store.files.map(f => f.folder).filter(Boolean) as string[])].sort());
@@ -54,10 +77,26 @@
         const matchQ = !q || f.name.toLowerCase().includes(q) || f.description.toLowerCase().includes(q) || f.tags.some(t => t.includes(q));
         const matchT = !activeTag || f.tags.includes(activeTag);
         const matchF = !activeFolder || f.folder === activeFolder;
-        return matchQ && matchT && matchF;
+        const matchS = !starredOnly || !!f.starred;
+        return matchQ && matchT && matchF && matchS;
       })
-      .sort((a, b) => b.createdAt - a.createdAt)
+      .sort((a, b) => {
+        switch (sortBy) {
+          case 'name': return a.name.localeCompare(b.name);
+          case 'size': return b.size - a.size;
+          case 'type': return a.mimeType.localeCompare(b.mimeType);
+          default:     return b.createdAt - a.createdAt;
+        }
+      })
   );
+
+  // F4k: track openedAt when a file is selected
+  $effect(() => {
+    if (!selectedFile) return;
+    selectedFile.openedAt = Date.now();
+    clearTimeout(descTimer);
+    descTimer = setTimeout(() => store.saveFiles(), 2000);
+  });
 
   // ── Upload ────────────────────────────────────────────────────
   function triggerUpload() { fileInput?.click(); }
@@ -92,16 +131,9 @@
         let r2Key: string | undefined;
         let b64: string | undefined;
 
-        // Try R2 upload first; fall back to base64 only if the endpoint is absent.
+        // Try R2 upload first (XHR for progress); fall back to base64 only if the endpoint is absent.
         try {
-          const fd = new FormData();
-          fd.append('file', file, file.name);
-          fd.append('prefix', 'files');
-          const res = await fetch(`${workerBase}/upload`, { method: 'POST', body: fd });
-          if (res.status === 404) throw new Error('no-r2');
-          if (!res.ok) throw new Error(`Upload failed (${res.status})`);
-          const data = await res.json() as { key: string };
-          r2Key = data.key;
+          r2Key = await uploadViaXhr(file);
         } catch (err) {
           if ((err as Error).message === 'no-r2') {
             // Worker has no R2 bucket — fall back to base64 for small files.
@@ -115,6 +147,7 @@
           }
         }
 
+        const now = Date.now();
         records.push({
           id: nanoid(),
           name: file.name,
@@ -126,9 +159,16 @@
           folder: activeFolder || undefined,
           linkedNoteIds: [],
           linkedRunIds: [],
+          linkedPresentationIds: [],
+          linkedPaperIds: [],
+          linkedJournalIds: [],
+          linkedTaskIds: [],
+          linkedGrantIds: [],
+          linkedManuscriptIds: [],
           description: '',
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
+          createdAt: now,
+          updatedAt: now,
+          versions: [{ uploadedAt: now, size: file.size }],
         });
       }
       if (records.length === 0) return;
@@ -527,6 +567,239 @@
   const CAT_LABELS: Record<string, string> = {
     pdf: 'PDF', image: 'Image', code: 'Code', data: 'Data', link: 'Link', other: 'File',
   };
+
+  // ── F4c star ───────────────────────────────────────────────────
+  function toggleStar(f: FileRecord) {
+    f.starred = !f.starred;
+    clearTimeout(descTimer);
+    descTimer = setTimeout(() => store.saveFiles(), 800);
+  }
+
+  // ── F4d folder color ───────────────────────────────────────────
+  const FOLDER_COLORS = ['#6c8ebf','#82b366','#d6b656','#cc4125','#9673a6','#23827f','#6c6c6c'];
+
+  function folderColorFor(folder: string): string {
+    return store.files.find(f => f.folder === folder && f.folderColor)?.folderColor ?? '';
+  }
+
+  let folderColorPickerOpen = $state('');
+
+  function setFolderColor(folder: string, color: string) {
+    store.files.forEach(f => { if (f.folder === folder) (f as FileRecord).folderColor = color || undefined; });
+    folderColorPickerOpen = '';
+    clearTimeout(descTimer);
+    descTimer = setTimeout(() => store.saveFiles(), 800);
+  }
+
+  // ── F4e usage summary ──────────────────────────────────────────
+  function usageSummary(f: FileRecord): string {
+    const parts: string[] = [];
+    if (f.linkedNoteIds.length) parts.push(`${f.linkedNoteIds.length}N`);
+    if (f.linkedRunIds.length) parts.push(`${f.linkedRunIds.length}R`);
+    if ((f.linkedPresentationIds ?? []).length) parts.push(`${f.linkedPresentationIds!.length}P`);
+    if ((f.linkedPaperIds ?? []).length) parts.push(`${f.linkedPaperIds!.length}Ref`);
+    if ((f.linkedTaskIds ?? []).length) parts.push(`${f.linkedTaskIds!.length}T`);
+    if ((f.linkedGrantIds ?? []).length) parts.push(`${f.linkedGrantIds!.length}G`);
+    if ((f.linkedManuscriptIds ?? []).length) parts.push(`${f.linkedManuscriptIds!.length}MS`);
+    return parts.join(' · ');
+  }
+
+  // ── F4f hover preview ──────────────────────────────────────────
+  function onHoverEnter(e: MouseEvent, f: FileRecord) {
+    if (hoverTimer) clearTimeout(hoverTimer);
+    hoverTimer = setTimeout(() => {
+      hoverFileId = f.id;
+      hoverX = Math.min(e.clientX + 16, window.innerWidth - 250);
+      hoverY = Math.max(10, e.clientY - 80);
+    }, 350);
+  }
+
+  function onHoverLeave() {
+    if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; }
+    hoverFileId = null;
+  }
+
+  const hoverFile = $derived(store.files.find(f => f.id === hoverFileId) ?? null);
+
+  // ── F4g duplicate ──────────────────────────────────────────────
+  async function duplicateFile(f: FileRecord) {
+    const ext = f.name.match(/(\.[^.]+)$/)?.[1] ?? '';
+    const base = f.name.slice(0, f.name.length - ext.length);
+    const dup: FileRecord = {
+      ...f,
+      id: nanoid(),
+      name: `${base} copy${ext}`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      openedAt: undefined,
+      versions: undefined,
+    };
+    store.files = [dup, ...store.files];
+    await store.saveFiles();
+    selectedId = dup.id;
+    showToast('File duplicated');
+  }
+
+  // ── F4i XHR upload with progress ──────────────────────────────
+  function uploadViaXhr(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const fd = new FormData();
+      fd.append('file', file, file.name);
+      fd.append('prefix', 'files');
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${store.workerBase}/upload`);
+      xhr.upload.onprogress = (ev) => {
+        if (ev.lengthComputable) uploadPct = Math.round((ev.loaded / ev.total) * 100);
+      };
+      xhr.onload = () => {
+        uploadPct = 0;
+        if (xhr.status === 404) { reject(new Error('no-r2')); return; }
+        if (xhr.status >= 400) { reject(new Error(`Upload failed (${xhr.status})`)); return; }
+        try { resolve((JSON.parse(xhr.responseText) as { key: string }).key); }
+        catch { reject(new Error('Invalid upload response')); }
+      };
+      xhr.onerror = () => { uploadPct = 0; reject(new Error('Network error')); };
+      xhr.send(fd);
+    });
+  }
+
+  // ── F4j paste-to-upload ────────────────────────────────────────
+  function onPaste(e: ClipboardEvent) {
+    const files = Array.from(e.clipboardData?.items ?? [])
+      .filter(i => i.type.startsWith('image/'))
+      .map(i => i.getAsFile())
+      .filter(Boolean) as File[];
+    if (!files.length) return;
+    e.preventDefault();
+    uploadFiles(files);
+  }
+
+  // ── F4l PDF templates ──────────────────────────────────────────
+  const PDF_TEMPLATES = [
+    {
+      id: 'paper' as const, label: 'Paper Notes', desc: 'Findings · Methods · HGSOC relevance',
+      scaffold: (title: string, text: string) =>
+        `# ${title}\n\n## Key Findings\n\n\n## Methods Summary\n\n\n## Relevance to HGSOC\n\n\n## Open Questions\n\n---\n\n### Extracted Text\n\n${text}`,
+    },
+    {
+      id: 'methods' as const, label: 'Methods Extraction', desc: 'Design · Techniques · Protocol steps',
+      scaffold: (title: string, text: string) =>
+        `# ${title} — Methods\n\n## Experimental Design\n\n\n## Techniques & Reagents\n\n\n## Protocol Steps\n\n---\n\n### Extracted Text\n\n${text}`,
+    },
+    {
+      id: 'data' as const, label: 'Data Log', desc: 'Dataset · Variables · QC · Analysis notes',
+      scaffold: (title: string, text: string) =>
+        `# ${title} — Data Log\n\n## Dataset Description\n\n\n## Variables\n\n\n## QC Metrics\n\n\n## Analysis Notes\n\n---\n\n### Extracted Text\n\n${text}`,
+    },
+  ];
+
+  async function createNoteFromPdfWithTemplate(templateId: 'paper' | 'methods' | 'data') {
+    if (!selectedFile || selectedFile.mimeType !== 'application/pdf' || !viewerUrl) return;
+    showPdfTemplates = false;
+    creatingNote = true;
+    try {
+      const text = await extractPdfText(viewerUrl);
+      const tmpl = PDF_TEMPLATES.find(t => t.id === templateId)!;
+      const title = selectedFile.name.replace(/\.pdf$/i, '');
+      const note: Note = {
+        id: nanoid(), title,
+        body: tmpl.scaffold(title, text),
+        tags: ['pdf', templateId], createdAt: Date.now(), updatedAt: Date.now(),
+        pinned: false, archived: false, audioIds: [],
+      };
+      store.notes = [note, ...store.notes];
+      selectedFile.linkedNoteIds = [...selectedFile.linkedNoteIds, note.id];
+      await Promise.all([store.saveNotes(), store.saveFiles()]);
+      showToast('Note created from PDF');
+      store.currentNoteId = note.id; store.view = 'notes';
+    } catch { showToast('Could not extract PDF text', 'error'); }
+    finally { creatingNote = false; }
+  }
+
+  // ── F3 cross-module linking ────────────────────────────────────
+  function linkPresentation(id: string) {
+    if (!selectedFile) return;
+    if (!(selectedFile.linkedPresentationIds ?? []).includes(id)) {
+      selectedFile.linkedPresentationIds = [...(selectedFile.linkedPresentationIds ?? []), id];
+      saveFile();
+    }
+    linkPresOpen = false;
+  }
+  function unlinkPresentation(id: string) {
+    if (!selectedFile) return;
+    selectedFile.linkedPresentationIds = (selectedFile.linkedPresentationIds ?? []).filter(x => x !== id);
+    saveFile();
+  }
+
+  function linkPaper(id: string) {
+    if (!selectedFile) return;
+    if (!(selectedFile.linkedPaperIds ?? []).includes(id)) {
+      selectedFile.linkedPaperIds = [...(selectedFile.linkedPaperIds ?? []), id];
+      saveFile();
+    }
+    linkPaperOpen = false;
+  }
+  function unlinkPaper(id: string) {
+    if (!selectedFile) return;
+    selectedFile.linkedPaperIds = (selectedFile.linkedPaperIds ?? []).filter(x => x !== id);
+    saveFile();
+  }
+
+  function linkJournalEntry(id: string) {
+    if (!selectedFile) return;
+    if (!(selectedFile.linkedJournalIds ?? []).includes(id)) {
+      selectedFile.linkedJournalIds = [...(selectedFile.linkedJournalIds ?? []), id];
+      saveFile();
+    }
+    linkJournalOpen = false;
+  }
+  function unlinkJournalEntry(id: string) {
+    if (!selectedFile) return;
+    selectedFile.linkedJournalIds = (selectedFile.linkedJournalIds ?? []).filter(x => x !== id);
+    saveFile();
+  }
+
+  function linkTask(id: string) {
+    if (!selectedFile) return;
+    if (!(selectedFile.linkedTaskIds ?? []).includes(id)) {
+      selectedFile.linkedTaskIds = [...(selectedFile.linkedTaskIds ?? []), id];
+      saveFile();
+    }
+    linkTaskOpen = false;
+  }
+  function unlinkTask(id: string) {
+    if (!selectedFile) return;
+    selectedFile.linkedTaskIds = (selectedFile.linkedTaskIds ?? []).filter(x => x !== id);
+    saveFile();
+  }
+
+  function linkGrant(id: string) {
+    if (!selectedFile) return;
+    if (!(selectedFile.linkedGrantIds ?? []).includes(id)) {
+      selectedFile.linkedGrantIds = [...(selectedFile.linkedGrantIds ?? []), id];
+      saveFile();
+    }
+    linkGrantOpen = false;
+  }
+  function unlinkGrant(id: string) {
+    if (!selectedFile) return;
+    selectedFile.linkedGrantIds = (selectedFile.linkedGrantIds ?? []).filter(x => x !== id);
+    saveFile();
+  }
+
+  function linkManuscript(id: string) {
+    if (!selectedFile) return;
+    if (!(selectedFile.linkedManuscriptIds ?? []).includes(id)) {
+      selectedFile.linkedManuscriptIds = [...(selectedFile.linkedManuscriptIds ?? []), id];
+      saveFile();
+    }
+    linkMsOpen = false;
+  }
+  function unlinkManuscript(id: string) {
+    if (!selectedFile) return;
+    selectedFile.linkedManuscriptIds = (selectedFile.linkedManuscriptIds ?? []).filter(x => x !== id);
+    saveFile();
+  }
 </script>
 
 <input type="file" multiple bind:this={fileInput} onchange={handleFiles} style="display:none" />
@@ -563,10 +836,30 @@
         All files
       </button>
       {#each allFolders as folder}
-        <button class="folder-pill" class:active={activeFolder === folder} onclick={() => activeFolder = folder}>
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
-          {folder}
-        </button>
+        {@const fColor = folderColorFor(folder)}
+        <div class="folder-pill-wrap">
+          <button class="folder-pill" class:active={activeFolder === folder} onclick={() => activeFolder = folder}>
+            {#if fColor}
+              <span class="folder-color-dot" style="background:{fColor}"></span>
+            {:else}
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+            {/if}
+            {folder}
+          </button>
+          <button class="folder-color-btn" onclick={(e) => { e.stopPropagation(); folderColorPickerOpen = folderColorPickerOpen === folder ? '' : folder; }} title="Set folder colour">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>
+          </button>
+          {#if folderColorPickerOpen === folder}
+            <div class="folder-color-picker">
+              {#each FOLDER_COLORS as c}
+                <button class="fcp-dot" style="background:{c}" class:selected={fColor===c} onclick={() => setFolderColor(folder, c)} title={c}></button>
+              {/each}
+              {#if fColor}
+                <button class="fcp-clear" onclick={() => setFolderColor(folder, '')}>✕</button>
+              {/if}
+            </div>
+          {/if}
+        </div>
       {/each}
     </div>
 
@@ -598,6 +891,7 @@
     ondragover={onDragOver}
     ondragleave={onDragLeave}
     ondrop={onDrop}
+    onpaste={onPaste}
     class:drag-active={dragOver}
   >
     {#if dragOver}
@@ -609,7 +903,7 @@
 
     <!-- Top bar -->
     <div class="files-topbar">
-      <input type="search" bind:value={search} placeholder="Search files…" class="files-search" />
+      <input type="search" bind:value={search} placeholder="Search files… (or Ctrl+V to paste image)" class="files-search" />
       <div class="files-topbar-right">
         <button class="btn-icon" class:active={viewMode==='list' && !galleryMode} onclick={() => { viewMode='list'; galleryMode=false; }} title="List view">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
@@ -633,6 +927,31 @@
         </div>
       </div>
     </div>
+
+    <!-- F4a Sort / filter bar -->
+    <div class="sort-bar">
+      <div class="sort-chips">
+        <span class="sort-label">Sort:</span>
+        {#each (['date','name','size','type'] as const) as s}
+          <button class="sort-chip" class:active={sortBy === s} onclick={() => sortBy = s}>
+            {s === 'date' ? 'Date' : s === 'name' ? 'Name' : s === 'size' ? 'Size' : 'Type'}
+          </button>
+        {/each}
+      </div>
+      <button class="star-filter-btn" class:active={starredOnly} onclick={() => starredOnly = !starredOnly} title="Show starred only">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill={starredOnly ? 'var(--yw)' : 'none'} stroke={starredOnly ? 'var(--yw)' : 'currentColor'} stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        <span class="sort-label">Starred</span>
+      </button>
+      <span class="file-count-badge text-xs text-mu">{filtered.length} file{filtered.length !== 1 ? 's' : ''}</span>
+    </div>
+
+    <!-- F4i Upload progress -->
+    {#if uploading && uploadPct > 0}
+      <div class="upload-progress-bar">
+        <div class="upload-progress-fill" style="width:{uploadPct}%"></div>
+        <span class="upload-progress-label text-xs">{uploadPct}%</span>
+      </div>
+    {/if}
 
     <!-- Bulk action bar -->
     {#if bulkMode && bulkSelected.size > 0}
@@ -682,6 +1001,26 @@
       </div>
     {/if}
 
+    <!-- F4f Hover quick-look preview -->
+    {#if hoverFile}
+      {@const hc = hoverFile.url ? 'link' : fileCategory(hoverFile.mimeType)}
+      <div class="hover-preview" style="left:{hoverX}px;top:{hoverY}px">
+        {#if hc === 'image' && (hoverFile.r2Key || hoverFile.url || hoverFile.data)}
+          <img class="hover-preview-img" src={getFileSrc(hoverFile)} alt={hoverFile.name} loading="lazy" />
+        {:else}
+          <div class="hover-preview-icon" style="color:{CAT_COLORS[hc]}">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </div>
+        {/if}
+        <div class="hover-preview-body">
+          <p class="hover-preview-name">{hoverFile.name}</p>
+          <p class="hover-preview-meta text-xs text-mu">{CAT_LABELS[hc]} · {fmtSize(hoverFile.size)}</p>
+          {#if hoverFile.description}<p class="hover-preview-desc text-xs text-mu">{hoverFile.description}</p>{/if}
+          {#if usageSummary(hoverFile)}<p class="hover-preview-usage text-xs" style="color:var(--ac)">{usageSummary(hoverFile)}</p>{/if}
+        </div>
+      </div>
+    {/if}
+
     <!-- Lightbox overlay -->
     {#if lightboxOpen && imageFiles.length > 0}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -705,18 +1044,24 @@
       <div class="files-{viewMode}">
         {#each filtered as f (f.id)}
           {@const cat = f.url ? 'link' : fileCategory(f.mimeType)}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="file-item file-{viewMode}-item"
             class:selected={selectedId === f.id}
             onclick={() => { if (bulkMode) { toggleBulk(f.id); } else { selectedId = selectedId === f.id ? null : f.id; } }}
+            onmouseenter={(e) => onHoverEnter(e, f)}
+            onmouseleave={onHoverLeave}
           >
             {#if bulkMode}
               <input type="checkbox" class="bulk-cb" checked={bulkSelected.has(f.id)}
                 onclick={(e) => e.stopPropagation()}
                 onchange={() => toggleBulk(f.id)} />
             {/if}
+            <!-- F4b image thumbnail / icon -->
             <div class="file-icon" style="color:{CAT_COLORS[cat]}">
-              {#if cat === 'pdf'}
+              {#if cat === 'image' && (f.r2Key || f.url || f.data)}
+                <img class="file-thumb" src={getFileSrc(f)} alt={f.name} loading="lazy" />
+              {:else if cat === 'pdf'}
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
               {:else if cat === 'image'}
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
@@ -734,21 +1079,27 @@
               <span class="file-name">{f.name}</span>
               <span class="file-meta text-xs text-mu">
                 {CAT_LABELS[cat]} · {fmtSize(f.size)} · {fmtDate(f.createdAt)}
-                {#if f.folder}<span class="folder-badge">{f.folder}</span>{/if}
+                {#if f.folder}<span class="folder-badge" style={folderColorFor(f.folder) ? `border-left:3px solid ${folderColorFor(f.folder)};padding-left:4px` : ''}>{f.folder}</span>{/if}
               </span>
               {#if f.tags.length > 0}
                 <div class="file-tags">
                   {#each f.tags as tag}<span class="file-tag">{tag}</span>{/each}
                 </div>
               {/if}
-              {#if f.linkedNoteIds.length > 0}
-                <span class="file-link-badge">
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                  {f.linkedNoteIds.length} note{f.linkedNoteIds.length > 1 ? 's' : ''}
-                </span>
+              <!-- F4e usage summary -->
+              {#if usageSummary(f)}
+                <span class="file-usage-badge text-xs text-mu">{usageSummary(f)}</span>
               {/if}
             </div>
             <div class="file-actions">
+              <!-- F4c star -->
+              <button class="btn-icon file-action star-btn" class:starred={f.starred} onclick={(e) => { e.stopPropagation(); toggleStar(f); }} title={f.starred ? 'Unstar' : 'Star'}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill={f.starred ? 'var(--yw)' : 'none'} stroke={f.starred ? 'var(--yw)' : 'currentColor'} stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              </button>
+              <!-- F4g duplicate -->
+              <button class="btn-icon file-action" onclick={(e) => { e.stopPropagation(); duplicateFile(f); }} title="Duplicate">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+              </button>
               <button class="btn-icon file-action" onclick={(e) => { e.stopPropagation(); downloadFile(f); }} title="Download">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               </button>
@@ -795,14 +1146,30 @@
                   Enzo
                 {/if}
               </button>
-              <!-- Create note from PDF -->
+              <!-- F4l Create note from PDF with template -->
               {#if selectedFile.mimeType === 'application/pdf' && viewerUrl}
-                <button class="btn btn-ghost btn-sm" onclick={createNoteFromPdf} disabled={creatingNote} title="Create note from PDF text">
-                  {#if creatingNote}<span class="pdf-spin"></span> Creating…{:else}
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
-                    Note
+                <div class="pdf-note-wrap">
+                  <button class="btn btn-ghost btn-sm" onclick={() => showPdfTemplates = !showPdfTemplates} disabled={creatingNote} title="Create note from PDF text">
+                    {#if creatingNote}<span class="pdf-spin"></span> Creating…{:else}
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+                      Note ▾
+                    {/if}
+                  </button>
+                  {#if showPdfTemplates}
+                    <!-- svelte-ignore a11y_no_static_element_interactions -->
+                    <!-- svelte-ignore a11y_click_events_have_key_events -->
+                    <div class="pdf-tpl-backdrop" onclick={() => showPdfTemplates = false}></div>
+                    <div class="pdf-tpl-popover">
+                      <p class="share-label">Choose template</p>
+                      {#each PDF_TEMPLATES as tmpl}
+                        <button class="pdf-tpl-btn" onclick={() => createNoteFromPdfWithTemplate(tmpl.id)}>
+                          <span class="pdf-tpl-label">{tmpl.label}</span>
+                          <span class="pdf-tpl-desc text-xs text-mu">{tmpl.desc}</span>
+                        </button>
+                      {/each}
+                    </div>
                   {/if}
-                </button>
+                </div>
               {/if}
               <!-- Share button (R2 files only) -->
               {#if selectedFile.r2Key && store.workerBase}
@@ -993,6 +1360,198 @@
                   {/if}
                 {/each}
               </div>
+
+              <!-- F3 Linked presentations -->
+              <div class="meta-section">
+                <div class="meta-label-row">
+                  <label class="meta-label">Linked presentations</label>
+                  <button class="btn-link text-xs" onclick={() => { linkPresOpen = !linkPresOpen; }}>+ Link</button>
+                </div>
+                {#if linkPresOpen}
+                  <select class="meta-select" onchange={(e) => { linkPresentation((e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; }}>
+                    <option value="">Select presentation…</option>
+                    {#each store.presentations.filter(p => !(selectedFile!.linkedPresentationIds ?? []).includes(p.id)) as p}
+                      <option value={p.id}>{p.title}</option>
+                    {/each}
+                  </select>
+                {/if}
+                {#each (selectedFile.linkedPresentationIds ?? []) as pid}
+                  {@const p = store.presentations.find(x => x.id === pid)}
+                  {#if p}
+                    <div class="linked-item">
+                      <span class="linked-title">{p.title}</span>
+                      <button class="btn-link text-xs" onclick={() => { store.view = 'presentations'; }}>Open</button>
+                      <button class="btn-icon link-remove" onclick={() => unlinkPresentation(pid)}>×</button>
+                    </div>
+                  {/if}
+                {/each}
+              </div>
+
+              <!-- F3 Linked papers -->
+              <div class="meta-section">
+                <div class="meta-label-row">
+                  <label class="meta-label">Linked papers</label>
+                  <button class="btn-link text-xs" onclick={() => { linkPaperOpen = !linkPaperOpen; }}>+ Link</button>
+                </div>
+                {#if linkPaperOpen}
+                  <select class="meta-select" onchange={(e) => { linkPaper((e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; }}>
+                    <option value="">Select paper…</option>
+                    {#each store.readingList.filter(r => !(selectedFile!.linkedPaperIds ?? []).includes(r.id)) as r}
+                      <option value={r.id}>{r.paper.title}</option>
+                    {/each}
+                  </select>
+                {/if}
+                {#each (selectedFile.linkedPaperIds ?? []) as rid}
+                  {@const r = store.readingList.find(x => x.id === rid)}
+                  {#if r}
+                    <div class="linked-item">
+                      <span class="linked-title">{r.paper.title}</span>
+                      <button class="btn-link text-xs" onclick={() => { store.view = 'research'; }}>Open</button>
+                      <button class="btn-icon link-remove" onclick={() => unlinkPaper(rid)}>×</button>
+                    </div>
+                  {/if}
+                {/each}
+              </div>
+
+              <!-- F3 Linked journal entries -->
+              <div class="meta-section">
+                <div class="meta-label-row">
+                  <label class="meta-label">Linked journal entries</label>
+                  <button class="btn-link text-xs" onclick={() => { linkJournalOpen = !linkJournalOpen; }}>+ Link</button>
+                </div>
+                {#if linkJournalOpen}
+                  <select class="meta-select" onchange={(e) => { linkJournalEntry((e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; }}>
+                    <option value="">Select entry…</option>
+                    {#each store.journal.filter(j => !(selectedFile!.linkedJournalIds ?? []).includes(j.id)) as j}
+                      <option value={j.id}>{j.contextTag || fmtDate(j.createdAt)}</option>
+                    {/each}
+                  </select>
+                {/if}
+                {#each (selectedFile.linkedJournalIds ?? []) as jid}
+                  {@const j = store.journal.find(x => x.id === jid)}
+                  {#if j}
+                    <div class="linked-item">
+                      <span class="linked-title">{j.contextTag || fmtDate(j.createdAt)}</span>
+                      <button class="btn-link text-xs" onclick={() => { store.selectedJournalId = jid; store.view = 'journal'; }}>Open</button>
+                      <button class="btn-icon link-remove" onclick={() => unlinkJournalEntry(jid)}>×</button>
+                    </div>
+                  {/if}
+                {/each}
+              </div>
+
+              <!-- F3 Linked tasks -->
+              <div class="meta-section">
+                <div class="meta-label-row">
+                  <label class="meta-label">Linked tasks</label>
+                  <button class="btn-link text-xs" onclick={() => { linkTaskOpen = !linkTaskOpen; }}>+ Link</button>
+                </div>
+                {#if linkTaskOpen}
+                  <select class="meta-select" onchange={(e) => { linkTask((e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; }}>
+                    <option value="">Select task…</option>
+                    {#each store.tasks.filter(t => !t.done && !(selectedFile!.linkedTaskIds ?? []).includes(t.id)) as t}
+                      <option value={t.id}>{t.text}</option>
+                    {/each}
+                  </select>
+                {/if}
+                {#each (selectedFile.linkedTaskIds ?? []) as tid}
+                  {@const t = store.tasks.find(x => x.id === tid)}
+                  {#if t}
+                    <div class="linked-item">
+                      <span class="linked-title" class:done-task={t.done}>{t.text}</span>
+                      <button class="btn-link text-xs" onclick={() => { store.view = 'tasks'; }}>Open</button>
+                      <button class="btn-icon link-remove" onclick={() => unlinkTask(tid)}>×</button>
+                    </div>
+                  {/if}
+                {/each}
+              </div>
+
+              <!-- F3 Linked grants -->
+              <div class="meta-section">
+                <div class="meta-label-row">
+                  <label class="meta-label">Linked grants</label>
+                  <button class="btn-link text-xs" onclick={() => { linkGrantOpen = !linkGrantOpen; }}>+ Link</button>
+                </div>
+                {#if linkGrantOpen}
+                  <select class="meta-select" onchange={(e) => { linkGrant((e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; }}>
+                    <option value="">Select grant…</option>
+                    {#each store.grants.filter(g => !(selectedFile!.linkedGrantIds ?? []).includes(g.id)) as g}
+                      <option value={g.id}>{g.title}</option>
+                    {/each}
+                  </select>
+                {/if}
+                {#each (selectedFile.linkedGrantIds ?? []) as gid}
+                  {@const g = store.grants.find(x => x.id === gid)}
+                  {#if g}
+                    <div class="linked-item">
+                      <span class="linked-title">{g.title}</span>
+                      <button class="btn-link text-xs" onclick={() => { store.view = 'grants'; }}>Open</button>
+                      <button class="btn-icon link-remove" onclick={() => unlinkGrant(gid)}>×</button>
+                    </div>
+                  {/if}
+                {/each}
+              </div>
+
+              <!-- F3 Linked manuscripts -->
+              <div class="meta-section">
+                <div class="meta-label-row">
+                  <label class="meta-label">Linked manuscripts</label>
+                  <button class="btn-link text-xs" onclick={() => { linkMsOpen = !linkMsOpen; }}>+ Link</button>
+                </div>
+                {#if linkMsOpen}
+                  <select class="meta-select" onchange={(e) => { linkManuscript((e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; }}>
+                    <option value="">Select manuscript…</option>
+                    {#each store.manuscripts.filter(m => !(selectedFile!.linkedManuscriptIds ?? []).includes(m.id)) as m}
+                      <option value={m.id}>{m.title}</option>
+                    {/each}
+                  </select>
+                {/if}
+                {#each (selectedFile.linkedManuscriptIds ?? []) as mid}
+                  {@const m = store.manuscripts.find(x => x.id === mid)}
+                  {#if m}
+                    <div class="linked-item">
+                      <span class="linked-title">{m.title}</span>
+                      <button class="btn-link text-xs" onclick={() => { store.view = 'manuscript'; }}>Open</button>
+                      <button class="btn-icon link-remove" onclick={() => unlinkManuscript(mid)}>×</button>
+                    </div>
+                  {/if}
+                {/each}
+              </div>
+
+              <!-- F4d Folder colour -->
+              {#if selectedFile.folder}
+                <div class="meta-section">
+                  <label class="meta-label">Folder colour</label>
+                  <div class="folder-color-row">
+                    {#each FOLDER_COLORS as c}
+                      <button class="fcp-dot" style="background:{c}" class:selected={folderColorFor(selectedFile.folder)===c} onclick={() => setFolderColor(selectedFile!.folder!, c)}></button>
+                    {/each}
+                    {#if folderColorFor(selectedFile.folder)}
+                      <button class="fcp-clear" onclick={() => setFolderColor(selectedFile!.folder!, '')}>✕</button>
+                    {/if}
+                  </div>
+                </div>
+              {/if}
+
+              <!-- F4h Version history -->
+              {#if selectedFile.versions && selectedFile.versions.length > 0}
+                <div class="meta-section">
+                  <div class="meta-label-row">
+                    <label class="meta-label">Version history</label>
+                    <button class="btn-link text-xs" onclick={() => showVersions = !showVersions}>{showVersions ? 'Hide' : 'Show'}</button>
+                  </div>
+                  {#if showVersions}
+                    <div class="version-list">
+                      {#each [...selectedFile.versions].reverse() as v, i}
+                        <div class="version-item">
+                          <span class="version-num text-xs text-mu">v{selectedFile.versions!.length - i}</span>
+                          <span class="version-date text-xs">{fmtDate(v.uploadedAt)}</span>
+                          <span class="version-size text-xs text-mu">{fmtSize(v.size)}</span>
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
             </div>
           {/if}
         </div>
@@ -1304,4 +1863,135 @@
   .lightbox-nav:disabled { opacity: 0.2; cursor: not-allowed; }
   .lightbox-prev { left: -48px; }
   .lightbox-next { right: -48px; }
+
+  /* ── F4a Sort bar ─────────────────────────────────────────────── */
+  .sort-bar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 5px 16px; background: var(--sf); border-bottom: 1px solid var(--bd);
+    flex-shrink: 0;
+  }
+  .sort-chips { display: flex; align-items: center; gap: 4px; }
+  .sort-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--mu); }
+  .sort-chip {
+    padding: 2px 9px; border-radius: 10px; font-size: 0.72rem; font-weight: 500;
+    border: 1px solid var(--bd); background: transparent; color: var(--tx2);
+    cursor: pointer; transition: all var(--transition);
+  }
+  .sort-chip:hover { border-color: var(--ac); color: var(--ac); }
+  .sort-chip.active { background: var(--ac-bg); border-color: var(--ac); color: var(--ac); font-weight: 700; }
+  .star-filter-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 9px; border-radius: 10px; font-size: 0.72rem; font-weight: 500;
+    border: 1px solid var(--bd); background: transparent; color: var(--tx2);
+    cursor: pointer; transition: all var(--transition);
+  }
+  .star-filter-btn:hover { border-color: var(--yw); color: var(--yw); }
+  .star-filter-btn.active { background: color-mix(in srgb, var(--yw) 12%, transparent); border-color: var(--yw); color: var(--yw); }
+  .file-count-badge { margin-left: auto; }
+
+  /* ── F4i Upload progress ──────────────────────────────────────── */
+  .upload-progress-bar {
+    height: 4px; background: var(--sf2); position: relative; flex-shrink: 0; overflow: hidden;
+  }
+  .upload-progress-fill {
+    height: 100%; background: var(--ac); transition: width 0.2s ease; border-radius: 2px;
+  }
+  .upload-progress-label {
+    position: absolute; right: 8px; top: -1px; font-size: 0.65rem; color: var(--ac);
+  }
+
+  /* ── F4b Image thumbnail ──────────────────────────────────────── */
+  .file-thumb {
+    width: 36px; height: 36px; object-fit: cover; border-radius: 4px;
+    border: 1px solid var(--bd); display: block;
+  }
+  .file-grid-item .file-thumb { width: 80px; height: 60px; }
+
+  /* ── F4c Star button ──────────────────────────────────────────── */
+  .star-btn { opacity: 0; transition: opacity var(--transition); }
+  .file-list-item:hover .star-btn,
+  .file-grid-item:hover .star-btn,
+  .star-btn.starred { opacity: 1; }
+
+  /* ── F4d Folder colour picker ─────────────────────────────────── */
+  .folder-pill-wrap { position: relative; display: flex; align-items: center; gap: 2px; }
+  .folder-pill-wrap .folder-pill { flex: 1; }
+  .folder-color-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  .folder-color-btn {
+    opacity: 0; width: 16px; height: 16px; padding: 0;
+    border: none; background: none; cursor: pointer; color: var(--mu);
+    display: flex; align-items: center; justify-content: center; border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .folder-pill-wrap:hover .folder-color-btn { opacity: 1; }
+  .folder-color-btn:hover { background: var(--sf2); color: var(--ac); }
+  .folder-color-picker {
+    position: absolute; left: 0; top: calc(100% + 4px); z-index: 50;
+    background: var(--sf); border: 1px solid var(--bd);
+    border-radius: var(--radius-sm); box-shadow: var(--shadow-lg);
+    padding: 6px; display: flex; gap: 4px; flex-wrap: wrap; width: 120px;
+  }
+  .fcp-dot {
+    width: 18px; height: 18px; border-radius: 50%; cursor: pointer;
+    border: 2px solid transparent; transition: border-color var(--transition);
+    flex-shrink: 0;
+  }
+  .fcp-dot:hover, .fcp-dot.selected { border-color: var(--tx); }
+  .fcp-clear {
+    font-size: 0.65rem; padding: 2px 5px; border-radius: 3px;
+    background: var(--sf2); border: 1px solid var(--bd); cursor: pointer; color: var(--mu);
+  }
+  .fcp-clear:hover { color: var(--rd); border-color: var(--rd); }
+  .folder-color-row { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+
+  /* ── F4e Usage summary ────────────────────────────────────────── */
+  .file-usage-badge { display: block; margin-top: 1px; font-size: 0.67rem; color: var(--mu); }
+
+  /* ── F4f Hover preview ────────────────────────────────────────── */
+  .hover-preview {
+    position: fixed; z-index: 300;
+    background: var(--sf); border: 1px solid var(--bd);
+    border-radius: var(--radius); box-shadow: var(--shadow-lg);
+    width: 220px; overflow: hidden;
+    pointer-events: none;
+    animation: hover-fade-in 0.12s ease;
+  }
+  @keyframes hover-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .hover-preview-img { width: 100%; height: 120px; object-fit: cover; display: block; }
+  .hover-preview-icon { display: flex; align-items: center; justify-content: center; height: 80px; background: var(--sf2); }
+  .hover-preview-body { padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
+  .hover-preview-name { font-size: 0.8rem; font-weight: 600; color: var(--tx); margin: 0; word-break: break-word; }
+  .hover-preview-meta { font-size: 0.7rem; }
+  .hover-preview-desc { font-size: 0.7rem; font-style: italic; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .hover-preview-usage { font-size: 0.7rem; }
+
+  /* ── F4h Version history ──────────────────────────────────────── */
+  .version-list { display: flex; flex-direction: column; gap: 3px; }
+  .version-item { display: grid; grid-template-columns: 2rem 1fr auto; gap: 6px; align-items: center; padding: 2px 0; }
+  .version-num { color: var(--ac); font-weight: 700; font-size: 0.68rem; }
+  .version-date { font-size: 0.75rem; }
+  .version-size { font-size: 0.7rem; }
+
+  /* ── F4l PDF template popover ─────────────────────────────────── */
+  .pdf-note-wrap { position: relative; }
+  .pdf-tpl-backdrop { position: fixed; inset: 0; z-index: 60; background: transparent; }
+  .pdf-tpl-popover {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 61;
+    background: var(--sf); border: 1px solid var(--bd);
+    border-radius: var(--radius); box-shadow: var(--shadow-lg);
+    padding: 10px; width: 240px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .pdf-tpl-btn {
+    display: flex; flex-direction: column; gap: 1px;
+    padding: 8px 10px; border-radius: var(--radius-sm);
+    background: transparent; border: 1px solid var(--bd);
+    cursor: pointer; text-align: left; transition: all var(--transition);
+  }
+  .pdf-tpl-btn:hover { background: var(--ac-bg); border-color: var(--ac); }
+  .pdf-tpl-label { font-size: 0.82rem; font-weight: 600; color: var(--tx); }
+  .pdf-tpl-desc { font-size: 0.68rem; line-height: 1.3; }
+
+  /* ── F3 linked cross-module ───────────────────────────────────── */
+  .done-task { text-decoration: line-through; opacity: 0.5; }
 </style>
