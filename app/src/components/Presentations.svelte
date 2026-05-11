@@ -2042,6 +2042,7 @@
   .slide-card {
     width: 100%;
     max-width: 800px;
+    flex-shrink: 0;
     background: var(--bg);
     border: 1px solid var(--bd);
     border-radius: var(--radius);
@@ -2160,7 +2161,7 @@
   .batch-notes-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
   /* Add slide zone */
-  .add-slide-zone { display: flex; justify-content: center; padding: 4px 0; width: 100%; max-width: 800px; }
+  .add-slide-zone { display: flex; justify-content: center; padding: 4px 0; width: 100%; max-width: 800px; flex-shrink: 0; }
   .add-slide-btn {
     display: flex;
     align-items: center;
