@@ -969,6 +969,34 @@ export async function synthesizeNotes(
   await streamGroq(MODELS.enzo, messages, onChunk, signal);
 }
 
+// ── Document brief (8b, single pass over full content) ────────
+// Used as a shared context header for every 70b chunk call so each
+// pass understands the paper's overall arc, not just its own section.
+async function generateDocumentBrief(
+  content: string,
+  onChunk: (chunk: string) => void,
+  signal?: AbortSignal
+): Promise<string> {
+  let full = '';
+  await streamGroq(
+    MODELS.quick,
+    [
+      {
+        role: 'system' as const,
+        content: 'You are a scientific document analyst. Read the provided source material and write a concise 150–200 word context brief covering: (1) main research question, (2) methodology, (3) key findings, (4) clinical or scientific implications. Plain prose, no bullet points, no headers. Precise domain-specific language.'
+      },
+      {
+        role: 'user' as const,
+        content: `Analyse this source material and write a 150–200 word context brief:\n\n${content.slice(0, 14_000)}`
+      }
+    ],
+    (chunk) => { full += chunk; onChunk(chunk); },
+    signal,
+    600
+  );
+  return full;
+}
+
 const SLIDE_MODE_INSTRUCTIONS: Record<string, string> = {
   standard: 'A clear scientific presentation suitable for a general academic audience.',
   journal_club: 'A journal club presentation: background, methods critique, key results, limitations, and implications. Be analytical.',
@@ -984,7 +1012,8 @@ export async function generateSlidesDeck(
   sources: { type: string; title: string; content: string; doi?: string }[],
   mode: 'standard' | 'journal_club' | 'lab_meeting' | 'grant_narrative',
   signal?: AbortSignal,
-  onProgress?: (msg: string) => void
+  onProgress?: (msg: string) => void,
+  onBrief?: (chunk: string) => void
 ): Promise<Array<{ title: string; bullets: string[]; speaker_notes: string; source_refs: string[] }>> {
   const fullContent = sources.map(s =>
     `=== ${s.title} ===\n${s.content}`
@@ -992,13 +1021,19 @@ export async function generateSlidesDeck(
 
   const totalChars = fullContent.length;
   const estInputTokens = Math.ceil(totalChars / 4);
-  // Threshold: ~6k content tokens fits safely in one 12k-TPM call
   const SINGLE_THRESHOLD = 5_500;
 
-  if (estInputTokens <= SINGLE_THRESHOLD || sources.length === 0) {
-    return _deckSingle(topic, count, sources, mode, signal, onProgress);
+  // Generate document brief whenever there is meaningful content
+  let brief = '';
+  if (onBrief && totalChars > 800) {
+    onProgress?.('Analysing sources…');
+    brief = await generateDocumentBrief(fullContent, onBrief, signal);
   }
-  return _deckChunked(topic, count, sources, mode, fullContent, signal, onProgress);
+
+  if (estInputTokens <= SINGLE_THRESHOLD || sources.length === 0) {
+    return _deckSingle(topic, count, sources, mode, brief, signal, onProgress);
+  }
+  return _deckChunked(topic, count, sources, mode, fullContent, brief, signal, onProgress);
 }
 
 async function _deckSingle(
@@ -1006,6 +1041,7 @@ async function _deckSingle(
   count: number,
   sources: { type: string; title: string; content: string; doi?: string }[],
   mode: string,
+  brief: string,
   signal?: AbortSignal,
   onProgress?: (msg: string) => void
 ): Promise<Array<{ title: string; bullets: string[]; speaker_notes: string; source_refs: string[] }>> {
@@ -1015,6 +1051,10 @@ async function _deckSingle(
 
   onProgress?.(`Generating ${count} slides…`);
 
+  const briefSection = brief
+    ? `\nDocument context:\n${brief}\n`
+    : '';
+
   const messages = [
     { role: 'system' as const, content: SLIDE_SYSTEM },
     {
@@ -1022,7 +1062,7 @@ async function _deckSingle(
       content: `Create a ${count}-slide presentation on: "${topic}"
 
 Mode: ${SLIDE_MODE_INSTRUCTIONS[mode]}
-
+${briefSection}
 Source materials:
 ${sourceBlocks || '(No sources — generate from domain knowledge, note this in speaker_notes)'}
 
@@ -1043,10 +1083,11 @@ async function _deckChunked(
   sources: { type: string; title: string; content: string; doi?: string }[],
   mode: string,
   fullContent: string,
+  brief: string,
   signal?: AbortSignal,
   onProgress?: (msg: string) => void
 ): Promise<Array<{ title: string; bullets: string[]; speaker_notes: string; source_refs: string[] }>> {
-  // Source attribution header sent to every chunk (titles + DOIs only — no content duplication)
+  // Source attribution header (titles + DOIs) sent to every chunk for citation tracking
   const sourceHeaders = sources.map(s =>
     `[${s.type.toUpperCase()}] ${s.title}${s.doi ? ` (DOI: ${s.doi})` : ''}`
   ).join('\n');
@@ -1054,17 +1095,17 @@ async function _deckChunked(
   // Dynamic ratio: content density × slide count → chunk count
   const totalChars = fullContent.length;
   const estTokens = Math.ceil(totalChars / 4);
-  const TOKENS_PER_CHUNK = 2_200; // safe content budget per 70b call
+  const TOKENS_PER_CHUNK = 2_200;
   const contentChunks = Math.max(1, Math.ceil(estTokens / TOKENS_PER_CHUNK));
   const slidesPerChunk = Math.max(1, Math.min(6, Math.ceil(totalSlides / contentChunks)));
   const chunkCount = Math.ceil(totalSlides / slidesPerChunk);
 
-  onProgress?.(`Planning ${chunkCount} generation passes for ${totalSlides} slides (${Math.round(totalChars / 1024)}KB content)…`);
+  onProgress?.(`Planning ${chunkCount} generation passes for ${totalSlides} slides (${Math.round(totalChars / 1024)}KB)…`);
 
-  // Algorithmic paragraph-boundary split — 70b gets raw source text, zero content loss
+  // Algorithmic paragraph-boundary split — 70b gets raw source text, zero quality loss
   const contentChunkTexts = splitIntoChunks(fullContent, chunkCount);
 
-  // Distribute slides across chunks (last chunk absorbs rounding)
+  // Distribute slide counts (last chunk absorbs rounding)
   const slideCounts: number[] = [];
   let remaining = totalSlides;
   for (let i = 0; i < chunkCount; i++) {
@@ -1083,7 +1124,6 @@ async function _deckChunked(
     const isFirst = i === 0;
     const isLast = i === chunkCount - 1;
 
-    // Estimated tokens: raw chunk content + system prompt + output
     const inputEst = Math.ceil(chunkText.length / 4) + 900;
     const outputEst = n * 350;
     const totalEst = inputEst + outputEst;
@@ -1092,11 +1132,21 @@ async function _deckChunked(
 
     await awaitTpmBudget(totalEst);
 
+    // Layer 1 — global document brief (full arc of the paper, same for every chunk)
+    const briefSection = brief
+      ? `\nDOCUMENT CONTEXT (full paper arc — use this to maintain coherent narrative):\n${brief}\n`
+      : '';
+
+    // Layer 2 — slide carry-over (what has already been covered, so this chunk continues cleanly)
+    const carryOver = allSlides.length > 0
+      ? `\nSLIDES ALREADY GENERATED (do not repeat these topics):\n${allSlides.map((s, idx) => `${idx + 1}. ${s.title}`).join('\n')}\n`
+      : '';
+
     const positionNote = isFirst
       ? `This is the FIRST section — slide 1 must be a title/overview slide.`
       : isLast
       ? `This is the LAST section — the final slide must be conclusions and next steps.`
-      : `This is section ${i + 1} of ${chunkCount} — continue the narrative from the previous section, no intro slide needed.`;
+      : `This is section ${i + 1} of ${chunkCount} — continue the narrative directly from the previous slides listed above.`;
 
     const messages = [
       { role: 'system' as const, content: SLIDE_SYSTEM },
@@ -1106,12 +1156,12 @@ async function _deckChunked(
 
 Mode: ${SLIDE_MODE_INSTRUCTIONS[mode]}
 ${positionNote}
-
-Source references (for attribution in source_refs):
+${briefSection}${carryOver}
+Source references (for source_refs attribution):
 ${sourceHeaders}
 
 Content to cover in these ${n} slides:
-${chunkText.slice(0, 9000)}
+${chunkText.slice(0, 8_500)}
 
 Output ONLY the JSON array. Slides may include prose, table descriptions, figure callouts, step-by-step flows — whatever the content calls for.`
       }
@@ -1131,7 +1181,7 @@ Output ONLY the JSON array. Slides may include prose, table descriptions, figure
         if ((msg.includes('429') || msg.includes('Rate limit')) && !retried) {
           retried = true;
           buffer = '';
-          onProgress?.(`Rate limit — waiting 60s for token budget to refresh…`);
+          onProgress?.('Rate limit — waiting 60s for token budget to refresh…');
           await new Promise<void>(r => setTimeout(r, 62_000));
           continue;
         }
