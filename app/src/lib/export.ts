@@ -1,6 +1,6 @@
 import type { Note, JournalEntry, Task, PaperResult } from './types';
 
-function download(filename: string, content: string, mime = 'text/plain'): void {
+export function download(filename: string, content: string, mime = 'text/plain'): void {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -51,7 +51,7 @@ function printWindow(title: string, htmlBody: string): void {
   setTimeout(() => w.print(), 400);
 }
 
-function wordHtml(title: string, htmlBody: string): string {
+export function wordHtml(title: string, htmlBody: string): string {
   return `<!DOCTYPE html>
 <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
 <head><meta charset="utf-8"><title>${title}</title>
