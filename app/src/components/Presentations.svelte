@@ -337,8 +337,11 @@
   }
 
   function mutate(fn: (p: Presentation) => void) {
-    if (!pres) return;
-    fn(pres); pres.updatedAt = Date.now();
+    if (!selectedId) return;
+    const idx = store.presentations.findIndex(p => p.id === selectedId);
+    if (idx === -1) return;
+    fn(store.presentations[idx]);
+    store.presentations[idx].updatedAt = Date.now();
     store.presentations = [...store.presentations];
     scheduleSave();
   }
@@ -845,6 +848,8 @@
           }));
           p.aiContext = aiCtx;
         });
+        // Force save immediately after generation so aiContext is not lost
+        await store.savePresentations();
       } else {
         // Legacy path for simple prompt/note/paper
         let context = '';
@@ -1704,18 +1709,14 @@
             id="slide-{slide.id}"
             class="slide-card"
             class:drag-over={dragOver === i}
-            draggable="true"
-            ondragstart={(e) => {
-              if (!(e.target as HTMLElement).closest('.slide-drag-handle')) { e.preventDefault(); return; }
-              onDragStart(i);
-            }}
+            ondragstart={() => onDragStart(i)}
             ondragover={(e) => onDragOver(e, i)}
             ondrop={() => onDrop(i)}
             ondragend={() => { dragIdx = null; dragOver = null; }}
             onclick={() => activeSlideIdx = i}
           >
             <div class="slide-card-header">
-              <div class="slide-drag-handle" title="Drag to reorder">
+              <div class="slide-drag-handle" draggable="true" title="Drag to reorder">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="7" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="9" cy="17" r="1.5"/><circle cx="15" cy="7" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="15" cy="17" r="1.5"/></svg>
               </div>
               <!-- S1 Layout picker -->
@@ -1807,7 +1808,6 @@
             <div
               class="slide-content-wrap"
               onclick={(e) => e.stopPropagation()}
-              ondragstart={(e) => e.preventDefault()}
             >
               <RichEditor
                 value={slide.content}
