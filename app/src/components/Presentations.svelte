@@ -4,7 +4,7 @@
   import { marked } from 'marked';
   import { generateSlides, askEnzoInline, generateSlidesDeck } from '../lib/groq';
   import RichEditor from './RichEditor.svelte';
-  import type { Presentation, Slide, PresTheme, PresAiContext, CssFilters } from '../lib/types';
+  import type { Presentation, Slide, PresTheme, PresAiContext } from '../lib/types';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -110,17 +110,6 @@
   // ── S18 idle cursor ───────────────────────────────────────────
   let cursorVisible  = $state(true);
   let cursorTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // ── S20 CSS filters ───────────────────────────────────────────
-  let showFilters    = $state(false);
-  const DEFAULT_FILTERS: CssFilters = { brightness: 100, contrast: 100, saturation: 100, hueRotate: 0 };
-
-  function filtersStyle(f: CssFilters | undefined): string {
-    if (!f) return '';
-    const { brightness: b, contrast: c, saturation: s, hueRotate: h } = f;
-    if (b === 100 && c === 100 && s === 100 && h === 0) return '';
-    return `filter: brightness(${b}%) contrast(${c}%) saturate(${s}%) hue-rotate(${h}deg);`;
-  }
 
   // ── S5 transition ─────────────────────────────────────────────
   let slideTransition = $state('slide');
@@ -993,7 +982,7 @@
       <!-- Main slide -->
       <div class="present-stage-wrap" style={curSlide?.background ? (curSlide.background.startsWith('#') || curSlide.background.startsWith('rgb') || curSlide.background.startsWith('linear') ? `background:${curSlide.background}` : `background:url(${curSlide.background}) center/cover`) : ''}>
         <div class="present-slide-wrap present-slide-{slideTransId}" key={presentIdx}>
-          <div class="present-content" style="--pac:{th.accent};--pmuted:{th.muted};{filtersStyle(pres.cssFilters)}">
+          <div class="present-content" style="--pac:{th.accent};--pmuted:{th.muted};">
             <!-- eslint-disable-next-line svelte/no-at-html-tags -->
             {#if curSlide?.revealBullets}
               {@html (curSlide.content ?? '').replace(/<li>/g, '<li class="reveal-bullet" style="opacity:0;transition:opacity 0.3s">')}
@@ -1540,44 +1529,6 @@
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>
             PPTX
           </button>
-          <!-- S20 CSS filters toggle -->
-          <div class="filters-wrap">
-            <button class="btn btn-ghost btn-sm" class:active={showFilters} onclick={() => showFilters = !showFilters} title="CSS filters (S20)">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>
-              Filters
-            </button>
-            {#if showFilters}
-              <!-- svelte-ignore a11y_click_events_have_key_events -->
-              <div class="filters-backdrop" onclick={() => showFilters = false}></div>
-              <div class="filters-popover card">
-                <div class="filter-row">
-                  <label class="filter-label">Brightness</label>
-                  <input type="range" min="0" max="200" value={pres.cssFilters?.brightness ?? 100}
-                    oninput={(e) => mutate(p => { if (!p.cssFilters) p.cssFilters = {...DEFAULT_FILTERS}; p.cssFilters!.brightness = +(e.target as HTMLInputElement).value; })} />
-                  <span class="filter-val">{pres.cssFilters?.brightness ?? 100}%</span>
-                </div>
-                <div class="filter-row">
-                  <label class="filter-label">Contrast</label>
-                  <input type="range" min="0" max="200" value={pres.cssFilters?.contrast ?? 100}
-                    oninput={(e) => mutate(p => { if (!p.cssFilters) p.cssFilters = {...DEFAULT_FILTERS}; p.cssFilters!.contrast = +(e.target as HTMLInputElement).value; })} />
-                  <span class="filter-val">{pres.cssFilters?.contrast ?? 100}%</span>
-                </div>
-                <div class="filter-row">
-                  <label class="filter-label">Saturation</label>
-                  <input type="range" min="0" max="200" value={pres.cssFilters?.saturation ?? 100}
-                    oninput={(e) => mutate(p => { if (!p.cssFilters) p.cssFilters = {...DEFAULT_FILTERS}; p.cssFilters!.saturation = +(e.target as HTMLInputElement).value; })} />
-                  <span class="filter-val">{pres.cssFilters?.saturation ?? 100}%</span>
-                </div>
-                <div class="filter-row">
-                  <label class="filter-label">Hue rotate</label>
-                  <input type="range" min="0" max="360" value={pres.cssFilters?.hueRotate ?? 0}
-                    oninput={(e) => mutate(p => { if (!p.cssFilters) p.cssFilters = {...DEFAULT_FILTERS}; p.cssFilters!.hueRotate = +(e.target as HTMLInputElement).value; })} />
-                  <span class="filter-val">{pres.cssFilters?.hueRotate ?? 0}°</span>
-                </div>
-                <button class="btn btn-ghost btn-sm" onclick={() => mutate(p => { p.cssFilters = undefined; })}>Reset</button>
-              </div>
-            {/if}
-          </div>
           <!-- S8 Batch notes editor -->
           <button class="btn btn-ghost btn-sm" onclick={openBatchNotes} title="Edit all speaker notes at once">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
@@ -2453,18 +2404,6 @@
   .cursor-hidden { cursor: none !important; }
   .cursor-hidden * { cursor: none !important; }
 
-  /* ── S20 CSS filters panel ───────────────────────────────────── */
-  .filters-wrap { position: relative; }
-  .filters-backdrop { position: fixed; inset: 0; z-index: 70; background: transparent; }
-  .filters-popover {
-    position: absolute; top: calc(100% + 6px); right: 0; z-index: 71;
-    width: 260px; padding: 14px;
-    display: flex; flex-direction: column; gap: 10px;
-  }
-  .filter-row { display: flex; align-items: center; gap: 8px; }
-  .filter-label { font-size: 0.72rem; font-weight: 600; color: var(--mu); min-width: 70px; }
-  .filter-val { font-size: 0.72rem; font-variant-numeric: tabular-nums; min-width: 38px; text-align: right; color: var(--tx2); }
-  input[type="range"] { flex: 1; accent-color: var(--ac); }
 
   /* ── S19 backward transition (re-uses animation but stored per slide) */
   /* Applied dynamically via slideTransId in template */
