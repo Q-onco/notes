@@ -9,6 +9,7 @@ export interface Note {
   archived: boolean;
   audioIds: string[];
   color?: 'ac' | 'gn' | 'rd' | 'yw' | 'pu' | 'enzo';
+  wordTarget?: number;
 }
 
 export interface JournalEntry {
@@ -127,6 +128,13 @@ export interface PaperResult {
   url: string;
   source: 'pubmed' | 'biorxiv' | 'medrxiv' | 'nature' | 'cell' | 'openalex' | 'europepmc';
   pdfUrl?: string;
+  collectionIds?: string[];
+}
+
+export interface PaperCollection {
+  id: string;
+  label: string;
+  color: 'ac' | 'gn' | 'rd' | 'yw' | 'pu' | 'enzo';
 }
 
 export interface SavedSearch {
@@ -148,6 +156,7 @@ export interface ReadingListItem {
   read: boolean;
   readAt?: number;
   priority: 'high' | 'medium' | 'low';
+  readStatus?: 'unread' | 'in-progress' | 'done';
 }
 
 export interface PipelineStep {

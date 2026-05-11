@@ -224,6 +224,9 @@
     finally { historyDiffLoad = false; }
   }
 
+  // ── Word-count goal ────────────────────────────────────────────────────────
+  let showGoalInput = $state(false);
+
   // ── PDF annotation ─────────────────────────────────────────────────────────
   let showPdfAnnotator = $state(false);
   let pdfAnnotatorUrl  = $state('');
@@ -944,11 +947,54 @@
     <!-- Footer -->
     <div class="editor-footer text-xs text-mu">
       <span>Created {new Date(note.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-      <span>{wordCount(note.body)} words</span>
+      <!-- Word count + optional goal bar -->
+      {#if note.wordTarget}
+        {@const wc = wordCount(note.body)}
+        {@const pct = Math.min(100, Math.round(wc / note.wordTarget * 100))}
+        <span class="wc-goal-wrap" title="{wc} / {note.wordTarget} words ({pct}%)">
+          <span class="wc-goal-text">{wc} / {note.wordTarget} words</span>
+          <span class="wc-goal-bar">
+            <span class="wc-goal-fill" style="width:{pct}%; background:{pct >= 100 ? 'var(--gn)' : pct >= 60 ? 'var(--ac)' : 'var(--yw)'}"></span>
+          </span>
+        </span>
+      {:else}
+        <span>{wordCount(note.body)} words</span>
+      {/if}
       <span>~{readingTime(note.body)} min read</span>
       {#if note.audioIds.length > 0}
         <span>{note.audioIds.length} recording{note.audioIds.length > 1 ? 's' : ''}</span>
       {/if}
+      <!-- Goal setter -->
+      <div class="wc-goal-setter">
+        {#if showGoalInput}
+          <input class="wc-goal-input" type="number" min="50" max="50000" step="50"
+            value={note.wordTarget ?? ''}
+            placeholder="e.g. 2000"
+            onkeydown={(e) => {
+              if (e.key === 'Enter') {
+                const v = parseInt((e.target as HTMLInputElement).value);
+                note.wordTarget = v > 0 ? v : undefined;
+                autoSave(); showGoalInput = false;
+              }
+              if (e.key === 'Escape') showGoalInput = false;
+            }}
+            onblur={(e) => {
+              const v = parseInt((e.target as HTMLInputElement).value);
+              note.wordTarget = v > 0 ? v : undefined;
+              autoSave(); showGoalInput = false;
+            }}
+            autofocus
+          />
+        {:else}
+          <button class="btn-link text-xs wc-goal-btn" onclick={() => showGoalInput = true}
+            title={note.wordTarget ? 'Change word goal' : 'Set word goal'}>
+            {note.wordTarget ? '✎ goal' : '+ goal'}
+          </button>
+        {/if}
+        {#if note.wordTarget}
+          <button class="btn-link text-xs" onclick={() => { note.wordTarget = undefined; autoSave(); }} title="Remove goal">×</button>
+        {/if}
+      </div>
     </div>
 
     {/key}
@@ -1173,10 +1219,18 @@
 
   /* ── Footer ── */
   .editor-footer {
-    display: flex; align-items: center; gap: 16px;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
     padding: 8px 20px; border-top: 1px solid var(--bd);
     background: var(--sf); flex-shrink: 0;
   }
+  .wc-goal-wrap { display: flex; align-items: center; gap: 6px; }
+  .wc-goal-text { white-space: nowrap; }
+  .wc-goal-bar { width: 80px; height: 4px; background: var(--bd); border-radius: 2px; overflow: hidden; flex-shrink: 0; }
+  .wc-goal-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+  .wc-goal-setter { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+  .wc-goal-btn { opacity: 0.6; font-size: 0.7rem; }
+  .wc-goal-btn:hover { opacity: 1; }
+  .wc-goal-input { width: 80px; font-size: 0.72rem; padding: 2px 6px; border-radius: 3px; }
 
   /* ── Focus mode ── */
   .focus-backdrop { display: contents; }

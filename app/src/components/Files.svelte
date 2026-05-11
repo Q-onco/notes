@@ -1,7 +1,7 @@
 <script lang="ts">
   import { store } from '../lib/store.svelte';
   import { nanoid } from 'nanoid';
-  import type { FileRecord } from '../lib/types';
+  import type { FileRecord, Note } from '../lib/types';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -32,11 +32,20 @@
   let shareUrl = $state<string | null>(null);
   let shareExpAt = $state<number | null>(null);
   let sharing = $state(false);
-  let extractingPdf = $state(false);
+  let extractingPdf  = $state(false);
+  let creatingNote   = $state(false);
+  let renamingId     = $state<string | null>(null);
+  let renameValue    = $state('');
+  let bulkMode       = $state(false);
+  let bulkSelected   = $state<Set<string>>(new Set());
+  let galleryMode    = $state(false);
+  let lightboxIdx    = $state(0);
+  let lightboxOpen   = $state(false);
 
   const selectedFile = $derived(store.files.find(f => f.id === selectedId) ?? null);
   const allTags      = $derived([...new Set(store.files.flatMap(f => f.tags))].sort());
   const allFolders   = $derived([...new Set(store.files.map(f => f.folder).filter(Boolean) as string[])].sort());
+  const imageFiles   = $derived(filtered.filter(f => f.mimeType.startsWith('image/')));
 
   const filtered = $derived(
     store.files
@@ -421,6 +430,77 @@
     URL.revokeObjectURL(url);
   }
 
+  // ── Rename ────────────────────────────────────────────────────
+  function startRename(f: FileRecord) { renamingId = f.id; renameValue = f.name; }
+  async function confirmRename() {
+    if (!renamingId || !renameValue.trim()) { renamingId = null; return; }
+    const f = store.files.find(x => x.id === renamingId);
+    if (f) { f.name = renameValue.trim(); await saveFile(); showToast('File renamed'); }
+    renamingId = null;
+  }
+
+  // ── Create note from PDF ──────────────────────────────────────
+  async function createNoteFromPdf() {
+    if (!selectedFile || selectedFile.mimeType !== 'application/pdf' || !viewerUrl) return;
+    creatingNote = true;
+    try {
+      const text = await extractPdfText(viewerUrl);
+      const title = selectedFile.name.replace(/\.pdf$/i, '');
+      const note: Note = {
+        id: nanoid(), title,
+        body: `# ${title}\n\n${text}`,
+        tags: ['pdf'], createdAt: Date.now(), updatedAt: Date.now(),
+        pinned: false, archived: false, audioIds: [],
+      };
+      store.notes = [note, ...store.notes];
+      selectedFile.linkedNoteIds = [...selectedFile.linkedNoteIds, note.id];
+      await Promise.all([store.saveNotes(), store.saveFiles()]);
+      showToast('Note created from PDF');
+      store.currentNoteId = note.id; store.view = 'notes';
+    } catch { showToast('Could not extract PDF text', 'error'); }
+    finally { creatingNote = false; }
+  }
+
+  // ── Bulk actions ──────────────────────────────────────────────
+  function toggleBulk(id: string) {
+    const s = new Set(bulkSelected);
+    if (s.has(id)) s.delete(id); else s.add(id);
+    bulkSelected = s;
+  }
+
+  async function bulkDelete() {
+    if (!confirm(`Delete ${bulkSelected.size} file${bulkSelected.size > 1 ? 's' : ''}? This cannot be undone.`)) return;
+    for (const id of bulkSelected) {
+      const f = store.files.find(x => x.id === id);
+      if (f?.r2Key) await fetch(`${store.workerBase}/file/${encodeURIComponent(f.r2Key)}`, { method: 'DELETE' }).catch(() => {});
+    }
+    store.files = store.files.filter(f => !bulkSelected.has(f.id));
+    if (selectedId && bulkSelected.has(selectedId)) selectedId = null;
+    bulkSelected = new Set(); bulkMode = false;
+    await store.saveFiles(); showToast('Files deleted');
+  }
+
+  async function bulkMove(folder: string) {
+    store.files = store.files.map(f => bulkSelected.has(f.id) ? { ...f, folder: folder || undefined } : f);
+    bulkSelected = new Set(); bulkMode = false;
+    await store.saveFiles(); showToast(`Moved to ${folder || 'root'}`);
+  }
+
+  // ── Image gallery / lightbox ──────────────────────────────────
+  function getFileSrc(f: FileRecord): string {
+    if (f.url) return f.url;
+    if (f.r2Key) return `${store.workerBase}/file/${encodeURIComponent(f.r2Key)}`;
+    if (f.data) {
+      const bytes = atob(f.data);
+      const arr = new Uint8Array(bytes.length);
+      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+      return URL.createObjectURL(new Blob([arr], { type: f.mimeType }));
+    }
+    return '';
+  }
+
+  function openLightbox(idx: number) { lightboxIdx = idx; lightboxOpen = true; }
+
   // ── Helpers ───────────────────────────────────────────────────
   function fmtSize(b: number): string {
     if (b === 0) return '—';
@@ -531,11 +611,19 @@
     <div class="files-topbar">
       <input type="search" bind:value={search} placeholder="Search files…" class="files-search" />
       <div class="files-topbar-right">
-        <button class="btn-icon" class:active={viewMode==='list'} onclick={() => viewMode='list'} title="List view">
+        <button class="btn-icon" class:active={viewMode==='list' && !galleryMode} onclick={() => { viewMode='list'; galleryMode=false; }} title="List view">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
         </button>
-        <button class="btn-icon" class:active={viewMode==='grid'} onclick={() => viewMode='grid'} title="Grid view">
+        <button class="btn-icon" class:active={viewMode==='grid' && !galleryMode} onclick={() => { viewMode='grid'; galleryMode=false; }} title="Grid view">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        </button>
+        {#if imageFiles.length > 0}
+          <button class="btn-icon" class:active={galleryMode} onclick={() => galleryMode = !galleryMode} title="Image gallery">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          </button>
+        {/if}
+        <button class="btn-icon" class:active={bulkMode} onclick={() => { bulkMode = !bulkMode; bulkSelected = new Set(); }} title="Bulk select">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
         </button>
         <div class="upload-actions">
           <button class="btn btn-ghost btn-sm" onclick={() => addExtUrl = !addExtUrl} title="Add external link">+ Link</button>
@@ -545,6 +633,24 @@
         </div>
       </div>
     </div>
+
+    <!-- Bulk action bar -->
+    {#if bulkMode && bulkSelected.size > 0}
+      <div class="bulk-bar">
+        <span class="text-xs text-mu">{bulkSelected.size} selected</span>
+        <select class="bulk-folder-sel" onchange={(e) => { bulkMove((e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; }}>
+          <option value="">Move to folder…</option>
+          <option value="">— root —</option>
+          {#each allFolders as folder}
+            <option value={folder}>{folder}</option>
+          {/each}
+        </select>
+        <button class="btn btn-sm" style="color:var(--rd);border-color:var(--rd-bd,var(--rd))" onclick={bulkDelete}>
+          Delete selected
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick={() => { bulkSelected = new Set(); }}>Clear</button>
+      </div>
+    {/if}
 
     <!-- External link form -->
     {#if addExtUrl}
@@ -558,7 +664,43 @@
       </div>
     {/if}
 
+    <!-- Image gallery view -->
+    {#if galleryMode}
+      <div class="files-content">
+        {#if imageFiles.length === 0}
+          <div class="files-empty"><p class="text-mu text-sm">No images found.</p></div>
+        {:else}
+          <div class="gallery-grid">
+            {#each imageFiles as f, idx}
+              <button class="gallery-thumb" onclick={() => openLightbox(idx)} title={f.name}>
+                <img src={getFileSrc(f)} alt={f.name} loading="lazy" />
+                <span class="gallery-name">{f.name}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    <!-- Lightbox overlay -->
+    {#if lightboxOpen && imageFiles.length > 0}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <div class="lightbox-overlay" onclick={() => lightboxOpen = false}>
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <div class="lightbox-inner" onclick={(e) => e.stopPropagation()}>
+          <button class="lightbox-close" onclick={() => lightboxOpen = false}>×</button>
+          <button class="lightbox-nav lightbox-prev" onclick={() => lightboxIdx = (lightboxIdx - 1 + imageFiles.length) % imageFiles.length} disabled={imageFiles.length < 2}>‹</button>
+          <img class="lightbox-img" src={getFileSrc(imageFiles[lightboxIdx])} alt={imageFiles[lightboxIdx].name} />
+          <button class="lightbox-nav lightbox-next" onclick={() => lightboxIdx = (lightboxIdx + 1) % imageFiles.length} disabled={imageFiles.length < 2}>›</button>
+          <p class="lightbox-caption">{imageFiles[lightboxIdx].name} · {lightboxIdx + 1} / {imageFiles.length}</p>
+        </div>
+      </div>
+    {/if}
+
     <!-- File list / grid -->
+    {#if !galleryMode}
     <div class="files-content">
       <div class="files-{viewMode}">
         {#each filtered as f (f.id)}
@@ -566,8 +708,13 @@
           <div
             class="file-item file-{viewMode}-item"
             class:selected={selectedId === f.id}
-            onclick={() => selectedId = selectedId === f.id ? null : f.id}
+            onclick={() => { if (bulkMode) { toggleBulk(f.id); } else { selectedId = selectedId === f.id ? null : f.id; } }}
           >
+            {#if bulkMode}
+              <input type="checkbox" class="bulk-cb" checked={bulkSelected.has(f.id)}
+                onclick={(e) => e.stopPropagation()}
+                onchange={() => toggleBulk(f.id)} />
+            {/if}
             <div class="file-icon" style="color:{CAT_COLORS[cat]}">
               {#if cat === 'pdf'}
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
@@ -623,7 +770,18 @@
         <div class="file-detail" class:viewer-expanded={viewerExpand}>
           <div class="file-detail-head">
             <div class="file-detail-title">
-              <p class="file-detail-name">{selectedFile.name}</p>
+              {#if renamingId === selectedFile.id}
+                <input class="file-rename-input" bind:value={renameValue} autofocus
+                  onkeydown={(e) => { if (e.key === 'Enter') confirmRename(); if (e.key === 'Escape') renamingId = null; }}
+                  onblur={confirmRename} />
+              {:else}
+                <div class="file-name-row">
+                  <p class="file-detail-name">{selectedFile.name}</p>
+                  <button class="btn-icon rename-btn" onclick={() => startRename(selectedFile!)} title="Rename file">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  </button>
+                </div>
+              {/if}
               <p class="text-xs text-mu">{fmtSize(selectedFile.size)} · {fmtDate(selectedFile.createdAt)}</p>
             </div>
             <div class="file-detail-actions">
@@ -637,6 +795,15 @@
                   Enzo
                 {/if}
               </button>
+              <!-- Create note from PDF -->
+              {#if selectedFile.mimeType === 'application/pdf' && viewerUrl}
+                <button class="btn btn-ghost btn-sm" onclick={createNoteFromPdf} disabled={creatingNote} title="Create note from PDF text">
+                  {#if creatingNote}<span class="pdf-spin"></span> Creating…{:else}
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+                    Note
+                  {/if}
+                </button>
+              {/if}
               <!-- Share button (R2 files only) -->
               {#if selectedFile.r2Key && store.workerBase}
                 <div class="share-wrap">
@@ -831,6 +998,7 @@
         </div>
       {/if}
     </div>
+    {/if}
   </div>
 </div>
 
@@ -1071,4 +1239,69 @@
     }
     .file-action { width: 36px; height: 36px; }
   }
+
+  /* ── Rename ───────────────────────────────────────────────────── */
+  .file-name-row { display: flex; align-items: center; gap: 4px; }
+  .rename-btn { opacity: 0; width: 18px; height: 18px; border-radius: 3px; }
+  .file-detail-title:hover .rename-btn { opacity: 1; }
+  .file-rename-input {
+    font-size: 0.85rem; font-weight: 600; color: var(--tx);
+    border: 1px solid var(--ac); border-radius: var(--radius-sm);
+    background: var(--sf2); padding: 2px 6px; width: 100%;
+  }
+
+  /* ── Bulk ─────────────────────────────────────────────────────── */
+  .bulk-bar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 6px 16px; background: var(--ac-bg); border-bottom: 1px solid var(--bd);
+    font-size: 0.78rem; flex-shrink: 0;
+  }
+  .bulk-cb { accent-color: var(--ac); flex-shrink: 0; cursor: pointer; }
+  .bulk-folder-sel { font-size: 0.78rem; padding: 3px 8px; border-radius: var(--radius-sm); border: 1px solid var(--bd); background: var(--sf2); color: var(--tx2); cursor: pointer; }
+
+  /* ── Gallery ──────────────────────────────────────────────────── */
+  .gallery-grid {
+    flex: 1; overflow-y: auto; padding: 14px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; align-content: start;
+  }
+  .gallery-thumb {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    border: 1px solid var(--bd); border-radius: var(--radius);
+    background: var(--sf2); padding: 8px; cursor: pointer;
+    transition: border-color var(--transition), background var(--transition);
+    overflow: hidden;
+  }
+  .gallery-thumb:hover { border-color: var(--ac); background: var(--ac-bg); }
+  .gallery-thumb img { width: 100%; height: 110px; object-fit: cover; border-radius: var(--radius-sm); }
+  .gallery-name { font-size: 0.68rem; color: var(--tx2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; text-align: center; }
+
+  /* ── Lightbox ─────────────────────────────────────────────────── */
+  .lightbox-overlay {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(0,0,0,0.85); backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .lightbox-inner {
+    position: relative; display: flex; align-items: center; gap: 12px;
+    max-width: 92vw; max-height: 92vh; flex-direction: column;
+  }
+  .lightbox-img { max-width: 88vw; max-height: 80vh; object-fit: contain; border-radius: var(--radius); box-shadow: 0 8px 40px rgba(0,0,0,0.5); }
+  .lightbox-caption { font-size: 0.78rem; color: rgba(255,255,255,0.6); text-align: center; }
+  .lightbox-close {
+    position: absolute; top: -36px; right: 0;
+    background: transparent; border: none; color: rgba(255,255,255,0.7);
+    font-size: 1.6rem; cursor: pointer; line-height: 1;
+  }
+  .lightbox-close:hover { color: #fff; }
+  .lightbox-nav {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25);
+    color: #fff; border-radius: 50%; width: 36px; height: 36px;
+    font-size: 1.4rem; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  .lightbox-nav:hover:not(:disabled) { background: rgba(255,255,255,0.3); }
+  .lightbox-nav:disabled { opacity: 0.2; cursor: not-allowed; }
+  .lightbox-prev { left: -48px; }
+  .lightbox-next { right: -48px; }
 </style>

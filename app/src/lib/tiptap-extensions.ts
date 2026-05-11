@@ -1,4 +1,4 @@
-import { Node, mergeAttributes, InputRule } from '@tiptap/core';
+import { Node, Extension, mergeAttributes, InputRule } from '@tiptap/core';
 import { Plugin } from 'prosemirror-state';
 import { Image } from '@tiptap/extension-image';
 import katex from 'katex';
@@ -701,7 +701,8 @@ export const MermaidBlockExtension = Node.create({
       const renderDiagram = async (code: string) => {
         try {
           const m = await import('mermaid');
-          m.default.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'loose', fontFamily: 'inherit' });
+          const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+          m.default.initialize({ startOnLoad: false, theme: isDark ? 'dark' : 'default', securityLevel: 'loose', fontFamily: 'inherit' });
           const id = `mmid-${Date.now()}-${++uid}`;
           const { svg } = await m.default.render(id, code);
           rendered.innerHTML = svg;
@@ -834,5 +835,93 @@ export const DetailsExtension = Node.create({
         },
       };
     };
+  },
+});
+
+// ─── GlobalDragHandle ──────────────────────────────────────────────────────────
+// Floating ⠿ handle that appears on hover and lets you drag any top-level block.
+
+export const GlobalDragHandle = Extension.create({
+  name: 'globalDragHandle',
+
+  addProseMirrorPlugins() {
+    let handle: HTMLElement | null = null;
+    let dragPos = -1;
+
+    return [new Plugin({
+      view(editorView) {
+        handle = document.createElement('div');
+        handle.className = 'pm-drag-handle';
+        handle.setAttribute('draggable', 'true');
+        handle.textContent = '⠿';
+        document.body.appendChild(handle);
+
+        const hide = () => { if (handle) { handle.style.opacity = '0'; handle.dataset.pos = '-1'; } };
+
+        const onMouseMove = (e: MouseEvent) => {
+          if ((e.target as HTMLElement).closest('.pm-drag-handle, .re-bubble')) return;
+          const pos = editorView.posAtCoords({ left: e.clientX, top: e.clientY });
+          if (!pos) { hide(); return; }
+          try {
+            const $pos = editorView.state.doc.resolve(pos.pos);
+            if ($pos.depth < 1) { hide(); return; }
+            const blockPos = $pos.before(1);
+            const domCoords = editorView.coordsAtPos(blockPos + 1);
+            const editorLeft = editorView.dom.getBoundingClientRect().left;
+            if (handle) {
+              handle.style.opacity = '1';
+              handle.style.left = (editorLeft - 26) + 'px';
+              handle.style.top = domCoords.top + 'px';
+              handle.dataset.pos = String(blockPos);
+            }
+          } catch { hide(); }
+        };
+
+        const onDragStart = (e: DragEvent) => {
+          dragPos = parseInt(handle?.dataset.pos ?? '-1');
+          if (dragPos < 0) return;
+          if (e.dataTransfer) {
+            e.dataTransfer.setData('application/x-pm-node', String(dragPos));
+            e.dataTransfer.effectAllowed = 'move';
+          }
+        };
+
+        editorView.dom.addEventListener('mousemove', onMouseMove);
+        editorView.dom.addEventListener('mouseleave', hide);
+        handle.addEventListener('dragstart', onDragStart);
+
+        return {
+          destroy() {
+            editorView.dom.removeEventListener('mousemove', onMouseMove);
+            editorView.dom.removeEventListener('mouseleave', hide);
+            handle?.remove();
+            handle = null;
+          },
+        };
+      },
+
+      props: {
+        handleDrop(view, event) {
+          if (dragPos < 0) return false;
+          const from = dragPos;
+          dragPos = -1;
+          const dropCoords = view.posAtCoords({ left: event.clientX, top: event.clientY });
+          if (!dropCoords) return false;
+          const { state, dispatch } = view;
+          const node = state.doc.nodeAt(from);
+          if (!node) return false;
+          try {
+            const $drop = state.doc.resolve(dropCoords.pos);
+            if ($drop.depth < 1) return false;
+            const to = $drop.before(1);
+            if (to === from) return false;
+            let tr = state.tr.delete(from, from + node.nodeSize);
+            const adj = to > from ? to - node.nodeSize : to;
+            dispatch(tr.insert(adj, node).scrollIntoView());
+          } catch { return false; }
+          return true;
+        },
+      },
+    })];
   },
 });

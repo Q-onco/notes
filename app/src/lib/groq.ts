@@ -852,3 +852,25 @@ Academic prose, third person, past tense for experiments, present tense for esta
   ];
   await streamGroq(MODELS.enzo, messages, onChunk, signal);
 }
+
+export async function comparePapers(
+  papers: { title: string; authors: string[]; year: number; journal: string; abstract: string }[],
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const paperBlocks = papers.map((p, i) =>
+    `**Paper ${i + 1}:** ${p.title} (${p.authors[0] ?? 'Unknown'} et al., ${p.year}, ${p.journal})\nAbstract: ${p.abstract?.slice(0, 600) ?? 'N/A'}`
+  ).join('\n\n');
+
+  const messages = [
+    {
+      role: 'system' as const,
+      content: 'You are Enzo, an expert oncology research assistant specialising in HGSOC and tumour microenvironment. Compare papers with precision. Output a markdown table followed by a brief synthesis paragraph.'
+    },
+    {
+      role: 'user' as const,
+      content: `Compare the following ${papers.length} papers across these dimensions: study design/model, sample size/data type, key finding, limitations, and HGSOC/TME relevance. Format as a markdown table with columns: Dimension | ${papers.map((_, i) => `Paper ${i + 1}`).join(' | ')}. Then write 2–3 sentences synthesising what these papers collectively tell us and what remains unresolved.\n\n${paperBlocks}`
+    }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
