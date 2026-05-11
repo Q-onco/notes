@@ -2,8 +2,11 @@
   import { store } from '../lib/store.svelte';
   import { nanoid } from 'nanoid';
   import { marked } from 'marked';
+  import NoteGraph from './NoteGraph.svelte';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
+
+  let showGraph = $state(false);
 
   let search = $state('');
   let activeTag = $state<string | null>(null);
@@ -185,6 +188,13 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
           </button>
         </div>
+        <button class="btn btn-ghost btn-sm" onclick={() => showGraph = true} title="Knowledge graph">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="5" cy="12" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="19" cy="19" r="2"/>
+            <line x1="7" y1="11.5" x2="17" y2="6.5"/><line x1="7" y1="12.5" x2="17" y2="17.5"/>
+          </svg>
+          Graph
+        </button>
         <button class="btn btn-ghost btn-sm" onclick={() => fileInput?.click()} disabled={importing}>
           {#if importing}<span class="nh-spin"></span> Importing…
           {:else}
@@ -372,6 +382,10 @@
     </div>
   {/if}
 </div>
+
+{#if showGraph}
+  <NoteGraph onClose={() => showGraph = false} />
+{/if}
 
 <style>
   .notes-home {
