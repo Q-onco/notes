@@ -21,6 +21,8 @@
   let genPaperId      = $state('');
   let generating      = $state(false);
   let genProgress     = $state('');
+  let docBrief        = $state('');
+  let docBriefStreaming = $state(false);
   let saving          = $state(false);
   let saveTimer: ReturnType<typeof setTimeout>;
   let dragIdx         = $state<number | null>(null);
@@ -460,7 +462,17 @@
         }
         const sources = await buildSources();
         genProgress = '';
-        const deck = await generateSlidesDeck(topic, genCount, sources, genMode, undefined, (msg) => { genProgress = msg; });
+        docBrief = '';
+        docBriefStreaming = false;
+        const deck = await generateSlidesDeck(
+          topic, genCount, sources, genMode,
+          undefined,
+          (msg) => { genProgress = msg; },
+          (chunk) => {
+            if (!docBriefStreaming) { docBriefStreaming = true; showSourceSidebar = true; }
+            docBrief += chunk;
+          }
+        );
         if (!deck.length) throw new Error('Enzo returned an empty deck');
         mutate(p => {
           p.slides = deck.map(s => ({
@@ -496,6 +508,7 @@
     } finally {
       generating = false;
       genProgress = '';
+      docBriefStreaming = false;
     }
   }
 
@@ -950,10 +963,10 @@
             Export HTML
           </button>
           <!-- Source sidebar toggle -->
-          {#if totalSourceCount > 0}
+          {#if totalSourceCount > 0 || docBrief}
             <button class="btn btn-ghost btn-sm" class:active={showSourceSidebar} onclick={() => showSourceSidebar = !showSourceSidebar} title="Toggle source sidebar">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
-              Sources ({totalSourceCount})
+              Sources {totalSourceCount > 0 ? `(${totalSourceCount})` : ''}{docBrief ? ' · Analysis' : ''}
             </button>
           {/if}
           <button class="btn btn-primary btn-sm" onclick={startPresent}>
@@ -967,13 +980,19 @@
       <div class="slides-editor-wrap">
 
       <!-- Source sidebar -->
-      {#if showSourceSidebar && totalSourceCount > 0}
+      {#if showSourceSidebar && (totalSourceCount > 0 || docBrief)}
         <div class="source-sidebar">
           <div class="source-sidebar-header">
-            <span class="source-sidebar-title">Sources ({totalSourceCount})</span>
+            <span class="source-sidebar-title">Sources {totalSourceCount > 0 ? `(${totalSourceCount})` : ''}</span>
             <button class="source-sidebar-close" onclick={() => showSourceSidebar = false}>×</button>
           </div>
           <div class="source-sidebar-body">
+            {#if docBrief}
+              <div class="source-group-label">Document Analysis</div>
+              <div class="source-entry doc-brief-entry">
+                <p class="doc-brief-text">{docBrief}{#if docBriefStreaming}<span class="brief-cursor">▋</span>{/if}</p>
+              </div>
+            {/if}
             {#if pickedNoteIds.size > 0}
               <div class="source-group-label">Notes</div>
               {#each store.notes.filter(n => pickedNoteIds.has(n.id)) as n}
@@ -1565,6 +1584,10 @@
   .source-entry { border: 1px solid var(--bd); border-radius: 5px; padding: 6px 8px; }
   .source-entry-title { font-size: 0.77rem; font-weight: 500; color: var(--tx); display: block; }
   .source-entry-snippet { font-size: 0.72rem; color: var(--mu); margin: 3px 0 0; line-height: 1.5; }
+  .doc-brief-entry { background: color-mix(in srgb, var(--ac) 6%, transparent); border-color: color-mix(in srgb, var(--ac) 25%, transparent); }
+  .doc-brief-text { font-size: 0.73rem; color: var(--tx); line-height: 1.65; margin: 0; white-space: pre-wrap; }
+  .brief-cursor { display: inline-block; color: var(--ac); animation: blink 1s step-end infinite; }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 
   /* Citation strip in slides */
   :global(.slide-rich-editor .cite-strip) {
