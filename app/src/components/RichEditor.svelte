@@ -33,6 +33,7 @@
     ColumnsExtension,
     MermaidBlockExtension,
     DetailsExtension,
+    GlobalDragHandle,
     type UploadFn,
   } from '../lib/tiptap-extensions';
 
@@ -207,6 +208,7 @@
         ColumnsExtension,
         MermaidBlockExtension,
         DetailsExtension,
+        GlobalDragHandle,
         Typography,
       ],
       content: htmlFromValue(value),
@@ -1140,4 +1142,16 @@
     padding: 10px 14px;
     background: var(--bg);
   }
+
+  /* ── Global drag handle ── */
+  :global(.pm-drag-handle) {
+    position: fixed; z-index: 200; width: 20px; height: 24px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--mu); font-size: 14px; opacity: 0;
+    cursor: grab; user-select: none; border-radius: 3px;
+    transition: opacity 0.12s, background 0.1s;
+    pointer-events: auto;
+  }
+  :global(.pm-drag-handle:hover) { background: var(--sf2); color: var(--tx2); opacity: 1 !important; }
+  :global(.pm-drag-handle:active) { cursor: grabbing; }
 </style>

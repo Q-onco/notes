@@ -1,10 +1,11 @@
 <script lang="ts">
   import { searchPubMed, fetchBioRxiv, fetchNatureCell, fetchPubMedAbstract, searchOpenAlex, searchEuropePMC } from '../lib/pubmed';
-  import type { PaperResult, ReadingListItem, SavedSearch, Note } from '../lib/types';
+  import type { PaperResult, ReadingListItem, SavedSearch, Note, PaperCollection } from '../lib/types';
   import { store } from '../lib/store.svelte';
   import { exportPapers, exportPapersDocx, exportPapersBibTeX } from '../lib/export';
-  import { askResearch, deepReadPaper, generateReadingNote, critiquePaper, streamRadarSummary, streamMarkerLookup } from '../lib/groq';
+  import { askResearch, deepReadPaper, generateReadingNote, critiquePaper, streamRadarSummary, streamMarkerLookup, comparePapers } from '../lib/groq';
   import { nanoid } from 'nanoid';
+  import { marked } from 'marked';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -396,6 +397,113 @@
   let savingSearch = $state(false);
   let saveSearchLabel = $state('');
   let showSaveInput = $state(false);
+
+  // ── Paper collections ──────────────────────────────────────────
+  let activeCollectionId = $state<string | null>(null);
+  let showNewCollection = $state(false);
+  let newCollectionLabel = $state('');
+  const COLL_COLORS: PaperCollection['color'][] = ['ac', 'gn', 'pu', 'yw', 'enzo', 'rd'];
+  let newCollectionColor = $state<PaperCollection['color']>('ac');
+
+  function createCollection() {
+    if (!newCollectionLabel.trim()) return;
+    const c: PaperCollection = { id: nanoid(), label: newCollectionLabel.trim(), color: newCollectionColor };
+    store.paperCollections = [...store.paperCollections, c];
+    store.saveResearch();
+    newCollectionLabel = ''; showNewCollection = false;
+  }
+
+  function deleteCollection(id: string) {
+    store.paperCollections = store.paperCollections.filter(c => c.id !== id);
+    store.pinnedPapers = store.pinnedPapers.map(p => ({ ...p, collectionIds: (p.collectionIds ?? []).filter(c => c !== id) }));
+    if (activeCollectionId === id) activeCollectionId = null;
+    store.saveResearch(); store.savePinnedPapers?.();
+  }
+
+  function togglePaperCollection(paperId: string, collId: string) {
+    store.pinnedPapers = store.pinnedPapers.map(p => {
+      if (p.id !== paperId) return p;
+      const ids = p.collectionIds ?? [];
+      return { ...p, collectionIds: ids.includes(collId) ? ids.filter(c => c !== collId) : [...ids, collId] };
+    });
+    store.savePinnedPapers?.();
+  }
+
+  // ── Reading progress (3-state cycle) ───────────────────────────
+  function cycleReadStatus(id: string) {
+    store.readingList = store.readingList.map(r => {
+      if (r.id !== id) return r;
+      const next: Record<string, ReadingListItem['readStatus']> = { unread: 'in-progress', 'in-progress': 'done', done: 'unread' };
+      const cur = r.readStatus ?? (r.read ? 'done' : 'unread');
+      const ns = next[cur] ?? 'unread';
+      return { ...r, readStatus: ns, read: ns === 'done', readAt: ns === 'done' ? Date.now() : r.readAt };
+    });
+    store.saveResearch();
+  }
+
+  // ── Enzo paper compare ─────────────────────────────────────────
+  let compareSet = $state<Set<string>>(new Set());
+  let compareResult = $state('');
+  let compareStreaming = $state(false);
+  let compareAbort: AbortController | null = null;
+  let showCompare = $state(false);
+
+  function toggleCompare(id: string) {
+    const s = new Set(compareSet);
+    if (s.has(id)) s.delete(id); else if (s.size < 3) s.add(id);
+    compareSet = s;
+  }
+
+  async function runCompare() {
+    if (compareSet.size < 2) return;
+    const papers = [...compareSet].map(id => {
+      const item = store.readingList.find(r => r.paper.id === id) ?? store.pinnedPapers.find(p => p.id === id);
+      return item && 'paper' in item ? item.paper : item as PaperResult | undefined;
+    }).filter(Boolean) as PaperResult[];
+    if (papers.length < 2) return;
+    compareAbort?.abort();
+    compareAbort = new AbortController();
+    compareResult = ''; compareStreaming = true; showCompare = true;
+    try {
+      await comparePapers(papers.map(p => ({ title: p.title, authors: p.authors, year: p.year, journal: p.journal, abstract: p.abstract })), (c) => { compareResult += c; }, compareAbort.signal);
+    } catch {}
+    finally { compareStreaming = false; }
+  }
+
+  // ── Related papers (OpenAlex) ──────────────────────────────────
+  let relatedForId = $state<string | null>(null);
+  let relatedPapers = $state<PaperResult[]>([]);
+  let relatedLoading = $state(false);
+
+  async function fetchRelated(paper: PaperResult) {
+    if (relatedForId === paper.id) { relatedForId = null; return; }
+    if (!paper.doi) { showToast('No DOI — cannot fetch related papers', 'error'); return; }
+    relatedForId = paper.id; relatedLoading = true; relatedPapers = [];
+    try {
+      // Step 1: get OpenAlex work ID from DOI
+      const workRes = await fetch(`https://api.openalex.org/works/https://doi.org/${encodeURIComponent(paper.doi)}?select=id`);
+      if (!workRes.ok) throw new Error('work not found');
+      const workData = await workRes.json();
+      const workId = workData.id?.replace('https://openalex.org/', '');
+      if (!workId) throw new Error('no id');
+      // Step 2: get papers that cite this one
+      const citRes = await fetch(`https://api.openalex.org/works?filter=cites:${workId}&select=id,title,authorships,publication_year,primary_location,doi,open_access&sort=cited_by_count:desc&per_page=8`);
+      if (!citRes.ok) throw new Error('cites fetch failed');
+      const citData = await citRes.json();
+      relatedPapers = (citData.results ?? []).map((w: any) => ({
+        id: w.id ?? nanoid(),
+        title: w.title ?? 'Untitled',
+        authors: (w.authorships ?? []).slice(0, 4).map((a: any) => a.author?.display_name ?? ''),
+        abstract: '',
+        journal: w.primary_location?.source?.display_name ?? '',
+        year: w.publication_year ?? 0,
+        doi: w.doi?.replace('https://doi.org/', '') ?? '',
+        url: w.doi ? `https://doi.org/${w.doi.replace('https://doi.org/', '')}` : w.id ?? '',
+        source: 'openalex' as const,
+      }));
+    } catch { relatedPapers = []; showToast('Could not fetch related papers', 'error'); }
+    finally { relatedLoading = false; }
+  }
 
   const conceptSuggestions = $derived(
     query.trim().length >= 2
@@ -1356,6 +1464,59 @@ Format your response as:
   {:else if researchTab === 'reading-list'}
     <!-- Reading list tab -->
     <div class="reading-list">
+
+      <!-- Collections bar -->
+      <div class="coll-bar">
+        <button class="coll-pill" class:coll-pill-active={activeCollectionId === null} onclick={() => activeCollectionId = null}>All</button>
+        {#each store.paperCollections as c}
+          <div class="coll-pill-wrap">
+            <button class="coll-pill" class:coll-pill-active={activeCollectionId === c.id}
+              style="--cc:var(--{c.color})" onclick={() => activeCollectionId = activeCollectionId === c.id ? null : c.id}>
+              {c.label}
+            </button>
+            <button class="coll-del" onclick={() => deleteCollection(c.id)} title="Delete collection">×</button>
+          </div>
+        {/each}
+        {#if showNewCollection}
+          <div class="coll-new-form">
+            <input class="coll-new-input" bind:value={newCollectionLabel} placeholder="Name…"
+              onkeydown={(e) => { if (e.key === 'Enter') createCollection(); if (e.key === 'Escape') showNewCollection = false; }}
+              autofocus />
+            <div class="coll-color-row">
+              {#each COLL_COLORS as col}
+                <button class="coll-color-swatch" class:coll-color-active={newCollectionColor === col}
+                  style="background:var(--{col})" onclick={() => newCollectionColor = col}></button>
+              {/each}
+            </div>
+            <button class="btn btn-primary btn-sm" onclick={createCollection}>Add</button>
+          </div>
+        {:else}
+          <button class="coll-add-btn btn-link text-xs" onclick={() => showNewCollection = true}>+ collection</button>
+        {/if}
+      </div>
+
+      <!-- Compare panel -->
+      {#if compareSet.size >= 2}
+        <div class="compare-bar">
+          <span class="text-xs text-mu">{compareSet.size} papers selected</span>
+          <button class="btn btn-primary btn-sm" onclick={runCompare} disabled={compareStreaming}>
+            {compareStreaming ? '⠿ Comparing…' : 'Compare with Enzo'}
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick={() => { compareSet = new Set(); showCompare = false; }}>Clear</button>
+        </div>
+      {/if}
+      {#if showCompare}
+        <div class="compare-result card">
+          <div class="compare-result-head">
+            <span class="text-sm font-bold" style="color:var(--enzo)">🐾 Enzo — Paper Comparison</span>
+            <button class="btn-icon btn-xs" onclick={() => { showCompare = false; compareResult = ''; }}>×</button>
+          </div>
+          <div class="compare-body">
+            {#if compareStreaming}<span class="text-mu text-xs">Comparing…</span>{:else}{@html marked.parse(compareResult)}{/if}
+          </div>
+        </div>
+      {/if}
+
       {#if store.readingList.length > 0}
         {@const goal = store.settings.weeklyReadingGoal ?? 3}
         {@const pct = Math.min(100, Math.round((readThisWeek / goal) * 100))}
@@ -1369,81 +1530,112 @@ Format your response as:
           </div>
         </div>
       {/if}
+
       {#if store.readingList.length === 0}
         <div class="empty-state">
           <p class="text-mu">No papers in your reading list yet. Bookmark papers from search results.</p>
         </div>
       {:else}
+        {@const visibleItems = activeCollectionId
+          ? store.readingList.filter(r => (r.paper.collectionIds ?? []).includes(activeCollectionId!))
+          : store.readingList}
         {#each (['high', 'medium', 'low'] as const) as priority}
-          {#if readingListByPriority[priority].length > 0}
+          {@const grp = visibleItems.filter(r => r.priority === priority)}
+          {#if grp.length > 0}
             <div class="rl-group">
               <div class="rl-group-head">
                 <span class="rl-priority-dot rl-dot-{priority}"></span>
                 <span class="rl-group-label">{priority.charAt(0).toUpperCase() + priority.slice(1)} priority</span>
-                <span class="text-xs text-mu">({readingListByPriority[priority].length})</span>
+                <span class="text-xs text-mu">({grp.length})</span>
               </div>
-              {#each readingListByPriority[priority] as item (item.id)}
-                <div class="rl-item card" class:rl-read={item.read}>
+              {#each grp as item (item.id)}
+                {@const status = item.readStatus ?? (item.read ? 'done' : 'unread')}
+                <div class="rl-item card" class:rl-read={status === 'done'}>
                   <div class="rl-item-head">
-                    <label class="rl-check">
-                      <input
-                        type="checkbox"
-                        checked={item.read}
-                        onchange={() => toggleReadItem(item.id)}
-                      />
-                      <span class="rl-check-label">Read</span>
-                    </label>
+                    <!-- 3-state status button -->
+                    <button class="rl-status-btn rl-status-{status}" onclick={() => cycleReadStatus(item.id)} title="Cycle status">
+                      {#if status === 'done'}✓{:else if status === 'in-progress'}⚡{:else}○{/if}
+                    </button>
+                    <!-- Compare checkbox -->
+                    <input type="checkbox" class="rl-compare-cb" checked={compareSet.has(item.paper.id)}
+                      onchange={() => toggleCompare(item.paper.id)} title="Add to compare (max 3)" />
                     <div class="rl-item-meta">
                       <span class="tag {SOURCE_CLS[item.paper.source] || ''}">{SOURCE_LABELS[item.paper.source] || item.paper.source}</span>
                       <span class="text-xs text-mu">{item.paper.journal}</span>
                       {#if item.paper.year > 0}<span class="text-xs text-mu">· {item.paper.year}</span>{/if}
                     </div>
                     <div class="rl-item-actions">
-                      <select
-                        class="rl-priority-sel"
-                        value={item.priority}
-                        onchange={(e) => setReadingPriority(item.id, (e.target as HTMLSelectElement).value as 'high' | 'medium' | 'low')}
-                      >
+                      <select class="rl-priority-sel" value={item.priority}
+                        onchange={(e) => setReadingPriority(item.id, (e.target as HTMLSelectElement).value as 'high' | 'medium' | 'low')}>
                         <option value="high">High</option>
                         <option value="medium">Medium</option>
                         <option value="low">Low</option>
                       </select>
+                      <!-- Collection assign -->
+                      {#if store.paperCollections.length > 0}
+                        <select class="rl-priority-sel" title="Add to collection"
+                          onchange={(e) => { const v = (e.target as HTMLSelectElement).value; if (v) togglePaperCollection(item.paper.id, v); (e.target as HTMLSelectElement).value = ''; }}>
+                          <option value="">📁</option>
+                          {#each store.paperCollections as c}
+                            <option value={c.id} selected={(item.paper.collectionIds ?? []).includes(c.id)}>
+                              {(item.paper.collectionIds ?? []).includes(c.id) ? '✓ ' : ''}{c.label}
+                            </option>
+                          {/each}
+                        </select>
+                      {/if}
                       {#if item.paper.doi}
                         <a href="https://doi.org/{item.paper.doi}" target="_blank" rel="noreferrer" class="btn-icon" title="Open">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
-                            <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
-                          </svg>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                         </a>
                       {:else if item.paper.url}
                         <a href={item.paper.url} target="_blank" rel="noreferrer" class="btn-icon" title="Open">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
-                            <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
-                          </svg>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                         </a>
                       {/if}
                       <button class="btn-icon cite-btn" onclick={() => copyCitation(item.paper, 'apa')} title="Copy APA">APA</button>
                       <button class="btn-icon cite-btn" onclick={() => copyCitation(item.paper, 'vancouver')} title="Copy Vancouver">VAN</button>
                       <button class="btn-icon cite-btn" onclick={() => copyCitation(item.paper, 'bibtex')} title="Copy BibTeX">BIB</button>
+                      <button class="btn-icon" onclick={() => fetchRelated(item.paper)} title="Find related papers (OpenAlex)"
+                        class:active={relatedForId === item.paper.id}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                      </button>
                       <button class="btn-icon create-note-btn" onclick={() => createPaperReviewNote(item.paper)} title="Create paper review note">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-                          <polyline points="14 2 14 8 20 8"/>
-                          <line x1="12" y1="18" x2="12" y2="12"/>
-                          <line x1="9" y1="15" x2="15" y2="15"/>
-                        </svg>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
                       </button>
                       <button class="btn-icon" onclick={() => removeReadingItem(item.id)} title="Remove">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                        </svg>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                       </button>
                     </div>
                   </div>
-                  <p class="rl-title" class:rl-title-done={item.read}>{item.paper.title}</p>
+                  <p class="rl-title" class:rl-title-done={status === 'done'}>{item.paper.title}</p>
                   {#if item.paper.authors.length > 0}
                     <p class="text-xs text-mu">{item.paper.authors.slice(0, 4).join(', ')}{item.paper.authors.length > 4 ? ' et al.' : ''} · ~{readingTimeMins(item.paper)} min</p>
+                  {/if}
+                  <!-- Related papers inline -->
+                  {#if relatedForId === item.paper.id}
+                    <div class="related-panel">
+                      <div class="related-head">
+                        <span class="text-xs text-mu">Papers citing this work (OpenAlex)</span>
+                        {#if relatedLoading}<span class="related-spin"></span>{/if}
+                      </div>
+                      {#if !relatedLoading && relatedPapers.length === 0}
+                        <p class="text-xs text-mu">No citing papers found.</p>
+                      {:else}
+                        {#each relatedPapers as rp}
+                          <div class="related-item">
+                            <span class="related-title">{rp.title}</span>
+                            <span class="text-xs text-mu">{rp.authors[0] ?? ''}{rp.year ? ` · ${rp.year}` : ''}</span>
+                            <div class="related-actions">
+                              {#if rp.doi}<a href="https://doi.org/{rp.doi}" target="_blank" rel="noreferrer" class="btn-link text-xs">Open</a>{/if}
+                              <button class="btn-link text-xs" onclick={() => toggleReadingList(rp)}>+ List</button>
+                              <button class="btn-link text-xs" onclick={() => togglePin(rp)}>
+                                {store.pinnedPapers.some(p => p.id === rp.id) ? 'Pinned' : 'Pin'}
+                              </button>
+                            </div>
+                          </div>
+                        {/each}
+                      {/if}
+                    </div>
                   {/if}
                 </div>
               {/each}
@@ -2288,4 +2480,72 @@ Format your response as:
   .network-detail-title { font-size: 0.85rem; font-weight: 600; color: var(--tx); line-height: 1.4; margin: 0; }
   .network-hint { padding: 10px 0; }
   .tag-ac { background: var(--ac-bg); color: var(--ac); border: 1px solid var(--ac); border-radius: 10px; padding: 1px 7px; font-size: 0.7rem; font-weight: 700; }
+
+  /* ── Paper collections ───────────────────────────────────────── */
+  .coll-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .coll-pill {
+    display: inline-flex; align-items: center; gap: 3px;
+    padding: 3px 10px; border-radius: 20px; font-size: 0.76rem; font-weight: 600;
+    background: var(--sf2); border: 1px solid var(--bd); color: var(--tx2);
+    cursor: pointer; transition: all var(--transition);
+  }
+  .coll-pill:hover { border-color: var(--cc, var(--ac)); color: var(--cc, var(--ac)); background: color-mix(in srgb, var(--cc, var(--ac)) 10%, transparent); }
+  .coll-pill.coll-pill-active { background: color-mix(in srgb, var(--cc, var(--ac)) 15%, transparent); border-color: var(--cc, var(--ac)); color: var(--cc, var(--ac)); }
+  .coll-pill-wrap { display: inline-flex; align-items: center; gap: 1px; }
+  .coll-del {
+    background: transparent; border: none; color: var(--mu); cursor: pointer;
+    font-size: 1rem; line-height: 1; padding: 2px 4px; border-radius: 3px; opacity: 0.5;
+  }
+  .coll-del:hover { opacity: 1; color: var(--rd); }
+  .coll-new-form { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .coll-new-input { font-size: 0.8rem; padding: 3px 8px; width: 120px; }
+  .coll-color-row { display: flex; gap: 4px; }
+  .coll-color-swatch {
+    width: 14px; height: 14px; border-radius: 50%; border: 2px solid transparent; cursor: pointer;
+  }
+  .coll-color-swatch.coll-color-active { border-color: var(--tx); }
+  .coll-add-btn { font-size: 0.76rem; padding: 3px 8px; }
+
+  /* ── Compare ─────────────────────────────────────────────────── */
+  .compare-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; background: var(--enzo-bg); border: 1px solid var(--enzo-bd);
+    border-radius: var(--radius); flex-wrap: wrap;
+  }
+  .compare-result { display: flex; flex-direction: column; gap: 10px; border-color: var(--enzo-bd); }
+  .compare-result-head { display: flex; align-items: center; justify-content: space-between; }
+  .compare-body { font-size: 0.83rem; line-height: 1.7; color: var(--tx2); overflow-x: auto; }
+  .compare-body table { border-collapse: collapse; width: 100%; font-size: 0.8rem; }
+  .compare-body th { padding: 6px 10px; background: var(--sf2); border: 1px solid var(--bd); font-weight: 700; text-align: left; }
+  .compare-body td { padding: 6px 10px; border: 1px solid var(--bd); vertical-align: top; }
+
+  /* ── 3-state status button ───────────────────────────────────── */
+  .rl-status-btn {
+    width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--bd);
+    background: var(--sf2); display: flex; align-items: center; justify-content: center;
+    font-size: 0.7rem; cursor: pointer; flex-shrink: 0; transition: all var(--transition);
+  }
+  .rl-status-unread { border-color: var(--bd2); color: var(--mu); }
+  .rl-status-in-progress { border-color: var(--yw); background: var(--yw-bg, color-mix(in srgb, var(--yw) 12%, transparent)); color: var(--yw); }
+  .rl-status-done { border-color: var(--gn); background: var(--gn-bg, color-mix(in srgb, var(--gn) 12%, transparent)); color: var(--gn); }
+
+  /* ── Compare checkbox ────────────────────────────────────────── */
+  .rl-compare-cb { accent-color: var(--enzo); cursor: pointer; flex-shrink: 0; }
+
+  /* ── Related papers panel ────────────────────────────────────── */
+  .related-panel {
+    margin-top: 6px; padding: 10px 12px;
+    background: var(--sf2); border: 1px solid var(--bd);
+    border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: 8px;
+  }
+  .related-head { display: flex; align-items: center; gap: 8px; }
+  .related-spin {
+    display: inline-block; width: 10px; height: 10px;
+    border: 1.5px solid var(--bd2); border-top-color: var(--ac);
+    border-radius: 50%; animation: spin 0.7s linear infinite;
+  }
+  .related-item { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; border-bottom: 1px solid var(--bd); }
+  .related-item:last-child { border-bottom: none; }
+  .related-title { font-size: 0.82rem; font-weight: 600; color: var(--tx); line-height: 1.4; }
+  .related-actions { display: flex; gap: 4px; margin-top: 3px; }
 </style>
