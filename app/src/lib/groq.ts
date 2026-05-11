@@ -1067,3 +1067,33 @@ Be specific and actionable. Number each gap. Keep each to 2–3 sentences.`
   ];
   await streamGroq(MODELS.enzo, messages, onChunk, signal);
 }
+
+export async function graphNarrative(
+  clusters: { label: string; titles: string[] }[],
+  isolatedTitles: string[],
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const clusterBlock = clusters.map(c =>
+    `Cluster "${c.label}": ${c.titles.slice(0, 6).join(', ')}`
+  ).join('\n');
+  const isolatedBlock = isolatedTitles.length
+    ? `\nIsolated notes: ${isolatedTitles.slice(0, 5).join(', ')}`
+    : '';
+
+  const messages = [
+    {
+      role: 'system' as const,
+      content: 'You are Enzo, an expert oncology research assistant specialising in HGSOC, TME biology, and translational oncology. Write in precise, academic prose.'
+    },
+    {
+      role: 'user' as const,
+      content: `Based on the following clusters of research notes, write a 3–4 sentence research narrative that describes the intellectual arc of this body of work. Identify the central scientific question, how the clusters relate to each other, and where the research is heading. End with the most promising or underexplored direction.
+
+${clusterBlock}${isolatedBlock}
+
+Write as flowing prose — no bullet points, no headings. 3–4 sentences only.`
+    }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
