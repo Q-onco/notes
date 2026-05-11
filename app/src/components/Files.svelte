@@ -1117,12 +1117,12 @@
   .file-detail.viewer-expanded { width: min(600px, 100vw); }
 
   .file-detail-head {
-    display: flex; align-items: flex-start; justify-content: space-between;
+    display: flex; flex-direction: column;
     gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--bd); flex-shrink: 0;
   }
-  .file-detail-title { min-width: 0; flex: 1; }
-  .file-detail-name { font-size: 0.85rem; font-weight: 600; color: var(--tx); word-break: break-word; overflow-wrap: anywhere; margin: 0; flex: 1; min-width: 0; line-height: 1.35; }
-  .file-detail-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .file-detail-title { min-width: 0; width: 100%; }
+  .file-detail-name { font-size: 0.92rem; font-weight: 600; color: var(--tx); word-break: break-word; overflow-wrap: anywhere; margin: 0; min-width: 0; line-height: 1.4; }
+  .file-detail-actions { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 
   /* Enzo button */
   .btn-enzo {
@@ -1242,7 +1242,7 @@
 
   /* ── Rename ───────────────────────────────────────────────────── */
   .file-name-row { display: flex; align-items: flex-start; gap: 4px; min-width: 0; width: 100%; }
-  .rename-btn { opacity: 0; width: 18px; height: 18px; border-radius: 3px; }
+  .rename-btn { opacity: 0; width: 18px; height: 18px; border-radius: 3px; flex-shrink: 0; margin-top: 1px; }
   .file-detail-title:hover .rename-btn { opacity: 1; }
   .file-rename-input {
     font-size: 0.85rem; font-weight: 600; color: var(--tx);
