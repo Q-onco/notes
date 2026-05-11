@@ -77,8 +77,45 @@
     return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
   }
 
-  // ── Transition ────────────────────────────────────────────────
+  // ── S4 step-reveal state ──────────────────────────────────────
+  let revealStep = $state(0);
+
+  // ── S5 transition ─────────────────────────────────────────────
   let slideTransition = $state('slide');
+
+  // ── S6 dual-panel presenter ───────────────────────────────────
+  let presenterDark  = $state(false);
+  let overviewOpen   = $state(false); // S7 overview panel
+  let gotoOpen       = $state(false); // goto dialog
+  let gotoValue      = $state('');
+  let batchNotesOpen = $state(false); // S8 batch notes
+  let batchNotes     = $state('');
+
+  // ── S1 layout presets ─────────────────────────────────────────
+  const LAYOUTS = [
+    { id: 'default',        label: 'Default',       icon: '☰',   html: '<h2>Slide Title</h2><p>Content here…</p>' },
+    { id: 'cover',          label: 'Cover',         icon: '◼',   html: '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center"><h1 style="font-size:2.2em;font-weight:700;margin-bottom:0.3em">Presentation Title</h1><p style="font-size:1.1em;opacity:0.7">Author · Institution · Date</p></div>' },
+    { id: 'section',        label: 'Section',       icon: '§',   html: '<div style="display:flex;flex-direction:column;justify-content:center;height:100%"><h2 style="font-size:2em;border-bottom:3px solid currentColor;padding-bottom:0.4em">Section Title</h2><p style="opacity:0.6;font-size:0.95em">Subsection or brief description</p></div>' },
+    { id: 'two-cols',       label: 'Two Cols',      icon: '⫿',   html: '<h2>Two Columns</h2><div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5em;font-size:0.85em"><div><h3>Left Column</h3><ul><li>Point one</li><li>Point two</li></ul></div><div><h3>Right Column</h3><ul><li>Point A</li><li>Point B</li></ul></div></div>' },
+    { id: 'two-cols-header',label: 'Two Cols + Header', icon: '⊞', html: '<h2 style="grid-column:1/-1">Heading</h2><div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5em;font-size:0.85em;margin-top:0.8em"><div><h3>Left</h3><p>Left content here</p></div><div><h3>Right</h3><p>Right content here</p></div></div>' },
+    { id: 'image-left',     label: 'Image Left',    icon: '◧',   html: '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5em;align-items:center"><div style="border:2px dashed rgba(128,128,128,0.4);border-radius:8px;padding:2em;text-align:center;font-size:0.8em;opacity:0.6">[ Image ]</div><div><h2>Title</h2><p style="font-size:0.85em">Content alongside the image…</p></div></div>' },
+    { id: 'image-right',    label: 'Image Right',   icon: '◨',   html: '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5em;align-items:center"><div><h2>Title</h2><p style="font-size:0.85em">Content alongside the image…</p></div><div style="border:2px dashed rgba(128,128,128,0.4);border-radius:8px;padding:2em;text-align:center;font-size:0.8em;opacity:0.6">[ Image ]</div></div>' },
+    { id: 'full-image',     label: 'Full Image',    icon: '⬛',   html: '<div style="position:relative;height:100%;display:flex;align-items:flex-end"><div style="border:2px dashed rgba(128,128,128,0.4);border-radius:8px;position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:0.8em;opacity:0.4">[ Full-bleed image ]</div><div style="position:relative;background:rgba(0,0,0,0.55);color:#fff;padding:0.6em 1em;border-radius:6px;margin:1em"><p style="font-size:0.85em;margin:0">Caption or overlay text</p></div></div>' },
+    { id: 'stat-callout',   label: 'Stat Callout',  icon: '%',   html: '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center"><p style="font-size:3.5em;font-weight:800;line-height:1;margin:0">72%</p><p style="font-size:1.1em;opacity:0.8;margin-top:0.3em">of patients responded to [treatment]</p><p style="font-size:0.72em;opacity:0.5;margin-top:0.5em">Source: [Citation, Year]</p></div>' },
+    { id: 'quote',          label: 'Quote',         icon: '"',   html: '<div style="display:flex;flex-direction:column;justify-content:center;height:100%"><blockquote style="border-left:5px solid currentColor;padding-left:1.2em;font-size:1.3em;font-style:italic;opacity:0.9">"Insert your impactful quote here."</blockquote><p style="margin-top:1em;font-size:0.8em;opacity:0.6">— Attribution, Title, Year</p></div>' },
+    { id: 'statement',      label: 'Statement',     icon: '!',   html: '<div style="display:flex;align-items:center;justify-content:center;height:100%;text-align:center"><h2 style="font-size:1.8em;font-weight:700;max-width:80%;line-height:1.4">Your key takeaway or bold statement goes here.</h2></div>' },
+    { id: 'end',            label: 'End / Thanks',  icon: '★',   html: '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center"><h2 style="font-size:2.2em;font-weight:700">Thank You</h2><p style="font-size:1em;opacity:0.7;margin-top:0.5em">Questions?</p><p style="font-size:0.8em;opacity:0.5;margin-top:1em">contact@example.com · @handle</p></div>' },
+  ] as const;
+
+  // ── S5 transition presets ─────────────────────────────────────
+  const TRANSITIONS = [
+    { id: 'none',       label: 'None' },
+    { id: 'fade',       label: 'Fade' },
+    { id: 'slide-left', label: '← Slide' },
+    { id: 'slide-right',label: 'Slide →' },
+    { id: 'slide-up',   label: '↑ Slide' },
+    { id: 'slide-down', label: '↓ Slide' },
+  ] as const;
 
   const pres = $derived(store.presentations.find(p => p.id === selectedId) ?? null);
 
@@ -333,23 +370,112 @@
   function startPresent() {
     if (!pres || pres.slides.length === 0) return;
     presentIdx = 0; presentMode = true; notesVisible = false;
+    revealStep = 0; overviewOpen = false; gotoOpen = false;
+    // S1: set layout class on slides pre-rendered
+    setTimeout(() => {
+      const overlay = document.querySelector<HTMLElement>('.present-overlay');
+      overlay?.focus();
+    }, 50);
   }
 
-  function exitPresent() { presentMode = false; }
+  function exitPresent() {
+    presentMode = false;
+    if (document.fullscreenElement) document.exitFullscreen?.();
+  }
+
+  // S8 batch notes helpers
+  function openBatchNotes() {
+    if (!pres) return;
+    batchNotes = pres.slides.map((s, i) => `--- Slide ${i + 1}: ${s.content.replace(/<[^>]+>/g, ' ').slice(0,60)} ---\n${s.notes}`).join('\n\n');
+    batchNotesOpen = true;
+  }
+
+  function saveBatchNotes() {
+    if (!pres) return;
+    const blocks = batchNotes.split(/\n--- Slide \d+[^-]*---\n?/);
+    // blocks[0] is empty before first marker; blocks[1..n] correspond to slides
+    blocks.slice(1).forEach((block, i) => {
+      if (pres!.slides[i]) mutate(p => { p.slides[i].notes = block.trim(); });
+    });
+    batchNotesOpen = false;
+    showToast('Notes saved');
+  }
 
   function onPresentKey(e: KeyboardEvent) {
     if (!presentMode || !pres) return;
+    const slide = pres.slides[presentIdx];
+
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
       e.preventDefault();
-      if (presentIdx < pres.slides.length - 1) presentIdx++;
+      if (overviewOpen) return;
+      if (gotoOpen) return;
+      // S4 step-reveal: advance bullet first
+      if (slide?.revealBullets) {
+        const el = document.querySelector('.present-slide-wrap .present-content');
+        const bullets = el ? Array.from(el.querySelectorAll('li.reveal-bullet')) : [];
+        const nextHidden = bullets.find(b => (b as HTMLElement).style.opacity === '0');
+        if (nextHidden) { (nextHidden as HTMLElement).style.opacity = '1'; revealStep++; return; }
+      }
+      if (presentIdx < pres.slides.length - 1) { presentIdx++; revealStep = 0; }
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
       e.preventDefault();
-      if (presentIdx > 0) presentIdx--;
+      if (overviewOpen || gotoOpen) return;
+      if (presentIdx > 0) { presentIdx--; revealStep = 0; }
     } else if (e.key === 'Escape') {
+      if (overviewOpen) { overviewOpen = false; return; }
+      if (gotoOpen) { gotoOpen = false; return; }
       exitPresent();
     } else if (e.key === 's' || e.key === 'S') {
       notesVisible = !notesVisible;
+    } else if (e.key === 'o' || e.key === 'O') {
+      overviewOpen = !overviewOpen;
+    } else if (e.key === 'g' || e.key === 'G') {
+      gotoOpen = true; gotoValue = '';
+    } else if (e.key === 'd' || e.key === 'D') {
+      presenterDark = !presenterDark;
+    } else if (e.key === 'f' || e.key === 'F') {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+      else document.exitFullscreen?.();
     }
+  }
+
+  // S9 PDF export via print
+  function printPresentation() {
+    if (!pres) return;
+    const th = THEMES[pres.theme];
+    const slides = pres.slides;
+    const doc = window.open('', '_blank');
+    if (!doc) { showToast('Please allow popups for PDF export', 'error'); return; }
+    doc.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>${pres.title}</title>
+<style>
+  @page { size: 16in 9in; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; }
+  .slide { width: 16in; height: 9in; page-break-after: always; overflow: hidden;
+    background: ${th.bg}; color: ${th.fg};
+    display: flex; flex-direction: column; justify-content: center;
+    padding: 1.5in; }
+  .slide:last-child { page-break-after: avoid; }
+  h1 { font-size: 2em; } h2 { font-size: 1.5em; } h3 { font-size: 1.2em; }
+  ul, ol { padding-left: 1.5em; font-size: 0.9em; }
+  blockquote { border-left: 4px solid ${th.accent}; padding-left: 1em; }
+  a { color: ${th.accent}; }
+  .notes-page { background: #fff; color: #222; page-break-after: always; padding: 0.8in; }
+  .notes-title { font-size: 0.85em; font-weight: 700; color: #888; margin-bottom: 0.5em; }
+</style></head><body>`);
+    slides.forEach((s, i) => {
+      doc.document.write(`<div class="slide">${s.content}</div>`);
+    });
+    if (slides.some(s => s.notes)) {
+      slides.forEach((s, i) => {
+        if (s.notes) doc.document.write(`<div class="notes-page"><div class="notes-title">Slide ${i + 1} — Speaker notes</div><p>${s.notes}</p></div>`);
+      });
+    }
+    doc.document.write('</body></html>');
+    doc.document.close();
+    doc.focus();
+    setTimeout(() => { doc.print(); }, 400);
   }
 
   // ── PDF text extraction (for Files source tab) ────────────────
@@ -623,56 +749,170 @@
 
 <!-- ── Present mode overlay ─────────────────────────────────── -->
 {#if presentMode && pres}
-  {@const th = THEMES[pres.theme]}
+  {@const th = presenterDark ? THEMES['dark'] : THEMES[pres.theme]}
+  {@const curSlide = pres.slides[presentIdx]}
+  {@const nextSlide = pres.slides[presentIdx + 1] ?? null}
+  {@const slideTransId = curSlide?.transition ?? pres.defaultTransition ?? 'none'}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="present-overlay"
+    class:presenter-dark={presenterDark}
     style="background:{th.bg};color:{th.fg}"
     onkeydown={onPresentKey}
     tabindex="-1"
     role="presentation"
   >
-    <div class="present-slide-wrap">
-      <div class="present-content" style="--pac:{th.accent};--pmuted:{th.muted}">
-        <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-        {@html pres.slides[presentIdx]?.content ?? ''}
+    <!-- S6 Dual-panel layout: main stage (left) + presenter panel (right) -->
+    <div class="present-dual">
+      <!-- Main slide -->
+      <div class="present-stage-wrap">
+        <div class="present-slide-wrap present-slide-{slideTransId}" key={presentIdx}>
+          <div class="present-content" style="--pac:{th.accent};--pmuted:{th.muted}">
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+            {#if curSlide?.revealBullets}
+              {@html (curSlide.content ?? '').replace(/<li>/g, '<li class="reveal-bullet" style="opacity:0;transition:opacity 0.3s">')}
+            {:else}
+              {@html curSlide?.content ?? ''}
+            {/if}
+          </div>
+        </div>
+      </div>
+
+      <!-- S6 Right presenter panel -->
+      <div class="present-panel" style="background:{th.bg};border-left:1px solid {th.muted}44">
+        <!-- Next slide preview -->
+        {#if nextSlide}
+          <div class="panel-next-wrap">
+            <p class="panel-label" style="color:{th.muted}">Next</p>
+            <div class="panel-next-thumb">
+              <div class="panel-next-inner" style="color:{th.fg};background:{th.bg};--pac:{th.accent}">
+                <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+                {@html nextSlide.content}
+              </div>
+            </div>
+          </div>
+        {:else}
+          <div class="panel-next-wrap">
+            <p class="panel-label" style="color:{th.muted}">Last slide</p>
+          </div>
+        {/if}
+
+        <!-- Timer + counter -->
+        <div class="panel-hud" style="color:{th.muted}">
+          <span class="panel-timer">{fmtTimer(presentTimer)}</span>
+          <span class="panel-counter">{presentIdx + 1} / {pres.slides.length}</span>
+        </div>
+
+        <!-- Speaker notes -->
+        <div class="panel-notes-wrap">
+          <p class="panel-label" style="color:{th.muted}">Notes</p>
+          <div class="panel-notes-text" style="color:{th.fg}">
+            {curSlide?.notes || '—'}
+          </div>
+        </div>
+
+        <!-- S6 Keyboard hint -->
+        <div class="panel-hints" style="color:{th.muted}88">
+          <span>← → nav</span>
+          <span>O overview</span>
+          <span>G goto</span>
+          <span>D dark</span>
+          <span>F fullscreen</span>
+          <span>Esc exit</span>
+        </div>
       </div>
     </div>
 
-    {#if notesVisible && pres.slides[presentIdx]?.notes}
-      <div class="present-notes-bar" style="background:{th.bg};border-color:{th.muted}">
-        <span class="present-notes-label" style="color:{th.muted}">Notes</span>
-        {pres.slides[presentIdx].notes}
-      </div>
-    {/if}
+    <!-- Progress bar -->
+    <div class="present-progress-bar" style="background:{th.accent}44">
+      <div class="present-progress-fill" style="background:{th.accent};width:{((presentIdx+1)/pres.slides.length)*100}%"></div>
+    </div>
 
-    <!-- Next slide preview -->
-    {#if pres.slides[presentIdx + 1]}
-      <div class="present-next-preview" style="border-color:{th.muted}44;background:{th.bg}cc">
-        <span class="present-next-label" style="color:{th.muted}">Next →</span>
-        <div class="present-next-thumb-wrap">
-          <div
-            class="present-next-thumb-inner"
-            style="--pac:{th.accent};--pmuted:{th.muted};color:{th.fg};background:{th.bg}"
-          >
-            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-            {@html pres.slides[presentIdx + 1].content}
+    <!-- Footer controls -->
+    <div class="present-footer" style="background:{th.bg}88;color:{th.muted}">
+      <button class="present-nav-btn" style="color:{th.fg}" onclick={() => { if (presentIdx > 0) { presentIdx--; revealStep = 0; } }} disabled={presentIdx === 0}>←</button>
+      <span class="present-counter">{presentIdx + 1} / {pres.slides.length}</span>
+      <button class="present-nav-btn" style="color:{th.fg}" onclick={() => { if (presentIdx < pres.slides.length - 1) { presentIdx++; revealStep = 0; } }} disabled={presentIdx === pres.slides.length - 1}>→</button>
+      <span class="present-timer" style="color:{th.muted}">{fmtTimer(presentTimer)}</span>
+      <button class="present-icon-btn" title="Overview (O)" onclick={() => overviewOpen = !overviewOpen} style="color:{th.muted}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      </button>
+      <button class="present-icon-btn" title="Dark toggle (D)" onclick={() => presenterDark = !presenterDark} style="color:{th.muted}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+      </button>
+      <button class="present-exit" style="color:{th.muted}" onclick={exitPresent}>✕ Exit</button>
+    </div>
+
+    <!-- S7 Overview panel -->
+    {#if overviewOpen}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <div class="overview-overlay" onclick={() => overviewOpen = false}>
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="overview-grid" onclick={(e) => e.stopPropagation()}>
+          <div class="overview-title-row">
+            <span style="color:#fff;font-weight:600">Overview — {pres.slides.length} slides</span>
+            <button onclick={() => overviewOpen = false} style="color:rgba(255,255,255,0.5);background:none;border:none;cursor:pointer;font-size:1.3rem">✕</button>
           </div>
+          {#each pres.slides as s, i}
+            <button
+              class="overview-thumb"
+              class:active-thumb={i === presentIdx}
+              onclick={() => { presentIdx = i; revealStep = 0; overviewOpen = false; }}
+              title="Go to slide {i + 1}"
+            >
+              <div class="overview-thumb-inner" style="color:{th.fg};background:{th.bg};--pac:{th.accent}">
+                <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+                {@html s.content}
+              </div>
+              <span class="overview-num">{i + 1}</span>
+            </button>
+          {/each}
         </div>
       </div>
     {/if}
 
-    <div class="present-footer" style="background:{th.bg}88;color:{th.muted}">
-      <button class="present-nav-btn" style="color:{th.fg}" onclick={() => { if (presentIdx > 0) presentIdx--; }} disabled={presentIdx === 0}>←</button>
-      <span class="present-counter">{presentIdx + 1} / {pres.slides.length}</span>
-      <button class="present-nav-btn" style="color:{th.fg}" onclick={() => { if (presentIdx < pres.slides.length - 1) presentIdx++; }} disabled={presentIdx === pres.slides.length - 1}>→</button>
-      <span class="present-timer" style="color:{th.muted}">{fmtTimer(presentTimer)}</span>
-      <span class="present-hint">S — notes &nbsp;·&nbsp; Esc — exit</span>
-      <button class="present-exit" style="color:{th.muted}" onclick={exitPresent}>✕ Exit</button>
-    </div>
+    <!-- Goto dialog -->
+    {#if gotoOpen}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <div class="goto-backdrop" onclick={() => gotoOpen = false}>
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="goto-dialog" onclick={(e) => e.stopPropagation()}>
+          <span style="color:{th.muted};font-size:0.8rem">Go to slide (1–{pres.slides.length})</span>
+          <input
+            class="goto-input"
+            type="number"
+            min="1"
+            max={pres.slides.length}
+            bind:value={gotoValue}
+            autofocus
+            onkeydown={(e) => {
+              if (e.key === 'Enter') {
+                const n = parseInt(gotoValue);
+                if (n >= 1 && n <= pres.slides.length) { presentIdx = n - 1; revealStep = 0; }
+                gotoOpen = false;
+              } else if (e.key === 'Escape') { gotoOpen = false; }
+            }}
+          />
+        </div>
+      </div>
+    {/if}
+  </div>
+{/if}
 
-    <div class="present-progress-bar" style="background:{th.accent}44">
-      <div class="present-progress-fill" style="background:{th.accent};width:{((presentIdx+1)/pres.slides.length)*100}%"></div>
+<!-- ── S8 Batch notes editor modal ───────────────────────────── -->
+{#if batchNotesOpen}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="modal-backdrop" onclick={() => batchNotesOpen = false}></div>
+  <div class="batch-notes-modal card">
+    <div class="batch-notes-head">
+      <h3>Batch speaker notes editor</h3>
+      <p class="text-xs text-mu">Edit all slides' notes in one view. Lines starting with <code>--- Slide N</code> are markers — do not delete them.</p>
+    </div>
+    <textarea class="batch-notes-ta" bind:value={batchNotes} rows={20} spellcheck="true"></textarea>
+    <div class="batch-notes-actions">
+      <button class="btn btn-ghost btn-sm" onclick={() => batchNotesOpen = false}>Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick={saveBatchNotes}>Save notes</button>
     </div>
   </div>
 {/if}
@@ -979,8 +1219,27 @@
           </div>
           <button class="btn btn-ghost btn-sm" onclick={exportHtml} title="Export as reveal.js HTML">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Export HTML
+            HTML
           </button>
+          <!-- S9 PDF export -->
+          <button class="btn btn-ghost btn-sm" onclick={printPresentation} title="Export as PDF (browser print)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            PDF
+          </button>
+          <!-- S8 Batch notes editor -->
+          <button class="btn btn-ghost btn-sm" onclick={openBatchNotes} title="Edit all speaker notes at once">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+            Notes
+          </button>
+          <!-- S5 Global transition -->
+          <select class="slide-trans-sel" title="Default transition for all slides"
+            value={pres.defaultTransition ?? 'none'}
+            onchange={(e) => mutate(p => { p.defaultTransition = (e.target as HTMLSelectElement).value; })}
+          >
+            {#each TRANSITIONS as t}
+              <option value={t.id}>{t.label}</option>
+            {/each}
+          </select>
           <!-- Source sidebar toggle -->
           {#if totalSourceCount > 0 || docBrief || pres?.aiContext}
             <button class="btn btn-ghost btn-sm" class:active={showSourceSidebar} onclick={() => showSourceSidebar = !showSourceSidebar} title="Toggle source sidebar">
@@ -1112,6 +1371,41 @@
               <div class="slide-drag-handle" title="Drag to reorder">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="7" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="9" cy="17" r="1.5"/><circle cx="15" cy="7" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="15" cy="17" r="1.5"/></svg>
               </div>
+              <!-- S1 Layout picker -->
+              <select
+                class="slide-layout-sel"
+                value={slide.layout ?? 'default'}
+                title="Slide layout"
+                onchange={(e) => {
+                  const lid = (e.target as HTMLSelectElement).value;
+                  const tpl = LAYOUTS.find(l => l.id === lid);
+                  if (tpl) mutate(p => { p.slides[i].layout = lid; p.slides[i].content = tpl.html; });
+                }}
+              >
+                {#each LAYOUTS as l}
+                  <option value={l.id}>{l.icon} {l.label}</option>
+                {/each}
+              </select>
+              <!-- S5 Transition picker -->
+              <select
+                class="slide-trans-sel"
+                value={slide.transition ?? pres.defaultTransition ?? 'none'}
+                title="Slide transition"
+                onchange={(e) => mutate(p => { p.slides[i].transition = (e.target as HTMLSelectElement).value; })}
+              >
+                {#each TRANSITIONS as t}
+                  <option value={t.id}>{t.label}</option>
+                {/each}
+              </select>
+              <!-- S4 Step-reveal toggle -->
+              <button
+                class="btn-icon slide-reveal-btn"
+                class:active={slide.revealBullets}
+                onclick={(e) => { e.stopPropagation(); mutate(p => { p.slides[i].revealBullets = !p.slides[i].revealBullets; }); }}
+                title="Step-reveal bullets (v-click)"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+              </button>
               <!-- Duplicate button -->
               <button
                 class="btn-icon slide-dup"
@@ -1155,13 +1449,13 @@
 
             <div class="slide-notes-row">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="notes-icon"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-              <input
+              <textarea
                 class="slide-notes-input"
-                type="text"
                 value={slide.notes}
-                oninput={(e) => updateNotes(i, (e.target as HTMLInputElement).value)}
-                placeholder="Speaker notes (press S during presentation)…"
-              />
+                oninput={(e) => updateNotes(i, (e.target as HTMLTextAreaElement).value)}
+                placeholder="Speaker notes…"
+                rows={2}
+              ></textarea>
             </div>
           </div>
 
@@ -1455,9 +1749,43 @@
     font-size: 0.78rem;
     color: var(--tx2);
     font-family: var(--font);
+    resize: vertical;
+    min-height: 36px;
+    line-height: 1.4;
   }
   .slide-notes-input:focus { outline: none; }
   .slide-notes-input::placeholder { color: var(--mu); }
+
+  /* S1 layout + S5 transition selects in slide card header */
+  .slide-layout-sel, .slide-trans-sel {
+    font-size: 0.68rem; padding: 2px 5px;
+    border: 1px solid var(--bd); border-radius: 3px;
+    background: var(--sf2); color: var(--tx2); cursor: pointer;
+    max-width: 90px;
+  }
+  .slide-layout-sel:focus, .slide-trans-sel:focus { outline: none; border-color: var(--ac); }
+
+  /* S4 step-reveal toggle */
+  .slide-reveal-btn { opacity: 0.4; }
+  .slide-reveal-btn:hover { opacity: 0.9; color: var(--ac); }
+  .slide-reveal-btn.active { opacity: 1; color: var(--ac); background: var(--ac-bg); }
+
+  /* S8 Batch notes modal */
+  .batch-notes-modal {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    z-index: 9000; width: min(680px, 92vw);
+    padding: 20px; display: flex; flex-direction: column; gap: 12px;
+    max-height: 90vh; overflow: hidden;
+  }
+  .batch-notes-head { display: flex; flex-direction: column; gap: 4px; }
+  .batch-notes-ta {
+    flex: 1; resize: vertical; font-family: var(--mono); font-size: 0.78rem;
+    padding: 10px; border: 1px solid var(--bd); border-radius: var(--radius-sm);
+    background: var(--sf2); color: var(--tx); line-height: 1.6;
+    min-height: 320px;
+  }
+  .batch-notes-ta:focus { outline: none; border-color: var(--ac); }
+  .batch-notes-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
   /* Add slide zone */
   .add-slide-zone { display: flex; justify-content: center; padding: 4px 0; width: 100%; max-width: 800px; }
@@ -1478,26 +1806,25 @@
   .add-slide-btn:hover { opacity: 1; border-color: var(--ac); color: var(--ac); background: var(--ac-bg); }
 
   /* ── Present overlay ── */
+  /* ── S6 Dual-panel presenter ────────────────────────────────── */
   .present-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 9000;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
+    position: fixed; inset: 0; z-index: 9000;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .present-dual {
+    flex: 1; display: flex; overflow: hidden;
+  }
+  .present-stage-wrap {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    padding: 40px 60px; overflow: hidden;
   }
   .present-slide-wrap {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 60px 80px;
-    overflow: hidden;
+    width: 100%; max-width: 900px;
+    display: flex; align-items: center; justify-content: center;
   }
   .present-content {
-    max-width: 900px;
     width: 100%;
-    font-size: clamp(1rem, 2.5vw, 1.6rem);
+    font-size: clamp(0.9rem, 2.2vw, 1.5rem);
     line-height: 1.5;
   }
   :global(.present-content h1) { font-size: 2.2em; font-weight: 800; margin-bottom: 0.5em; color: var(--pac, inherit); }
@@ -1507,75 +1834,100 @@
   :global(.present-content li) { margin-bottom: 0.4em; }
   :global(.present-content p) { margin-bottom: 0.6em; opacity: 0.9; }
 
-  .present-notes-bar {
-    padding: 10px 40px;
-    font-size: 0.85rem;
-    border-top: 1px solid;
-    opacity: 0.85;
-    line-height: 1.5;
+  /* Presenter right panel */
+  .present-panel {
+    width: 280px; flex-shrink: 0;
+    display: flex; flex-direction: column;
+    overflow: hidden; padding: 12px;
+    gap: 10px;
   }
-  .present-notes-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-right: 10px; opacity: 0.6; }
+  .panel-label { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+  .panel-next-wrap { display: flex; flex-direction: column; }
+  .panel-next-thumb {
+    width: 100%; aspect-ratio: 16/9; overflow: hidden; border-radius: 4px; position: relative;
+  }
+  .panel-next-inner {
+    width: 900px; height: 506px;
+    transform: scale(0.284); transform-origin: top left;
+    padding: 18px 22px; font-size: 14px; line-height: 1.4;
+    overflow: hidden; pointer-events: none;
+  }
+  .panel-hud { display: flex; gap: 16px; align-items: baseline; }
+  .panel-timer { font-size: 1.4rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .panel-counter { font-size: 0.8rem; font-weight: 600; }
+  .panel-notes-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .panel-notes-text { font-size: 0.82rem; line-height: 1.6; overflow-y: auto; flex: 1; opacity: 0.85; white-space: pre-wrap; }
+  .panel-hints { display: flex; flex-wrap: wrap; gap: 4px; font-size: 0.62rem; }
 
-  /* Next slide preview */
-  .present-next-preview {
-    position: absolute;
-    bottom: 60px;
-    right: 20px;
-    width: 200px;
-    border: 1px solid;
-    border-radius: var(--radius-sm, 6px);
-    overflow: hidden;
-    padding: 6px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    backdrop-filter: blur(6px);
-  }
-  .present-next-label {
-    font-size: 0.65rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    opacity: 0.7;
-  }
-  .present-next-thumb-wrap {
-    width: 188px;
-    aspect-ratio: 16 / 9;
-    overflow: hidden;
-    border-radius: 3px;
-    background: #fff;
-    position: relative;
-  }
-  .present-next-thumb-inner {
-    width: 1044px; /* 188 / 0.18 */
-    height: 588px;
-    transform: scale(0.18);
-    transform-origin: top left;
-    padding: 12px 16px;
-    font-size: 14px;
-    line-height: 1.4;
-    overflow: hidden;
-    pointer-events: none;
-  }
+  /* S5 Transitions */
+  .present-slide-fade { animation: slide-fade-in 0.35s ease; }
+  .present-slide-slide-left { animation: slide-from-right 0.35s ease; }
+  .present-slide-slide-right { animation: slide-from-left 0.35s ease; }
+  .present-slide-slide-up { animation: slide-from-bottom 0.35s ease; }
+  .present-slide-slide-down { animation: slide-from-top 0.35s ease; }
+  @keyframes slide-fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes slide-from-right { from { opacity: 0; transform: translateX(60px); } to { opacity: 1; transform: none; } }
+  @keyframes slide-from-left { from { opacity: 0; transform: translateX(-60px); } to { opacity: 1; transform: none; } }
+  @keyframes slide-from-bottom { from { opacity: 0; transform: translateY(60px); } to { opacity: 1; transform: none; } }
+  @keyframes slide-from-top { from { opacity: 0; transform: translateY(-60px); } to { opacity: 1; transform: none; } }
 
   .present-footer {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 24px;
-    font-size: 0.82rem;
-    flex-shrink: 0;
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 20px; font-size: 0.82rem; flex-shrink: 0;
   }
-  .present-nav-btn { background: none; border: none; font-size: 1.2rem; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: opacity var(--transition); }
+  .present-nav-btn { background: none; border: none; font-size: 1.2rem; cursor: pointer; padding: 4px 8px; border-radius: 4px; }
   .present-nav-btn:disabled { opacity: 0.25; cursor: default; }
   .present-counter { font-size: 0.8rem; font-weight: 600; min-width: 60px; text-align: center; }
-  .present-timer { font-size: 0.78rem; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 44px; text-align: center; opacity: 0.75; }
-  .present-hint { font-size: 0.72rem; opacity: 0.55; flex: 1; }
-  .present-exit { background: none; border: none; cursor: pointer; font-size: 0.8rem; padding: 4px 8px; border-radius: 4px; transition: opacity var(--transition); }
-  .present-exit:hover { opacity: 0.7; }
+  .present-timer { font-size: 0.78rem; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 44px; }
+  .present-icon-btn { background: none; border: none; cursor: pointer; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; }
+  .present-exit { background: none; border: none; cursor: pointer; font-size: 0.8rem; padding: 4px 8px; border-radius: 4px; margin-left: auto; }
 
   .present-progress-bar { height: 3px; width: 100%; flex-shrink: 0; }
   .present-progress-fill { height: 100%; transition: width 0.3s ease; }
+
+  /* S7 Overview */
+  .overview-overlay {
+    position: absolute; inset: 0; z-index: 9010;
+    background: rgba(0,0,0,0.88); backdrop-filter: blur(4px);
+    overflow-y: auto; padding: 24px;
+  }
+  .overview-title-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; grid-column: 1 / -1; }
+  .overview-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px;
+    max-width: 1200px; margin: 0 auto;
+  }
+  .overview-thumb {
+    background: none; border: 2px solid rgba(255,255,255,0.15);
+    border-radius: 6px; overflow: hidden; cursor: pointer;
+    padding: 0; display: flex; flex-direction: column;
+    transition: border-color 0.15s;
+  }
+  .overview-thumb:hover { border-color: rgba(255,255,255,0.6); }
+  .overview-thumb.active-thumb { border-color: #60a5fa; }
+  .overview-thumb-inner {
+    width: 900px; height: 506px;
+    transform: scale(0.178); transform-origin: top left;
+    padding: 14px 18px; font-size: 14px; line-height: 1.4;
+    overflow: hidden; pointer-events: none;
+    width: 160px; /* override — the container clips */
+  }
+  .overview-num { font-size: 0.65rem; color: rgba(255,255,255,0.5); padding: 3px 6px; text-align: center; }
+
+  /* Goto dialog */
+  .goto-backdrop {
+    position: absolute; inset: 0; z-index: 9020;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .goto-dialog {
+    background: rgba(20,20,20,0.95); border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 8px; padding: 16px 20px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .goto-input {
+    font-size: 1.6rem; font-weight: 700; text-align: center;
+    background: transparent; border: none; color: #fff; width: 100px;
+    outline: none; border-bottom: 2px solid rgba(255,255,255,0.4);
+  }
 
   /* ── Generate modal ── */
   .modal-backdrop { position: fixed; inset: 0; z-index: 8999; background: rgba(0,0,0,0.4); }
