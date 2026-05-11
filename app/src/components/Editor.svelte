@@ -5,6 +5,7 @@
   import RichEditor from './RichEditor.svelte';
   import SlashMenu from './SlashMenu.svelte';
   import { askEnzoInline } from '../lib/groq';
+  import { marked } from 'marked';
   import type { SlashRef } from './RichEditor.svelte';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
@@ -618,7 +619,7 @@
           {#if analysing}
             <span class="text-mu">Thinking…</span>
           {:else}
-            {analyseResult}
+            {@html marked.parse(analyseResult)}
           {/if}
         </div>
       </div>
@@ -881,8 +882,13 @@
   }
   .analysis-body {
     padding: 2px 16px 10px; font-size: 0.84rem; color: var(--tx2);
-    line-height: 1.65; white-space: pre-wrap; max-height: 220px; overflow-y: auto;
+    line-height: 1.65; max-height: 220px; overflow-y: auto;
   }
+  :global(.analysis-body p)  { margin: 0 0 0.5em; }
+  :global(.analysis-body ul, .analysis-body ol) { padding-left: 1.2em; margin: 0.3em 0 0.5em; }
+  :global(.analysis-body li) { margin: 0.15em 0; }
+  :global(.analysis-body strong) { color: var(--tx); font-weight: 600; }
+  :global(.analysis-body h1, .analysis-body h2, .analysis-body h3) { font-size: 0.88rem; font-weight: 700; margin: 0.6em 0 0.2em; color: var(--tx); }
   .enzo-spin-sm {
     width: 12px; height: 12px; border-radius: 50%;
     border: 2px solid color-mix(in srgb, var(--enzo) 25%, transparent);

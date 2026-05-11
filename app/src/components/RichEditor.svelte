@@ -57,6 +57,7 @@
     onNoteLinkClose,
     slashRef = $bindable<SlashRef | null>(null),
     onUpload,
+    onError,
     class: extraClass = '',
   }: {
     value?: string;
@@ -559,13 +560,13 @@
 
       <!-- Alignment -->
       <div class="re-group">
-        <button type="button" class="re-btn" class:re-active={isActive({ textAlign: 'left' })} onclick={() => cmd('setTextAlign', { alignment: 'left' })} title="Align left">
+        <button type="button" class="re-btn" class:re-active={editor?.isActive({ textAlign: 'left' }) ?? false} onclick={() => editor?.chain().focus().setTextAlign('left').run()} title="Align left">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
         </button>
-        <button type="button" class="re-btn" class:re-active={isActive({ textAlign: 'center' })} onclick={() => cmd('setTextAlign', { alignment: 'center' })} title="Center">
+        <button type="button" class="re-btn" class:re-active={editor?.isActive({ textAlign: 'center' }) ?? false} onclick={() => editor?.chain().focus().setTextAlign('center').run()} title="Center">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
         </button>
-        <button type="button" class="re-btn" class:re-active={isActive({ textAlign: 'right' })} onclick={() => cmd('setTextAlign', { alignment: 'right' })} title="Align right">
+        <button type="button" class="re-btn" class:re-active={editor?.isActive({ textAlign: 'right' }) ?? false} onclick={() => editor?.chain().focus().setTextAlign('right').run()} title="Align right">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>
         </button>
       </div>
