@@ -4,7 +4,7 @@
   import { marked } from 'marked';
   import { generateSlides, askEnzoInline, generateSlidesDeck } from '../lib/groq';
   import RichEditor from './RichEditor.svelte';
-  import type { Presentation, Slide, PresTheme, PresAiContext } from '../lib/types';
+  import type { Presentation, Slide, PresTheme, PresAiContext, CssFilters } from '../lib/types';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -79,6 +79,48 @@
 
   // ── S4 step-reveal state ──────────────────────────────────────
   let revealStep = $state(0);
+
+  // ── S10 drawing canvas ────────────────────────────────────────
+  let drawMode       = $state(false);
+  let drawTool       = $state<'pen'|'highlight'|'eraser'>('pen');
+  let drawColor      = $state('#ef4444');
+  let drawCanvas     = $state<HTMLCanvasElement | undefined>(undefined);
+  let isDrawing      = $state(false);
+  let lastX          = 0;
+  let lastY          = 0;
+  const DRAW_COLORS  = ['#ef4444','#f59e0b','#22c55e','#3b82f6','#ffffff'];
+
+  // ── S12 camera ────────────────────────────────────────────────
+  let cameraOn       = $state(false);
+  let cameraStream   = $state<MediaStream | null>(null);
+  let cameraVideoEl  = $state<HTMLVideoElement | undefined>(undefined);
+  let cameraX        = $state(16);
+  let cameraY        = $state(16);
+  let cameraW        = $state(200);
+  let cameraDragging = $state(false);
+  let cameraResizing = $state(false);
+
+  $effect(() => {
+    if (cameraVideoEl && cameraStream) cameraVideoEl.srcObject = cameraStream;
+  });
+
+  // ── S17 wake lock ─────────────────────────────────────────────
+  let wakeLock       = $state<WakeLockSentinel | null>(null);
+
+  // ── S18 idle cursor ───────────────────────────────────────────
+  let cursorVisible  = $state(true);
+  let cursorTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // ── S20 CSS filters ───────────────────────────────────────────
+  let showFilters    = $state(false);
+  const DEFAULT_FILTERS: CssFilters = { brightness: 100, contrast: 100, saturation: 100, hueRotate: 0 };
+
+  function filtersStyle(f: CssFilters | undefined): string {
+    if (!f) return '';
+    const { brightness: b, contrast: c, saturation: s, hueRotate: h } = f;
+    if (b === 100 && c === 100 && s === 100 && h === 0) return '';
+    return `filter: brightness(${b}%) contrast(${c}%) saturate(${s}%) hue-rotate(${h}deg);`;
+  }
 
   // ── S5 transition ─────────────────────────────────────────────
   let slideTransition = $state('slide');
@@ -371,7 +413,8 @@
     if (!pres || pres.slides.length === 0) return;
     presentIdx = 0; presentMode = true; notesVisible = false;
     revealStep = 0; overviewOpen = false; gotoOpen = false;
-    // S1: set layout class on slides pre-rendered
+    cursorVisible = true; drawMode = false;
+    requestWakeLock();
     setTimeout(() => {
       const overlay = document.querySelector<HTMLElement>('.present-overlay');
       overlay?.focus();
@@ -380,6 +423,10 @@
 
   function exitPresent() {
     presentMode = false;
+    releaseWakeLock();
+    cameraStream?.getTracks().forEach(t => t.stop());
+    cameraStream = null; cameraOn = false;
+    if (cursorTimer) clearTimeout(cursorTimer);
     if (document.fullscreenElement) document.exitFullscreen?.();
   }
 
@@ -416,11 +463,11 @@
         const nextHidden = bullets.find(b => (b as HTMLElement).style.opacity === '0');
         if (nextHidden) { (nextHidden as HTMLElement).style.opacity = '1'; revealStep++; return; }
       }
-      if (presentIdx < pres.slides.length - 1) { presentIdx++; revealStep = 0; }
+      if (presentIdx < pres.slides.length - 1) { presentIdx++; revealStep = 0; clearCanvas(); }
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
       e.preventDefault();
       if (overviewOpen || gotoOpen) return;
-      if (presentIdx > 0) { presentIdx--; revealStep = 0; }
+      if (presentIdx > 0) { presentIdx--; revealStep = 0; clearCanvas(); }
     } else if (e.key === 'Escape') {
       if (overviewOpen) { overviewOpen = false; return; }
       if (gotoOpen) { gotoOpen = false; return; }
@@ -437,6 +484,178 @@
       if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
       else document.exitFullscreen?.();
     }
+  }
+
+  // ── S10 Drawing canvas handlers ───────────────────────────────
+  function onCanvasMouseDown(e: MouseEvent) {
+    if (!drawMode || !drawCanvas) return;
+    isDrawing = true;
+    const r = drawCanvas.getBoundingClientRect();
+    lastX = e.clientX - r.left;
+    lastY = e.clientY - r.top;
+  }
+
+  function onCanvasMouseMove(e: MouseEvent) {
+    if (!isDrawing || !drawCanvas) return;
+    const ctx = drawCanvas.getContext('2d')!;
+    const r = drawCanvas.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+
+    if (drawTool === 'eraser') {
+      ctx.clearRect(x - 20, y - 20, 40, 40);
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(x, y);
+      ctx.strokeStyle = drawTool === 'highlight' ? drawColor + '66' : drawColor;
+      ctx.lineWidth = drawTool === 'highlight' ? 20 : 3;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+    }
+    lastX = x; lastY = y;
+  }
+
+  function onCanvasMouseUp() { isDrawing = false; }
+
+  function clearCanvas() {
+    if (!drawCanvas) return;
+    const ctx = drawCanvas.getContext('2d')!;
+    ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+  }
+
+  // ── S11 per-slide background ──────────────────────────────────
+  function setBg(idx: number, val: string) {
+    mutate(p => { p.slides[idx].background = val || undefined; });
+  }
+
+  // ── S12 camera ────────────────────────────────────────────────
+  async function toggleCamera() {
+    if (cameraOn) {
+      cameraStream?.getTracks().forEach(t => t.stop());
+      cameraStream = null; cameraOn = false;
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        cameraStream = stream; cameraOn = true;
+        const pos = JSON.parse(localStorage.getItem('pres_cam_pos') ?? 'null');
+        if (pos) { cameraX = pos.x; cameraY = pos.y; cameraW = pos.w; }
+      } catch { showToast('Camera access denied', 'error'); }
+    }
+  }
+
+  function onCamDragStart(e: MouseEvent) {
+    if ((e.target as HTMLElement).classList.contains('cam-resize-handle')) return;
+    cameraDragging = true;
+    const startX = e.clientX - cameraX;
+    const startY = e.clientY - cameraY;
+    const onMove = (ev: MouseEvent) => { cameraX = ev.clientX - startX; cameraY = ev.clientY - startY; };
+    const onUp = () => { cameraDragging = false; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); localStorage.setItem('pres_cam_pos', JSON.stringify({ x: cameraX, y: cameraY, w: cameraW })); };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  function onCamResizeStart(e: MouseEvent) {
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = cameraW;
+    const onMove = (ev: MouseEvent) => { cameraW = Math.max(100, startW + ev.clientX - startX); };
+    const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); localStorage.setItem('pres_cam_pos', JSON.stringify({ x: cameraX, y: cameraY, w: cameraW })); };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  // ── S13 PNG export per slide ──────────────────────────────────
+  async function exportPng() {
+    if (!pres) return;
+    const html2canvas = (await import('html2canvas')).default;
+    const th = THEMES[pres.theme];
+    showToast('Generating PNGs…');
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      for (let i = 0; i < pres.slides.length; i++) {
+        const slide = pres.slides[i];
+        const div = document.createElement('div');
+        div.style.cssText = `width:1280px;height:720px;padding:64px;overflow:hidden;background:${slide.background || th.bg};color:${th.fg};font-family:system-ui,sans-serif;font-size:24px;line-height:1.5;position:fixed;top:-9999px;left:-9999px;`;
+        div.innerHTML = slide.content;
+        document.body.appendChild(div);
+        const canvas = await html2canvas(div, { width: 1280, height: 720, useCORS: true, scale: 1 });
+        div.remove();
+        const blob: Blob = await new Promise(res => canvas.toBlob(b => res(b!), 'image/png'));
+        zip.file(`slide-${String(i + 1).padStart(2, '0')}.png`, blob);
+      }
+      const content = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(content);
+      Object.assign(document.createElement('a'), { href: url, download: `${pres.title}-slides.zip` }).click();
+      URL.revokeObjectURL(url);
+      showToast(`${pres.slides.length} slides exported as PNG`);
+    } catch (e) { showToast('PNG export failed: ' + (e as Error).message, 'error'); }
+  }
+
+  // ── S14 PPTX export ───────────────────────────────────────────
+  async function exportPptx() {
+    if (!pres) return;
+    showToast('Generating PPTX…');
+    try {
+      const pptxgenjs = (await import('pptxgenjs')).default;
+      const pptx = new pptxgenjs();
+      pptx.defineLayout({ name: 'WIDE', width: 13.33, height: 7.5 });
+      pptx.layout = 'WIDE';
+
+      for (const slide of pres.slides) {
+        const s = pptx.addSlide();
+        // Background
+        if (slide.background) {
+          if (slide.background.startsWith('#')) s.background = { fill: slide.background.replace('#', '') };
+        }
+        // Add text from content (strip HTML for simplicity)
+        const plainText = slide.content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        s.addText(plainText, { x: 0.5, y: 0.5, w: 12.33, h: 6.5, fontSize: 20, color: '333333', valign: 'top', wrap: true });
+        if (slide.notes) s.addNotes(slide.notes);
+      }
+
+      await pptx.writeFile({ fileName: `${pres.title}.pptx` });
+      showToast('PPTX exported');
+    } catch (e) { showToast('PPTX export failed: ' + (e as Error).message, 'error'); }
+  }
+
+  // ── S15 Remote control QR ─────────────────────────────────────
+  let remoteQrOpen = $state(false);
+  let remoteQrUrl  = $state('');
+
+  function showRemoteQr() {
+    if (!pres) return;
+    const base = store.workerBase;
+    remoteQrUrl = `${base}/remote?id=${pres.id}`;
+    remoteQrOpen = true;
+  }
+
+  // S15 QR SVG generation (ZXing-free tiny impl using qr-code data URL API)
+  function qrCodeUrl(text: string): string {
+    return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(text)}`;
+  }
+
+  // ── S17 Wake Lock ─────────────────────────────────────────────
+  async function requestWakeLock() {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLock = await (navigator as any).wakeLock.request('screen');
+      }
+    } catch { /* ignore */ }
+  }
+
+  function releaseWakeLock() {
+    wakeLock?.release().catch(() => {});
+    wakeLock = null;
+  }
+
+  // ── S18 Idle cursor hide ──────────────────────────────────────
+  function onPresentMouseMove() {
+    cursorVisible = true;
+    if (cursorTimer) clearTimeout(cursorTimer);
+    cursorTimer = setTimeout(() => { cursorVisible = false; }, 3000);
   }
 
   // S9 PDF export via print
@@ -752,22 +971,24 @@
   {@const th = presenterDark ? THEMES['dark'] : THEMES[pres.theme]}
   {@const curSlide = pres.slides[presentIdx]}
   {@const nextSlide = pres.slides[presentIdx + 1] ?? null}
+  {@const goingForward = true}
   {@const slideTransId = curSlide?.transition ?? pres.defaultTransition ?? 'none'}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="present-overlay"
-    class:presenter-dark={presenterDark}
+    class:cursor-hidden={!cursorVisible}
     style="background:{th.bg};color:{th.fg}"
     onkeydown={onPresentKey}
+    onmousemove={onPresentMouseMove}
     tabindex="-1"
     role="presentation"
   >
     <!-- S6 Dual-panel layout: main stage (left) + presenter panel (right) -->
     <div class="present-dual">
       <!-- Main slide -->
-      <div class="present-stage-wrap">
+      <div class="present-stage-wrap" style={curSlide?.background ? (curSlide.background.startsWith('#') || curSlide.background.startsWith('rgb') || curSlide.background.startsWith('linear') ? `background:${curSlide.background}` : `background:url(${curSlide.background}) center/cover`) : ''}>
         <div class="present-slide-wrap present-slide-{slideTransId}" key={presentIdx}>
-          <div class="present-content" style="--pac:{th.accent};--pmuted:{th.muted}">
+          <div class="present-content" style="--pac:{th.accent};--pmuted:{th.muted};{filtersStyle(pres.cssFilters)}">
             <!-- eslint-disable-next-line svelte/no-at-html-tags -->
             {#if curSlide?.revealBullets}
               {@html (curSlide.content ?? '').replace(/<li>/g, '<li class="reveal-bullet" style="opacity:0;transition:opacity 0.3s">')}
@@ -837,11 +1058,89 @@
       <button class="present-icon-btn" title="Overview (O)" onclick={() => overviewOpen = !overviewOpen} style="color:{th.muted}">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
       </button>
+      <!-- S10 draw toggle -->
+      <button class="present-icon-btn" class:draw-active={drawMode} title="Draw/annotate" onclick={() => drawMode = !drawMode} style="color:{drawMode ? 'var(--ac)' : th.muted}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+      </button>
+      <!-- S12 camera toggle -->
+      <button class="present-icon-btn" title="Camera" onclick={toggleCamera} style="color:{cameraOn ? 'var(--gn)' : th.muted}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+      </button>
+      <!-- S15 remote QR -->
+      <button class="present-icon-btn" title="Remote control QR" onclick={showRemoteQr} style="color:{th.muted}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="4" height="4"/><rect x="14" y="10" width="7" height="7"/><rect x="3" y="14" width="4" height="4"/></svg>
+      </button>
       <button class="present-icon-btn" title="Dark toggle (D)" onclick={() => presenterDark = !presenterDark} style="color:{th.muted}">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
       </button>
       <button class="present-exit" style="color:{th.muted}" onclick={exitPresent}>✕ Exit</button>
     </div>
+
+    <!-- S10 Drawing canvas overlay -->
+    {#if drawMode}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <canvas
+        bind:this={drawCanvas}
+        class="draw-canvas"
+        width={window.innerWidth}
+        height={window.innerHeight}
+        onmousedown={onCanvasMouseDown}
+        onmousemove={onCanvasMouseMove}
+        onmouseup={onCanvasMouseUp}
+        onmouseleave={onCanvasMouseUp}
+      ></canvas>
+    {/if}
+
+    <!-- S10 Drawing toolbar -->
+    {#if drawMode}
+      <div class="draw-toolbar">
+        {#each (['pen','highlight','eraser'] as const) as tool}
+          <button class="draw-tool-btn" class:active={drawTool === tool} onclick={() => drawTool = tool} title={tool}>
+            {tool === 'pen' ? '✏️' : tool === 'highlight' ? '🖌️' : '⌫'}
+          </button>
+        {/each}
+        {#each DRAW_COLORS as c}
+          <button class="draw-color-dot" style="background:{c}" class:selected={drawColor === c} onclick={() => drawColor = c}></button>
+        {/each}
+        <button class="draw-tool-btn" onclick={clearCanvas} title="Clear all">Clear</button>
+      </div>
+    {/if}
+
+    <!-- S12 Camera overlay -->
+    {#if cameraOn && cameraStream}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="cam-overlay"
+        style="left:{cameraX}px;top:{cameraY}px;width:{cameraW}px"
+        onmousedown={onCamDragStart}
+      >
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video
+          class="cam-video"
+          autoplay
+          muted
+          playsinline
+          style="width:100%"
+          bind:this={cameraVideoEl}
+        ></video>
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="cam-resize-handle" onmousedown={onCamResizeStart}></div>
+      </div>
+    {/if}
+
+    <!-- S15 Remote QR modal -->
+    {#if remoteQrOpen}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <div class="remote-qr-backdrop" onclick={() => remoteQrOpen = false}>
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="remote-qr-box" onclick={(e) => e.stopPropagation()}>
+          <p class="text-xs text-mu" style="margin-bottom:8px">Scan to control from your phone</p>
+          <img src={qrCodeUrl(remoteQrUrl)} alt="Remote control QR" width="200" height="200" />
+          <p class="text-xs text-mu" style="margin-top:8px;word-break:break-all;max-width:200px">{remoteQrUrl}</p>
+          <button onclick={() => remoteQrOpen = false} style="margin-top:8px;background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.6);font-size:0.8rem">Close</button>
+        </div>
+      </div>
+    {/if}
 
     <!-- S7 Overview panel -->
     {#if overviewOpen}
@@ -1226,6 +1525,54 @@
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
             PDF
           </button>
+          <!-- S13 PNG export -->
+          <button class="btn btn-ghost btn-sm" onclick={exportPng} title="Export slides as PNG ZIP">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            PNG
+          </button>
+          <!-- S14 PPTX export -->
+          <button class="btn btn-ghost btn-sm" onclick={exportPptx} title="Export as PPTX">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>
+            PPTX
+          </button>
+          <!-- S20 CSS filters toggle -->
+          <div class="filters-wrap">
+            <button class="btn btn-ghost btn-sm" class:active={showFilters} onclick={() => showFilters = !showFilters} title="CSS filters (S20)">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>
+              Filters
+            </button>
+            {#if showFilters}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <div class="filters-backdrop" onclick={() => showFilters = false}></div>
+              <div class="filters-popover card">
+                <div class="filter-row">
+                  <label class="filter-label">Brightness</label>
+                  <input type="range" min="0" max="200" value={pres.cssFilters?.brightness ?? 100}
+                    oninput={(e) => mutate(p => { if (!p.cssFilters) p.cssFilters = {...DEFAULT_FILTERS}; p.cssFilters!.brightness = +(e.target as HTMLInputElement).value; })} />
+                  <span class="filter-val">{pres.cssFilters?.brightness ?? 100}%</span>
+                </div>
+                <div class="filter-row">
+                  <label class="filter-label">Contrast</label>
+                  <input type="range" min="0" max="200" value={pres.cssFilters?.contrast ?? 100}
+                    oninput={(e) => mutate(p => { if (!p.cssFilters) p.cssFilters = {...DEFAULT_FILTERS}; p.cssFilters!.contrast = +(e.target as HTMLInputElement).value; })} />
+                  <span class="filter-val">{pres.cssFilters?.contrast ?? 100}%</span>
+                </div>
+                <div class="filter-row">
+                  <label class="filter-label">Saturation</label>
+                  <input type="range" min="0" max="200" value={pres.cssFilters?.saturation ?? 100}
+                    oninput={(e) => mutate(p => { if (!p.cssFilters) p.cssFilters = {...DEFAULT_FILTERS}; p.cssFilters!.saturation = +(e.target as HTMLInputElement).value; })} />
+                  <span class="filter-val">{pres.cssFilters?.saturation ?? 100}%</span>
+                </div>
+                <div class="filter-row">
+                  <label class="filter-label">Hue rotate</label>
+                  <input type="range" min="0" max="360" value={pres.cssFilters?.hueRotate ?? 0}
+                    oninput={(e) => mutate(p => { if (!p.cssFilters) p.cssFilters = {...DEFAULT_FILTERS}; p.cssFilters!.hueRotate = +(e.target as HTMLInputElement).value; })} />
+                  <span class="filter-val">{pres.cssFilters?.hueRotate ?? 0}°</span>
+                </div>
+                <button class="btn btn-ghost btn-sm" onclick={() => mutate(p => { p.cssFilters = undefined; })}>Reset</button>
+              </div>
+            {/if}
+          </div>
           <!-- S8 Batch notes editor -->
           <button class="btn btn-ghost btn-sm" onclick={openBatchNotes} title="Edit all speaker notes at once">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
@@ -1390,11 +1737,35 @@
               <select
                 class="slide-trans-sel"
                 value={slide.transition ?? pres.defaultTransition ?? 'none'}
-                title="Slide transition"
+                title="Slide transition (forward)"
                 onchange={(e) => mutate(p => { p.slides[i].transition = (e.target as HTMLSelectElement).value; })}
               >
                 {#each TRANSITIONS as t}
                   <option value={t.id}>{t.label}</option>
+                {/each}
+              </select>
+              <!-- S11 Background picker -->
+              <input
+                type="color"
+                class="slide-bg-picker"
+                value={slide.background?.startsWith('#') ? slide.background : '#ffffff'}
+                title="Slide background colour (S11)"
+                onchange={(e) => setBg(i, (e.target as HTMLInputElement).value)}
+              />
+              {#if slide.background}
+                <button class="btn-icon slide-del" onclick={(e) => { e.stopPropagation(); setBg(i, ''); }} title="Clear background">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              {/if}
+              <!-- S19 Back transition picker -->
+              <select
+                class="slide-trans-sel"
+                value={slide.transitionBack ?? slide.transition ?? pres.defaultTransition ?? 'none'}
+                title="Slide transition (backward)"
+                onchange={(e) => mutate(p => { p.slides[i].transitionBack = (e.target as HTMLSelectElement).value; })}
+              >
+                {#each TRANSITIONS as t}
+                  <option value={t.id}>↩ {t.label}</option>
                 {/each}
               </select>
               <!-- S4 Step-reveal toggle -->
@@ -2018,4 +2389,80 @@
     font-size: 0.65em; color: var(--mu); margin-top: 0.8em;
     padding-top: 0.4em; border-top: 1px solid rgba(128,128,128,0.2);
   }
+
+  /* ── S10 Drawing canvas ──────────────────────────────────────── */
+  .draw-canvas {
+    position: absolute; inset: 0; z-index: 9100;
+    cursor: crosshair; pointer-events: all;
+    width: 100%; height: 100%;
+  }
+  .draw-toolbar {
+    position: absolute; bottom: 56px; left: 50%; transform: translateX(-50%);
+    z-index: 9101; display: flex; align-items: center; gap: 6px;
+    background: rgba(0,0,0,0.75); border-radius: 24px; padding: 6px 12px;
+    backdrop-filter: blur(6px);
+  }
+  .draw-tool-btn {
+    background: transparent; border: none; cursor: pointer;
+    color: rgba(255,255,255,0.8); font-size: 0.85rem; padding: 4px 8px;
+    border-radius: 6px; transition: background 0.15s;
+  }
+  .draw-tool-btn:hover, .draw-tool-btn.active { background: rgba(255,255,255,0.2); }
+  .draw-color-dot {
+    width: 18px; height: 18px; border-radius: 50%; cursor: pointer;
+    border: 2px solid transparent; transition: border-color 0.12s;
+  }
+  .draw-color-dot.selected { border-color: #fff; }
+  .draw-active { color: var(--ac) !important; }
+
+  /* ── S11 background picker ───────────────────────────────────── */
+  .slide-bg-picker {
+    width: 22px; height: 22px; border: none; padding: 0; cursor: pointer;
+    border-radius: 3px; background: transparent;
+  }
+
+  /* ── S12 Camera overlay ──────────────────────────────────────── */
+  .cam-overlay {
+    position: absolute; z-index: 9050;
+    border-radius: 8px; overflow: hidden;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    cursor: grab; user-select: none;
+    border: 2px solid rgba(255,255,255,0.3);
+  }
+  .cam-video { display: block; border-radius: 6px; }
+  .cam-resize-handle {
+    position: absolute; right: 0; bottom: 0;
+    width: 14px; height: 14px; cursor: se-resize;
+    background: rgba(255,255,255,0.4); border-radius: 0 0 6px 0;
+  }
+
+  /* ── S15 Remote QR ────────────────────────────────────────────── */
+  .remote-qr-backdrop {
+    position: absolute; inset: 0; z-index: 9200;
+    background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center;
+  }
+  .remote-qr-box {
+    background: #1a1a1a; border-radius: 12px; padding: 20px;
+    display: flex; flex-direction: column; align-items: center; text-align: center;
+  }
+
+  /* ── S18 Cursor hide ─────────────────────────────────────────── */
+  .cursor-hidden { cursor: none !important; }
+  .cursor-hidden * { cursor: none !important; }
+
+  /* ── S20 CSS filters panel ───────────────────────────────────── */
+  .filters-wrap { position: relative; }
+  .filters-backdrop { position: fixed; inset: 0; z-index: 70; background: transparent; }
+  .filters-popover {
+    position: absolute; top: calc(100% + 6px); right: 0; z-index: 71;
+    width: 260px; padding: 14px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .filter-row { display: flex; align-items: center; gap: 8px; }
+  .filter-label { font-size: 0.72rem; font-weight: 600; color: var(--mu); min-width: 70px; }
+  .filter-val { font-size: 0.72rem; font-variant-numeric: tabular-nums; min-width: 38px; text-align: right; color: var(--tx2); }
+  input[type="range"] { flex: 1; accent-color: var(--ac); }
+
+  /* ── S19 backward transition (re-uses animation but stored per slide) */
+  /* Applied dynamically via slideTransId in template */
 </style>

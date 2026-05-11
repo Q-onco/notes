@@ -402,6 +402,13 @@ export interface JobDeadline {
 
 // ── Presentations ─────────────────────────────────────────────────────────────
 
+export interface CssFilters {
+  brightness: number;   // 0-200, default 100
+  contrast: number;     // 0-200, default 100
+  saturation: number;   // 0-200, default 100
+  hueRotate: number;    // 0-360, default 0
+}
+
 export interface Slide {
   id: string;
   content: string;      // HTML from RichEditor
@@ -409,6 +416,8 @@ export interface Slide {
   layout?: string;      // S1 layout preset key
   revealBullets?: boolean;  // S4 step-reveal
   transition?: string;  // S5 transition preset
+  transitionBack?: string;  // S19 backward transition
+  background?: string;  // S11 hex colour, gradient, or image URL
 }
 
 export type PresTheme = 'white' | 'dark' | 'moon' | 'serif' | 'minimal';
@@ -427,6 +436,7 @@ export interface Presentation {
   slides: Slide[];
   theme: PresTheme;
   defaultTransition?: string;  // S5 global transition default
+  cssFilters?: CssFilters;     // S20 per-presentation CSS filters
   createdAt: number;
   updatedAt: number;
   aiContext?: PresAiContext;
