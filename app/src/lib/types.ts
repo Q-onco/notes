@@ -404,8 +404,11 @@ export interface JobDeadline {
 
 export interface Slide {
   id: string;
-  content: string;   // HTML from RichEditor
-  notes: string;     // speaker notes, plain text
+  content: string;      // HTML from RichEditor
+  notes: string;        // speaker notes, plain text
+  layout?: string;      // S1 layout preset key
+  revealBullets?: boolean;  // S4 step-reveal
+  transition?: string;  // S5 transition preset
 }
 
 export type PresTheme = 'white' | 'dark' | 'moon' | 'serif' | 'minimal';
@@ -423,6 +426,7 @@ export interface Presentation {
   title: string;
   slides: Slide[];
   theme: PresTheme;
+  defaultTransition?: string;  // S5 global transition default
   createdAt: number;
   updatedAt: number;
   aiContext?: PresAiContext;
