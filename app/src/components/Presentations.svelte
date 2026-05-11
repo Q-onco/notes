@@ -19,11 +19,16 @@
   let genFrom         = $state<'prompt' | 'note' | 'paper'>('prompt');
   let genNoteId       = $state('');
   let genPaperId      = $state('');
-  let generating      = $state(false);
-  let genProgress     = $state('');
-  let docBrief        = $state('');
+  let generating        = $state(false);
+  let genProgress       = $state('');
+  let docBrief          = $state('');
   let docBriefStreaming = $state(false);
-  let saving          = $state(false);
+  let docOutline        = $state('');
+  let docOutlineStreaming = $state(false);
+  let docConcepts       = $state('');
+  let docConceptsStreaming = $state(false);
+  let generatedTitles   = $state<string[]>([]);
+  let saving            = $state(false);
   let saveTimer: ReturnType<typeof setTimeout>;
   let dragIdx         = $state<number | null>(null);
   let dragOver        = $state<number | null>(null);
@@ -461,18 +466,24 @@
           else topic = 'Research Presentation';
         }
         const sources = await buildSources();
-        genProgress = '';
-        docBrief = '';
-        docBriefStreaming = false;
-        const deck = await generateSlidesDeck(
-          topic, genCount, sources, genMode,
-          undefined,
-          (msg) => { genProgress = msg; },
-          (chunk) => {
+        genProgress = ''; docBrief = ''; docOutline = ''; docConcepts = ''; generatedTitles = [];
+        docBriefStreaming = false; docOutlineStreaming = false; docConceptsStreaming = false;
+        const deck = await generateSlidesDeck(topic, genCount, sources, genMode, undefined, {
+          onProgress: (msg) => { genProgress = msg; },
+          onBrief: (chunk) => {
             if (!docBriefStreaming) { docBriefStreaming = true; showSourceSidebar = true; }
             docBrief += chunk;
-          }
-        );
+          },
+          onOutline: (chunk) => {
+            if (!docOutlineStreaming) docOutlineStreaming = true;
+            docOutline += chunk;
+          },
+          onConcepts: (chunk) => {
+            if (!docConceptsStreaming) docConceptsStreaming = true;
+            docConcepts += chunk;
+          },
+          onSlideTitles: (titles) => { generatedTitles = [...generatedTitles, ...titles]; },
+        });
         if (!deck.length) throw new Error('Enzo returned an empty deck');
         mutate(p => {
           p.slides = deck.map(s => ({
@@ -508,7 +519,7 @@
     } finally {
       generating = false;
       genProgress = '';
-      docBriefStreaming = false;
+      docBriefStreaming = false; docOutlineStreaming = false; docConceptsStreaming = false;
     }
   }
 
@@ -988,10 +999,33 @@
           </div>
           <div class="source-sidebar-body">
             {#if docBrief}
-              <div class="source-group-label">Document Analysis</div>
-              <div class="source-entry doc-brief-entry">
-                <p class="doc-brief-text">{docBrief}{#if docBriefStreaming}<span class="brief-cursor">▋</span>{/if}</p>
+              <div class="source-group-label layer-label-brief">① Document Analysis</div>
+              <div class="source-entry doc-layer-entry doc-layer-brief">
+                <p class="doc-layer-text">{docBrief}{#if docBriefStreaming}<span class="brief-cursor">▋</span>{/if}</p>
               </div>
+            {/if}
+            {#if docOutline}
+              <div class="source-group-label layer-label-outline">③ Deck Outline</div>
+              <div class="source-entry doc-layer-entry doc-layer-outline">
+                <p class="doc-layer-text">{docOutline}{#if docOutlineStreaming}<span class="brief-cursor">▋</span>{/if}</p>
+              </div>
+            {/if}
+            {#if docConcepts}
+              <div class="source-group-label layer-label-concepts">④ Key Concepts</div>
+              <div class="source-entry doc-layer-entry doc-layer-concepts">
+                <p class="doc-layer-text">{docConcepts}{#if docConceptsStreaming}<span class="brief-cursor">▋</span>{/if}</p>
+              </div>
+            {/if}
+            {#if generatedTitles.length > 0}
+              <div class="source-group-label layer-label-slides">② Slides Generated ({generatedTitles.length}{generating ? '…' : ' / ' + genCount})</div>
+              <div class="source-entry doc-layer-entry doc-layer-slides">
+                {#each generatedTitles as title, i}
+                  <p class="slide-title-item"><span class="slide-num">{i + 1}</span>{title}</p>
+                {/each}
+              </div>
+            {/if}
+            {#if (docBrief || docOutline || docConcepts || generatedTitles.length > 0) && (pickedNoteIds.size > 0 || pickedPaperIds.size > 0 || pickedFileIds.size > 0 || pickedRunIds.size > 0)}
+              <hr class="sidebar-divider" />
             {/if}
             {#if pickedNoteIds.size > 0}
               <div class="source-group-label">Notes</div>
@@ -1584,10 +1618,26 @@
   .source-entry { border: 1px solid var(--bd); border-radius: 5px; padding: 6px 8px; }
   .source-entry-title { font-size: 0.77rem; font-weight: 500; color: var(--tx); display: block; }
   .source-entry-snippet { font-size: 0.72rem; color: var(--mu); margin: 3px 0 0; line-height: 1.5; }
-  .doc-brief-entry { background: color-mix(in srgb, var(--ac) 6%, transparent); border-color: color-mix(in srgb, var(--ac) 25%, transparent); }
-  .doc-brief-text { font-size: 0.73rem; color: var(--tx); line-height: 1.65; margin: 0; white-space: pre-wrap; }
+  /* Layer panel shared */
+  .doc-layer-entry { padding: 8px 10px; }
+  .doc-layer-text { font-size: 0.72rem; color: var(--tx); line-height: 1.65; margin: 0; white-space: pre-wrap; }
   .brief-cursor { display: inline-block; color: var(--ac); animation: blink 1s step-end infinite; }
   @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+  /* Layer 1 — brief: blue tint */
+  .doc-layer-brief { background: color-mix(in srgb, var(--ac) 7%, transparent); border-left: 3px solid var(--ac); border-color: color-mix(in srgb, var(--ac) 22%, transparent); border-left-color: var(--ac); }
+  .layer-label-brief { color: var(--ac); }
+  /* Layer 3 — outline: green tint */
+  .doc-layer-outline { background: color-mix(in srgb, #22c55e 7%, transparent); border-left: 3px solid #22c55e; border-color: color-mix(in srgb, #22c55e 22%, transparent); border-left-color: #22c55e; }
+  .layer-label-outline { color: #16a34a; }
+  /* Layer 4 — concepts: amber tint */
+  .doc-layer-concepts { background: color-mix(in srgb, #f59e0b 7%, transparent); border-left: 3px solid #f59e0b; border-color: color-mix(in srgb, #f59e0b 22%, transparent); border-left-color: #f59e0b; }
+  .layer-label-concepts { color: #b45309; }
+  /* Layer 2 — slide list: neutral */
+  .doc-layer-slides { background: color-mix(in srgb, var(--mu) 6%, transparent); border-left: 3px solid var(--mu); border-color: color-mix(in srgb, var(--mu) 20%, transparent); border-left-color: var(--mu); padding: 6px 8px; }
+  .layer-label-slides { color: var(--mu); }
+  .slide-title-item { font-size: 0.71rem; color: var(--tx); margin: 2px 0; display: flex; gap: 6px; line-height: 1.4; }
+  .slide-num { color: var(--mu); font-variant-numeric: tabular-nums; min-width: 18px; flex-shrink: 0; }
+  .sidebar-divider { border: none; border-top: 1px solid var(--bd); margin: 4px 0; }
 
   /* Citation strip in slides */
   :global(.slide-rich-editor .cite-strip) {
