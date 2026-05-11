@@ -1990,7 +1990,8 @@
     gap: 12px;
   }
   .pres-toolbar-left { flex: 1; min-width: 0; }
-  .pres-toolbar-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
+  .pres-toolbar-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .pres-toolbar-right::-webkit-scrollbar { display: none; }
   .pres-title { font-size: 1rem; font-weight: 700; margin: 0; cursor: text; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pres-title:hover { color: var(--ac); }
   .pres-title-input { font-size: 1rem; font-weight: 700; border: none; border-bottom: 2px solid var(--ac); background: transparent; color: var(--tx); width: 100%; padding: 0; }
@@ -2036,7 +2037,7 @@
   .templates-backdrop { background: transparent; }
 
   /* ── Slide editor ── */
-  .slides-editor { flex: 1; overflow-y: auto; padding: 20px 32px; display: flex; flex-direction: column; align-items: center; background: var(--sf2); }
+  .slides-editor { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 32px; display: flex; flex-direction: column; align-items: center; background: var(--sf2); }
 
   .slide-card {
     width: 100%;
@@ -2347,12 +2348,13 @@
   .template-enzo-fill:disabled { opacity: 0.4; cursor: default; }
 
   /* Source sidebar */
-  .slides-editor-wrap { display: flex; flex: 1; overflow: hidden; }
+  .slides-editor-wrap { display: flex; flex: 1; min-height: 0; overflow: hidden; }
   .source-sidebar {
     width: 230px; flex-shrink: 0;
     border-right: 1px solid var(--bd);
     background: var(--sf);
     display: flex; flex-direction: column;
+    min-height: 0;
   }
   .source-sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--bd); flex-shrink: 0; }
   .source-sidebar-title { font-size: 0.78rem; font-weight: 600; color: var(--tx); }
