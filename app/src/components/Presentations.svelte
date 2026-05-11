@@ -536,11 +536,54 @@
 
   const fmtDate = (ts: number) => new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
-  // ── Example presentations (display-only) ──────────────────────
+  // ── Example presentations (loadable) ──────────────────────────
   const EXAMPLE_PRES = [
-    { title: 'HGSOC TME — Macrophage Crosstalk', slides: 8, date: 'example' },
-    { title: 'PARP Inhibitor Resistance — Lab Meeting', slides: 12, date: 'example' },
+    {
+      title: 'HGSOC TME — Macrophage Crosstalk',
+      theme: 'dark' as PresTheme,
+      slides: [
+        { content: '<h1 style="font-size:1.9em;font-weight:700;margin-bottom:0.3em">Macrophage Crosstalk in the HGSOC Tumour Microenvironment</h1><p style="font-size:0.9em;opacity:0.65">Immunosuppressive architecture and therapeutic vulnerabilities · Lab Meeting 2024</p>' },
+        { content: '<h2>Background: HGSOC TME</h2><ul style="font-size:0.85em"><li>High-grade serous ovarian cancer (HGSOC) is characterised by a deeply immunosuppressive TME</li><li>Tumour-infiltrating immune cells are predominantly myeloid: TAMs, MDSCs, and tolerogenic DCs</li><li>CD8⁺ T-cell exclusion correlates with poor platinum response and worse OS</li><li>TAMs account for up to 50% of the tumour mass in ascites-rich HGSOC</li></ul><p class="cite-strip">Bowtell et al., Nature Reviews Cancer 2015 · Curiel et al., Nature Medicine 2004</p>' },
+        { content: '<h2>Tumour-Associated Macrophages (TAMs)</h2><div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2em;font-size:0.82em"><div><h3 style="font-size:0.9em;color:var(--pac,#60a5fa)">M1-like (anti-tumour)</h3><ul><li>IL-12, TNFα, iNOS production</li><li>Direct tumour cytotoxicity</li><li>Antigen cross-presentation</li></ul></div><div><h3 style="font-size:0.9em;color:#f97316">M2-like (pro-tumour)</h3><ul><li>IL-10, TGF-β, VEGF secretion</li><li>Immunosuppression of T cells</li><li>Angiogenesis promotion</li></ul></div></div><p style="font-size:0.78em;opacity:0.65;margin-top:0.8em">HGSOC TAMs are predominantly M2-like; ratio predicts prognosis</p>' },
+        { content: '<h2>M2 Polarisation Mechanisms</h2><ul style="font-size:0.84em"><li><strong>IL-4 / IL-13:</strong> Th2 cytokines from tumour stroma → STAT6 activation → ARG1, MRC1 upregulation</li><li><strong>CSF1 (M-CSF):</strong> tumour-secreted; drives TAM recruitment and M2 skewing via CSF1R</li><li><strong>IL-6 / STAT3:</strong> bidirectional loop between TAMs and cancer cells</li><li><strong>Prostaglandin E2:</strong> ascites-enriched; suppresses TAM IL-12 production</li></ul><p class="cite-strip">Hagemann et al., JEM 2006 · Reinartz et al., OncoImmunology 2014</p>' },
+        { content: '<h2>scRNA-seq Reveals TAM Heterogeneity</h2><p style="font-size:0.83em">Recent single-cell profiling (Hornburg et al., Nature Cancer 2021) identified 4 distinct TAM subsets in HGSOC:</p><ol style="font-size:0.82em"><li><strong>TREM2⁺ immunosuppressive TAMs</strong> — high IL-10, spatially co-localising with exhausted CD8⁺ T cells</li><li><strong>SPP1⁺ inflammatory TAMs</strong> — pro-angiogenic, enriched in ascites</li><li><strong>Cycling TAMs</strong> — expand under platinum pressure</li><li><strong>FOLR2⁺ tissue-resident macrophages</strong> — distinct ontogeny, potentially protective</li></ol>' },
+        { content: '<h2>Macrophage–Cancer Cell Crosstalk</h2><div style="font-size:0.82em"><p><strong>Bidirectional signalling axes:</strong></p><ul><li>Cancer cell CSF1 → TAM CSF1R → TAM survival + M2 polarisation → TAM CCL2/CCL22 → further myeloid recruitment</li><li>TAM TGF-β → cancer cell EMT, invasion, platinum resistance</li><li>TAM VEGF-A → endothelial sprouting → immune exclusion</li><li>Cancer cell CD47 "don\'t eat me" → TAM phagocytosis suppression</li></ul></div><p class="cite-strip">Noy & Pollard, Immunity 2014</p>' },
+        { content: '<h2>Therapeutic Targeting Strategies</h2><ul style="font-size:0.84em"><li><strong>CSF1R inhibition</strong> (pexidartinib, cabiralizumab) — depletes TAMs; limited single-agent efficacy in HGSOC; combination with anti-PD-1 ongoing (NCT03158272)</li><li><strong>CD47 blockade</strong> (magrolimab) — restores phagocytosis; synergy with carboplatin in preclinical HGSOC models</li><li><strong>IL-6 / JAK-STAT3</strong> — tocilizumab + bevacizumab phase II; primary endpoint not met but subset response</li><li><strong>TAM reprogramming</strong> — agonist CD40 mAbs drive M1 switch; early clinical signals</li></ul>' },
+        { content: '<h2>Summary + Open Questions</h2><p style="font-size:0.85em"><strong>Key take-aways:</strong></p><ul style="font-size:0.82em"><li>TREM2⁺ and SPP1⁺ TAM subsets are primary drivers of immunosuppression in HGSOC</li><li>CSF1–CSF1R axis is the dominant polarisation pathway and a druggable target</li><li>Combination with checkpoint blockade is the most clinically advanced strategy</li></ul><p style="font-size:0.82em;margin-top:0.8em"><strong>Open questions:</strong> Does FOLR2⁺ tissue-resident subset predict IO response? What determines TAM ontogeny in recurrent disease? Can spatial niches of TREM2⁺ TAMs be disrupted with targeted agents?</p>' },
+      ].map(s => ({ id: nanoid(), content: s.content, notes: '' })),
+    },
+    {
+      title: 'PARPi Resistance Mechanisms — Lab Meeting',
+      theme: 'white' as PresTheme,
+      slides: [
+        { content: '<h1 style="font-size:1.8em;font-weight:700">PARPi Resistance in HGSOC</h1><p style="font-size:0.9em;opacity:0.65">Mechanisms, emerging data, and our scRNA-seq approach · Lab Meeting · 2024</p>' },
+        { content: '<h2>PARPi Mechanism of Action</h2><ul style="font-size:0.84em"><li>PARP1/2 inhibition traps PARP at single-strand DNA breaks → stalled replication forks</li><li>In HRD tumours (BRCA1/2 mutant, BRCAness), unrepaired DSBs → mitotic catastrophe</li><li>Approved agents: olaparib, niraparib, rucaparib, veliparib</li><li>First-line maintenance (SOLO-1, PRIMA, PAOLA-1) has transformed HGSOC outcomes</li></ul><p class="cite-strip">Lord & Ashworth, Science 2017</p>' },
+        { content: '<h2>Clinical Context: Where We Are</h2><div style="display:grid;grid-template-columns:1fr 1fr;gap:1em;font-size:0.82em"><div><h3 style="font-size:0.88em">Responders (HRD)</h3><ul><li>Olaparib: median PFS 56 mo (SOLO-1)</li><li>Niraparib: PFS benefit in HRD+ (PRIMA)</li><li>Rucaparib maintenance after response</li></ul></div><div><h3 style="font-size:0.88em">Problem: Resistance</h3><ul><li>Nearly all patients eventually progress</li><li>Post-PARPi options are limited</li><li>Platinum re-challenge often fails</li><li>No validated biomarker of resistance</li></ul></div></div>' },
+        { content: '<h2>Resistance Mechanism 1: BRCA Reversion</h2><ul style="font-size:0.84em"><li>Secondary mutations restore BRCA1/2 open reading frame</li><li>Detected in ctDNA at progression in 15–46% of patients</li><li>Multiple independent reversion events in different metastatic clones (polyclonal resistance)</li><li>Implications: re-challenge ineffective; need HRD re-testing at progression</li></ul><p style="font-size:0.8em;margin-top:0.8em"><em>Key question: do reversion clones pre-exist at low frequency before PARPi exposure?</em></p><p class="cite-strip">Kondrashova et al., Cancer Discovery 2017</p>' },
+        { content: '<h2>Resistance Mechanism 2: RAD51 Paralog Loss + HRR Restoration</h2><ul style="font-size:0.84em"><li>BRCA1-independent HRR restoration via RAD51C/D upregulation</li><li>53BP1 / RIF1 loss → NHEJ shift → end-resection restored without BRCA2</li><li>PALB2 secondary mutations — less common but same effect</li><li>CDK1/2 reactivation — phosphorylates BRCA1 to restore partial HRR function</li></ul><p class="cite-strip">Noordermeer et al., Nature 2018</p>' },
+        { content: '<h2>Resistance Mechanism 3: Drug Efflux + Fork Protection</h2><ul style="font-size:0.84em"><li><strong>Pgp (ABCB1) overexpression</strong> — reduces intracellular olaparib/rucaparib concentrations; less relevant for niraparib</li><li><strong>Replication fork protection</strong> — loss of BRCA1/2 normally destabilises forks; PTIP, EZH2, SMARCAL1 mutations restore fork stability independently of HRR</li><li><strong>SLFN11 loss</strong> — impairs replication stress response; associated with multi-drug resistance</li></ul>' },
+        { content: '<h2>Our Approach: scRNA-seq of Resistant vs Sensitive HGSOC</h2><p style="font-size:0.84em"><strong>Cohort:</strong> Paired biopsies (pre-PARPi / at progression) from 8 HGSOC patients — BRCA1/2m and sporadic HRD</p><p style="font-size:0.84em;margin-top:0.5em"><strong>Methods:</strong> 10x Chromium v3.1 · CellRanger 7.1 · Seurat 5 · scVelo trajectory · CopyKAT CNV inference</p><div style="border:2px dashed rgba(128,128,128,0.3);border-radius:8px;padding:1em;text-align:center;font-size:0.76em;opacity:0.55;margin-top:0.8em">[ UMAP — pre vs post PARPi, coloured by clone ]</div>' },
+        { content: '<h2>Preliminary Findings</h2><ul style="font-size:0.84em"><li>Resistant tumour cells upregulate <strong>CDK1, CCNB1, E2F targets</strong> — consistent with cell-cycle re-wiring</li><li><strong>SPP1⁺ macrophage</strong> expansion in post-PARPi biopsies (3/8 patients) — possible immune evasion</li><li>Trajectory analysis: resistant clones arise from a distinct <strong>intermediate progenitor state</strong> not present pre-treatment</li><li>CopyKAT: chr17q gain (BRCA1 locus) in 4/8 resistant samples — possible amplification-based reversion?</li></ul>' },
+        { content: '<h2>Proposed Resistance Model</h2><div style="font-size:0.82em"><p><strong>Working model: PARPi selects a pre-existing progenitor state that acquires HRR-restoring events under treatment pressure</strong></p><ul style="margin-top:0.8em"><li>Progenitor state upregulates CDK1 → partial BRCA1 phosphorylation → marginal HRR</li><li>Under PARPi pressure, secondary BRCA2 reversion or RAD51C upregulation completes resistance</li><li>SPP1⁺ TAM expansion creates immunosuppressive niche that shields emerging resistant clone</li></ul></div><p class="cite-strip">Rottenberg et al., PNAS 2008</p>' },
+        { content: '<h2>Blockers + Next Steps</h2><div style="display:grid;grid-template-columns:1fr 1fr;gap:1em;font-size:0.82em"><div><h3 style="font-size:0.88em">🚧 Current blockers</h3><ul><li>Low cell numbers in 2 post-PARPi samples — need re-sequencing</li><li>CopyKAT CNV calling unreliable < 50 cells per clone</li></ul></div><div><h3 style="font-size:0.88em">→ Next steps</h3><ul><li>Spatial transcriptomics (Visium) on 3 resistant samples</li><li>Validate CDK1 upregulation by IHC on FFPE</li><li>Functional assay: CDK1 inhibitor + PARPi in ex vivo organoids</li></ul></div></div>' },
+        { content: '<h2>Acknowledgements</h2><p style="font-size:0.85em"><strong>Funding:</strong> [Grant agency — grant number]</p><p style="font-size:0.85em;margin-top:0.5em"><strong>Collaborators:</strong> [Collaborating institutions]</p><p style="font-size:0.85em;margin-top:0.5em"><strong>Lab members:</strong> [Names]</p><p style="font-size:0.85em;margin-top:0.5em"><strong>Core facilities:</strong> Genomics Core · Biobank</p>' },
+      ].map(s => ({ id: nanoid(), content: s.content, notes: '' })),
+    },
   ];
+
+  function loadExample(ex: typeof EXAMPLE_PRES[number]) {
+    const p: Presentation = {
+      id: nanoid(),
+      title: ex.title,
+      slides: ex.slides,
+      theme: ex.theme,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    store.presentations = [p, ...store.presentations];
+    selectedId = p.id;
+    scheduleSave();
+  }
 </script>
 
 <!-- ── Present mode overlay ─────────────────────────────────── -->
@@ -781,13 +824,13 @@
           <button class="btn btn-ghost btn-sm" onclick={newPresentation}>Create one</button>
         </div>
         {#each EXAMPLE_PRES as ex}
-          <div class="pres-item pres-item-example">
+          <div class="pres-item pres-item-example" onclick={() => loadExample(ex)} title="Load example — click to edit">
             <div class="pres-item-icon">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
             </div>
             <div class="pres-item-body">
               <span class="pres-item-title">{ex.title}</span>
-              <span class="pres-item-meta">{ex.slides} slides · <em>example</em></span>
+              <span class="pres-item-meta">{ex.slides.length} slides · <em>click to load</em></span>
             </div>
           </div>
         {/each}

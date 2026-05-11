@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { store } from '../lib/store.svelte';
-  import { analyzeNoteGraph, synthesizeNotes } from '../lib/groq';
+  import { analyzeNoteGraph, synthesizeNotes, graphNarrative } from '../lib/groq';
+  import { nanoid } from 'nanoid';
 
   let { onClose }: { onClose: () => void } = $props();
 
@@ -46,10 +47,15 @@
   let analyzeError = $state('');
 
   // Result panels
-  let showPanel = $state<'gaps' | 'synth' | null>(null);
+  let showPanel = $state<'gaps' | 'synth' | 'narrative' | null>(null);
   let synthText = $state('');
   let synthStreaming = $state(false);
   let synthAbort: AbortController | null = null;
+
+  // Guided narrative
+  let narrativeText = $state('');
+  let narrativeStreaming = $state(false);
+  let narrativeAbort: AbortController | null = null;
 
   let simNodes: SimNode[] = [];
   let simEdges: SimEdge[] = [];
@@ -201,6 +207,7 @@
     cancelAnimationFrame(rafId);
     window.removeEventListener('resize', resize);
     synthAbort?.abort();
+    narrativeAbort?.abort();
   });
 
   function openNote(id: string) {
@@ -312,6 +319,51 @@
   }
 
   function clearSelection() { selectedNodes = new Set(); selectMode = false; showPanel = null; }
+
+  async function runNarrative() {
+    if (narrativeStreaming) { narrativeAbort?.abort(); return; }
+    if (!clusterData.length) return;
+    narrativeText = '';
+    narrativeStreaming = true;
+    showPanel = 'narrative';
+    narrativeAbort = new AbortController();
+    const isolated = simNodes
+      .filter(n => !clusterData.some(c => c.ids.includes(n.id)))
+      .map(n => n.title);
+    try {
+      await graphNarrative(
+        clusterData.map(c => ({
+          label: c.label,
+          titles: c.ids.map(id => nodeMap.get(id)?.title ?? '').filter(Boolean),
+        })),
+        isolated,
+        chunk => { narrativeText += chunk; },
+        narrativeAbort.signal
+      );
+    } catch { /* aborted */ }
+    narrativeStreaming = false;
+  }
+
+  function copySynthText() {
+    navigator.clipboard.writeText(synthText).catch(() => {});
+  }
+
+  function createNoteFromSynthesis() {
+    if (!synthText) return;
+    const n = {
+      id: nanoid(),
+      title: 'Graph synthesis — ' + new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+      body: synthText.replace(/\n/g, '<br>'),
+      color: undefined,
+      tags: ['graph-synthesis'],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      archived: false,
+    } as any;
+    store.notes = [n, ...store.notes];
+    store.currentNoteId = n.id;
+    onClose();
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -378,6 +430,17 @@
       {#if gapObservations.length}
         <button class="tb-btn gap-btn" onclick={() => showPanel = showPanel === 'gaps' ? null : 'gaps'} title="Research gaps">
           Gaps ({gapObservations.length})
+        </button>
+      {/if}
+
+      {#if clusterData.length}
+        <button class="tb-btn narr-btn" onclick={runNarrative} disabled={narrativeStreaming} title="What story does my graph tell?">
+          {#if narrativeStreaming}
+            <span class="spin">⟳</span> Narrative…
+          {:else}
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            Narrative
+          {/if}
         </button>
       {/if}
 
@@ -500,7 +563,9 @@
     {#if showPanel}
       <div class="graph-panel">
         <div class="panel-header">
-          <span class="panel-title">{showPanel === 'gaps' ? 'Research Gaps' : 'Synthesis'}</span>
+          <span class="panel-title">
+            {showPanel === 'gaps' ? 'Research Gaps' : showPanel === 'narrative' ? 'Research Narrative' : 'Synthesis'}
+          </span>
           <button class="panel-close" onclick={() => { showPanel = null; }}>×</button>
         </div>
         {#if showPanel === 'gaps'}
@@ -515,6 +580,33 @@
               <p class="synth-streaming">Enzo is synthesising…</p>
             {/if}
             <p class="synth-text">{synthText || (synthStreaming ? '' : 'No synthesis yet.')}</p>
+            {#if synthText && !synthStreaming}
+              <div class="panel-actions">
+                <button class="panel-action-btn" onclick={copySynthText} title="Copy to clipboard">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                  Copy
+                </button>
+                <button class="panel-action-btn" onclick={createNoteFromSynthesis} title="Save as new note">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                  New note
+                </button>
+              </div>
+            {/if}
+          </div>
+        {:else if showPanel === 'narrative'}
+          <div class="panel-body">
+            {#if narrativeStreaming}
+              <p class="synth-streaming">Enzo is writing the narrative…</p>
+            {/if}
+            <p class="synth-text narrative-text">{narrativeText || (narrativeStreaming ? '' : 'Run "Enzo Analyse" first to generate clusters, then click Narrative.')}</p>
+            {#if narrativeText && !narrativeStreaming}
+              <div class="panel-actions">
+                <button class="panel-action-btn" onclick={() => navigator.clipboard.writeText(narrativeText).catch(() => {})} title="Copy to clipboard">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                  Copy
+                </button>
+              </div>
+            {/if}
           </div>
         {/if}
       </div>
@@ -632,6 +724,18 @@
 
   .synth-streaming { font-size: 0.76rem; color: #f97316; margin: 0; }
   .synth-text { font-size: 0.8rem; color: var(--tx); line-height: 1.7; margin: 0; white-space: pre-wrap; }
+  .narrative-text { font-style: italic; }
+  .narr-btn { border-color: #7c67ee; color: #7c67ee; }
+  .narr-btn:hover { background: #7c67ee11; }
+
+  .panel-actions { display: flex; gap: 6px; padding-top: 10px; border-top: 1px solid var(--bd); margin-top: 8px; }
+  .panel-action-btn {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 0.74rem; padding: 4px 10px; border-radius: 5px;
+    border: 1px solid var(--bd); background: var(--sf);
+    color: var(--tx); cursor: pointer;
+  }
+  .panel-action-btn:hover { background: var(--hv); }
 
   .tag-legend {
     display: flex; flex-wrap: wrap; gap: 6px;
