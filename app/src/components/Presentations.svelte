@@ -20,6 +20,7 @@
   let genNoteId       = $state('');
   let genPaperId      = $state('');
   let generating      = $state(false);
+  let genProgress     = $state('');
   let saving          = $state(false);
   let saveTimer: ReturnType<typeof setTimeout>;
   let dragIdx         = $state<number | null>(null);
@@ -458,7 +459,8 @@
           else topic = 'Research Presentation';
         }
         const sources = await buildSources();
-        const deck = await generateSlidesDeck(topic, genCount, sources, genMode);
+        genProgress = '';
+        const deck = await generateSlidesDeck(topic, genCount, sources, genMode, undefined, (msg) => { genProgress = msg; });
         if (!deck.length) throw new Error('Enzo returned an empty deck');
         mutate(p => {
           p.slides = deck.map(s => ({
@@ -493,6 +495,7 @@
       showToast('Generation failed: ' + (e as Error).message, 'error');
     } finally {
       generating = false;
+      genProgress = '';
     }
   }
 
@@ -742,10 +745,10 @@
     <!-- Slide count -->
     <div class="gen-count-row">
       <label class="text-sm">Slides:</label>
-      {#each [5, 8, 10, 12, 15] as n}
+      {#each [5, 10, 15, 20, 30] as n}
         <button class="count-chip" class:active={genCount === n} onclick={() => genCount = n}>{n}</button>
       {/each}
-      <input type="number" class="count-input" bind:value={genCount} min={3} max={30} />
+      <input type="number" class="count-input" bind:value={genCount} min={3} max={60} />
     </div>
 
     <div class="gen-actions">
@@ -759,7 +762,9 @@
       </button>
     </div>
     {#if generating}
-      <p class="text-xs text-mu" style="text-align:center;margin-top:6px">Enzo is writing your slides…</p>
+      <p class="text-xs text-mu" style="text-align:center;margin-top:6px">
+        {genProgress || 'Enzo is writing your slides…'}
+      </p>
     {/if}
   </div>
 {/if}

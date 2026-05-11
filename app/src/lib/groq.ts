@@ -52,6 +52,40 @@ function addTokens(model: string, count: number): void {
   localStorage.setItem(key, String(prev + count));
 }
 
+// ── Sliding TPM rate limiter for chunked generation ────────────
+// Groq free tier: 12k TPM for 70b. We stay under 10.5k to keep a buffer.
+const tpmWindow: { t: number; tokens: number }[] = [];
+const TPM_SAFE = 10_500;
+
+async function awaitTpmBudget(estimated: number): Promise<void> {
+  const now = Date.now();
+  while (tpmWindow.length > 0 && now - tpmWindow[0].t >= 60_000) tpmWindow.shift();
+  const used = tpmWindow.reduce((s, e) => s + e.tokens, 0);
+  if (used + estimated > TPM_SAFE && tpmWindow.length > 0) {
+    const waitMs = Math.max(1000, 61_000 - (now - tpmWindow[0].t));
+    await new Promise<void>(r => setTimeout(r, waitMs));
+    return awaitTpmBudget(estimated);
+  }
+}
+
+function recordTpm(tokens: number): void {
+  tpmWindow.push({ t: Date.now(), tokens });
+}
+
+// Split text into n chunks at paragraph boundaries (no LLM — raw text preserved)
+function splitIntoChunks(text: string, n: number): string[] {
+  if (n <= 1) return [text];
+  const paras = text.split(/\n{2,}/).filter(p => p.trim().length > 30);
+  if (paras.length <= n) return [text];
+  const chunks: string[] = [];
+  const perChunk = Math.ceil(paras.length / n);
+  for (let i = 0; i < paras.length; i += perChunk) {
+    chunks.push(paras.slice(i, i + perChunk).join('\n\n'));
+    if (chunks.length === n) { chunks[n - 1] += '\n\n' + paras.slice(i + perChunk).join('\n\n'); break; }
+  }
+  return chunks.filter(c => c.trim().length > 0);
+}
+
 // ── Enzo system prompt ─────────────────────────────────────────
 export const ENZO_SYSTEM = (userName: string, noteContext: string) => `You are Enzo — ${userName}'s research companion and brilliant dog in AI form. You are named after her late golden shepherd, and you carry her spirit: unconditionally present, fiercely devoted, and genuinely brilliant.
 
@@ -163,7 +197,8 @@ async function streamGroq(
   model: string,
   messages: { role: string; content: string }[],
   onChunk: (text: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  maxTokens = 2048
 ): Promise<{ text: string; tokens: number; model: string }> {
   const workerUrl = getWorkerUrl();
 
@@ -172,7 +207,7 @@ async function streamGroq(
     const res = await fetch(`${workerUrl}/llm`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages, stream: true, temperature: 0.4, max_tokens: 2048 }),
+      body: JSON.stringify({ model, messages, stream: true, temperature: 0.4, max_tokens: maxTokens }),
       signal,
     });
 
@@ -934,56 +969,189 @@ export async function synthesizeNotes(
   await streamGroq(MODELS.enzo, messages, onChunk, signal);
 }
 
+const SLIDE_MODE_INSTRUCTIONS: Record<string, string> = {
+  standard: 'A clear scientific presentation suitable for a general academic audience.',
+  journal_club: 'A journal club presentation: background, methods critique, key results, limitations, and implications. Be analytical.',
+  lab_meeting: 'An informal lab meeting update: progress, data highlights, blockers, and next steps. Keep it concise and actionable.',
+  grant_narrative: 'A grant proposal narrative: significance, innovation, approach, and preliminary data. Use persuasive scientific language.',
+};
+
+const SLIDE_SYSTEM = `You are Enzo, a scientific presentation specialist. Output ONLY a valid JSON array — no markdown fences, no prose outside the JSON. Each slide element must have exactly: title (string), bullets (string[], 3–6 items — may include prose sentences, table descriptions, figure callouts, or step-by-step flows where appropriate), speaker_notes (string, 1–2 sentences), source_refs (string[], DOIs or short Author Year citations used on this slide).`;
+
 export async function generateSlidesDeck(
   topic: string,
   count: number,
   sources: { type: string; title: string; content: string; doi?: string }[],
   mode: 'standard' | 'journal_club' | 'lab_meeting' | 'grant_narrative',
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onProgress?: (msg: string) => void
 ): Promise<Array<{ title: string; bullets: string[]; speaker_notes: string; source_refs: string[] }>> {
-  const modeInstructions: Record<string, string> = {
-    standard: 'A clear scientific presentation suitable for a general academic audience.',
-    journal_club: 'A journal club presentation: background, methods critique, key results, limitations, and implications. Be analytical.',
-    lab_meeting: 'An informal lab meeting update: progress, data highlights, blockers, and next steps. Keep it concise and actionable.',
-    grant_narrative: 'A grant proposal narrative: significance, innovation, approach, and preliminary data. Use persuasive scientific language.',
-  };
+  const fullContent = sources.map(s =>
+    `=== ${s.title} ===\n${s.content}`
+  ).join('\n\n---\n\n');
 
+  const totalChars = fullContent.length;
+  const estInputTokens = Math.ceil(totalChars / 4);
+  // Threshold: ~6k content tokens fits safely in one 12k-TPM call
+  const SINGLE_THRESHOLD = 5_500;
+
+  if (estInputTokens <= SINGLE_THRESHOLD || sources.length === 0) {
+    return _deckSingle(topic, count, sources, mode, signal, onProgress);
+  }
+  return _deckChunked(topic, count, sources, mode, fullContent, signal, onProgress);
+}
+
+async function _deckSingle(
+  topic: string,
+  count: number,
+  sources: { type: string; title: string; content: string; doi?: string }[],
+  mode: string,
+  signal?: AbortSignal,
+  onProgress?: (msg: string) => void
+): Promise<Array<{ title: string; bullets: string[]; speaker_notes: string; source_refs: string[] }>> {
   const sourceBlocks = sources.slice(0, 12).map(s =>
-    `[${s.type.toUpperCase()}] ${s.title}${s.doi ? ` (DOI: ${s.doi})` : ''}\n${s.content.slice(0, 400)}`
+    `[${s.type.toUpperCase()}] ${s.title}${s.doi ? ` (DOI: ${s.doi})` : ''}\n${s.content.slice(0, 600)}`
   ).join('\n\n');
 
+  onProgress?.(`Generating ${count} slides…`);
+
   const messages = [
-    {
-      role: 'system' as const,
-      content: 'You are Enzo, a scientific presentation specialist. Output ONLY a valid JSON array — no markdown fences, no prose outside the JSON. Each element must have exactly: title (string), bullets (string[], 3–5 items), speaker_notes (string, 1–2 sentences), source_refs (string[], DOIs or short author+year citations used on this slide).'
-    },
+    { role: 'system' as const, content: SLIDE_SYSTEM },
     {
       role: 'user' as const,
-      content: `Create a ${count}-slide presentation deck on: "${topic}"
+      content: `Create a ${count}-slide presentation on: "${topic}"
 
-Presentation mode: ${modeInstructions[mode]}
+Mode: ${SLIDE_MODE_INSTRUCTIONS[mode]}
 
 Source materials:
-${sourceBlocks || '(No sources provided — generate from domain knowledge, note this in speaker_notes)'}
+${sourceBlocks || '(No sources — generate from domain knowledge, note this in speaker_notes)'}
 
-Rules:
-- Exactly ${count} slides
-- First slide is title/overview, last slide is conclusions/next-steps
-- Bullets are concise (≤12 words each)
-- source_refs lists only references actually used on that slide
-- Output ONLY the JSON array`
+Rules: Exactly ${count} slides · First slide = title/overview · Last slide = conclusions/next-steps · Output ONLY the JSON array`
     }
   ];
 
   let buffer = '';
-  await streamGroq(MODELS.enzo, messages, chunk => { buffer += chunk; }, signal);
+  await streamGroq(MODELS.enzo, messages, chunk => { buffer += chunk; }, signal, 4096);
   const match = buffer.match(/\[[\s\S]*\]/);
   if (!match) return [];
-  try {
-    return JSON.parse(match[0]);
-  } catch {
-    return [];
+  try { return JSON.parse(match[0]); } catch { return []; }
+}
+
+async function _deckChunked(
+  topic: string,
+  totalSlides: number,
+  sources: { type: string; title: string; content: string; doi?: string }[],
+  mode: string,
+  fullContent: string,
+  signal?: AbortSignal,
+  onProgress?: (msg: string) => void
+): Promise<Array<{ title: string; bullets: string[]; speaker_notes: string; source_refs: string[] }>> {
+  // Source attribution header sent to every chunk (titles + DOIs only — no content duplication)
+  const sourceHeaders = sources.map(s =>
+    `[${s.type.toUpperCase()}] ${s.title}${s.doi ? ` (DOI: ${s.doi})` : ''}`
+  ).join('\n');
+
+  // Dynamic ratio: content density × slide count → chunk count
+  const totalChars = fullContent.length;
+  const estTokens = Math.ceil(totalChars / 4);
+  const TOKENS_PER_CHUNK = 2_200; // safe content budget per 70b call
+  const contentChunks = Math.max(1, Math.ceil(estTokens / TOKENS_PER_CHUNK));
+  const slidesPerChunk = Math.max(1, Math.min(6, Math.ceil(totalSlides / contentChunks)));
+  const chunkCount = Math.ceil(totalSlides / slidesPerChunk);
+
+  onProgress?.(`Planning ${chunkCount} generation passes for ${totalSlides} slides (${Math.round(totalChars / 1024)}KB content)…`);
+
+  // Algorithmic paragraph-boundary split — 70b gets raw source text, zero content loss
+  const contentChunkTexts = splitIntoChunks(fullContent, chunkCount);
+
+  // Distribute slides across chunks (last chunk absorbs rounding)
+  const slideCounts: number[] = [];
+  let remaining = totalSlides;
+  for (let i = 0; i < chunkCount; i++) {
+    const slides = i === chunkCount - 1 ? remaining : Math.min(slidesPerChunk, remaining);
+    slideCounts.push(slides);
+    remaining -= slides;
   }
+
+  const allSlides: Array<{ title: string; bullets: string[]; speaker_notes: string; source_refs: string[] }> = [];
+
+  for (let i = 0; i < chunkCount; i++) {
+    if (signal?.aborted) break;
+
+    const n = slideCounts[i];
+    const chunkText = contentChunkTexts[i] ?? '';
+    const isFirst = i === 0;
+    const isLast = i === chunkCount - 1;
+
+    // Estimated tokens: raw chunk content + system prompt + output
+    const inputEst = Math.ceil(chunkText.length / 4) + 900;
+    const outputEst = n * 350;
+    const totalEst = inputEst + outputEst;
+
+    onProgress?.(`Pass ${i + 1} of ${chunkCount} — generating ${n} slide${n > 1 ? 's' : ''}…`);
+
+    await awaitTpmBudget(totalEst);
+
+    const positionNote = isFirst
+      ? `This is the FIRST section — slide 1 must be a title/overview slide.`
+      : isLast
+      ? `This is the LAST section — the final slide must be conclusions and next steps.`
+      : `This is section ${i + 1} of ${chunkCount} — continue the narrative from the previous section, no intro slide needed.`;
+
+    const messages = [
+      { role: 'system' as const, content: SLIDE_SYSTEM },
+      {
+        role: 'user' as const,
+        content: `Create exactly ${n} slides on: "${topic}"
+
+Mode: ${SLIDE_MODE_INSTRUCTIONS[mode]}
+${positionNote}
+
+Source references (for attribution in source_refs):
+${sourceHeaders}
+
+Content to cover in these ${n} slides:
+${chunkText.slice(0, 9000)}
+
+Output ONLY the JSON array. Slides may include prose, table descriptions, figure callouts, step-by-step flows — whatever the content calls for.`
+      }
+    ];
+
+    let buffer = '';
+    let tokensUsed = 0;
+    let retried = false;
+
+    while (true) {
+      try {
+        const result = await streamGroq(MODELS.enzo, messages, chunk => { buffer += chunk; }, signal, 4096);
+        tokensUsed = result.tokens;
+        break;
+      } catch (e) {
+        const msg = (e as Error).message || '';
+        if ((msg.includes('429') || msg.includes('Rate limit')) && !retried) {
+          retried = true;
+          buffer = '';
+          onProgress?.(`Rate limit — waiting 60s for token budget to refresh…`);
+          await new Promise<void>(r => setTimeout(r, 62_000));
+          continue;
+        }
+        throw e;
+      }
+    }
+
+    recordTpm(tokensUsed || totalEst);
+
+    const match = buffer.match(/\[[\s\S]*\]/);
+    if (match) {
+      try {
+        const slides = JSON.parse(match[0]) as Array<{ title: string; bullets: string[]; speaker_notes: string; source_refs: string[] }>;
+        allSlides.push(...slides);
+        onProgress?.(`Pass ${i + 1} done · ${allSlides.length} of ${totalSlides} slides ready`);
+      } catch { /* skip malformed chunk — continue */ }
+    }
+  }
+
+  return allSlides;
 }
 
 export async function findMissingCitations(
