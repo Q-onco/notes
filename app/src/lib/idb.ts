@@ -1,0 +1,48 @@
+const DB_NAME = 'qonco-cache';
+const STORE   = 'data';
+const VERSION = 1;
+
+function openDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, VERSION);
+    req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  });
+}
+
+export async function idbGet<T>(key: string): Promise<T | null> {
+  try {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx  = db.transaction(STORE, 'readonly');
+      const req = tx.objectStore(STORE).get(key);
+      req.onsuccess = () => resolve(req.result ?? null);
+      req.onerror   = () => reject(req.error);
+    });
+  } catch { return null; }
+}
+
+export async function idbSet(key: string, value: unknown): Promise<void> {
+  try {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx  = db.transaction(STORE, 'readwrite');
+      const req = tx.objectStore(STORE).put(value, key);
+      req.onsuccess = () => resolve();
+      req.onerror   = () => reject(req.error);
+    });
+  } catch { /* silently ignore IDB write failures */ }
+}
+
+export async function idbDel(key: string): Promise<void> {
+  try {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx  = db.transaction(STORE, 'readwrite');
+      const req = tx.objectStore(STORE).delete(key);
+      req.onsuccess = () => resolve();
+      req.onerror   = () => reject(req.error);
+    });
+  } catch { /* ignore */ }
+}

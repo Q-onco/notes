@@ -430,21 +430,36 @@ export interface Presentation {
 
 // ── Files ─────────────────────────────────────────────────────────────────────
 
+export interface FileVersion {
+  uploadedAt: number;
+  size: number;
+}
+
 export interface FileRecord {
   id: string;
   name: string;
   mimeType: string;
-  size: number;            // bytes (original)
-  data?: string;           // base64 (legacy — pre-R2 uploads only)
-  r2Key?: string;          // R2 object key (new uploads)
-  url?: string;            // external link alternative
+  size: number;
+  data?: string;                  // legacy base64 — stripped on load when r2Key exists
+  r2Key?: string;
+  url?: string;
   tags: string[];
   folder?: string;
+  folderColor?: string;           // hex colour label for the folder
+  starred?: boolean;
   linkedNoteIds: string[];
   linkedRunIds: string[];
+  linkedPresentationIds: string[];
+  linkedPaperIds: string[];
+  linkedJournalIds: string[];
+  linkedTaskIds: string[];
+  linkedGrantIds: string[];
+  linkedManuscriptIds: string[];
   description: string;
   createdAt: number;
   updatedAt: number;
+  openedAt?: number;              // last time the detail panel was opened
+  versions?: FileVersion[];       // upload history entries
 }
 
 // ── Grants ────────────────────────────────────────────────────────────────────

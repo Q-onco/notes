@@ -59,6 +59,14 @@
     [...store.journal].sort((a, b) => b.createdAt - a.createdAt).slice(0, 3)
   );
 
+  // F4k recent files
+  const recentFiles = $derived(
+    [...store.files]
+      .filter(f => f.openedAt)
+      .sort((a, b) => (b.openedAt ?? 0) - (a.openedAt ?? 0))
+      .slice(0, 5)
+  );
+
   // Week activity
   const weekMs = 7 * 86400000;
   const weekStart = $derived(Date.now() - weekMs);
@@ -569,6 +577,35 @@
         </div>
       </section>
 
+      <!-- F4k Recent files -->
+      {#if recentFiles.length > 0}
+        <section class="card dash-card">
+          <div class="card-head">
+            <h3>Recent Files</h3>
+            <button class="btn btn-ghost btn-sm" onclick={() => store.view = 'files'}>All</button>
+          </div>
+          <div class="recent-files-rows">
+            {#each recentFiles as f}
+              <button class="recent-file-row" onclick={() => { store.view = 'files'; }}>
+                <span class="recent-file-icon" style="color:{f.mimeType.startsWith('image/') ? 'var(--gn)' : f.mimeType==='application/pdf' ? 'var(--rd)' : 'var(--ac)'}">
+                  {#if f.mimeType.startsWith('image/')}
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                  {:else if f.mimeType==='application/pdf'}
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  {:else}
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/></svg>
+                  {/if}
+                </span>
+                <span class="recent-file-name">{f.name}</span>
+                <span class="recent-file-time text-xs text-mu">
+                  {new Date(f.openedAt!).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                </span>
+              </button>
+            {/each}
+          </div>
+        </section>
+      {/if}
+
       <!-- Enzo quick prompts -->
       <section class="card dash-card enzo-card">
         <div class="card-head">
@@ -815,6 +852,21 @@
     border-bottom: 1px solid var(--bd);
   }
   .journal-row:last-child { border-bottom: none; }
+
+  /* ── F4k Recent files ──────────────────────────────────────────── */
+  .recent-files-rows { display: flex; flex-direction: column; }
+  .recent-file-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 4px; border-bottom: 1px solid var(--bd);
+    background: none; border-left: none; border-right: none; border-top: none;
+    cursor: pointer; text-align: left; width: 100%;
+    transition: background var(--transition);
+  }
+  .recent-file-row:last-child { border-bottom: none; }
+  .recent-file-row:hover { background: var(--sf2); }
+  .recent-file-icon { flex-shrink: 0; display: flex; align-items: center; }
+  .recent-file-name { flex: 1; min-width: 0; font-size: 0.82rem; color: var(--tx); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .recent-file-time { flex-shrink: 0; }
 
   .enzo-card { background: var(--enzo-bg); border-color: var(--enzo-bd); }
 
