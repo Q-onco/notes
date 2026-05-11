@@ -336,6 +336,7 @@
 
   $effect(() => {
     if (!editor || !mounted) return;
+    if (editor.isFocused) return; // don't clobber active typing
     const current = editor.getHTML();
     const incoming = htmlFromValue(value);
     if (incoming !== current) editor.commands.setContent(incoming, false as any);
