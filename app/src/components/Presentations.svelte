@@ -4,7 +4,7 @@
   import { marked } from 'marked';
   import { generateSlides, askEnzoInline, generateSlidesDeck } from '../lib/groq';
   import RichEditor from './RichEditor.svelte';
-  import type { Presentation, Slide, PresTheme } from '../lib/types';
+  import type { Presentation, Slide, PresTheme, PresAiContext } from '../lib/types';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -485,12 +485,20 @@
           onSlideTitles: (titles) => { generatedTitles = [...generatedTitles, ...titles]; },
         });
         if (!deck.length) throw new Error('Enzo returned an empty deck');
+        const aiCtx: PresAiContext = {
+          brief: docBrief,
+          outline: docOutline,
+          concepts: docConcepts,
+          slideTitles: generatedTitles,
+          generatedAt: Date.now(),
+        };
         mutate(p => {
           p.slides = deck.map(s => ({
             id: nanoid(),
             content: `<h2>${s.title}</h2><ul>${s.bullets.map(b => `<li>${b}</li>`).join('')}</ul>${s.source_refs.length ? `<p class="cite-strip">${s.source_refs.join(' · ')}</p>` : ''}`,
             notes: s.speaker_notes,
           }));
+          p.aiContext = aiCtx;
         });
       } else {
         // Legacy path for simple prompt/note/paper
@@ -974,10 +982,10 @@
             Export HTML
           </button>
           <!-- Source sidebar toggle -->
-          {#if totalSourceCount > 0 || docBrief}
+          {#if totalSourceCount > 0 || docBrief || pres?.aiContext}
             <button class="btn btn-ghost btn-sm" class:active={showSourceSidebar} onclick={() => showSourceSidebar = !showSourceSidebar} title="Toggle source sidebar">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
-              Sources {totalSourceCount > 0 ? `(${totalSourceCount})` : ''}{docBrief ? ' · Analysis' : ''}
+              Sources {totalSourceCount > 0 ? `(${totalSourceCount})` : ''}{(docBrief || pres?.aiContext?.brief) ? ' · Analysis' : ''}
             </button>
           {/if}
           <button class="btn btn-primary btn-sm" onclick={startPresent}>
@@ -991,40 +999,46 @@
       <div class="slides-editor-wrap">
 
       <!-- Source sidebar -->
-      {#if showSourceSidebar && (totalSourceCount > 0 || docBrief)}
+      {#if showSourceSidebar && (totalSourceCount > 0 || docBrief || pres?.aiContext)}
         <div class="source-sidebar">
           <div class="source-sidebar-header">
             <span class="source-sidebar-title">Sources {totalSourceCount > 0 ? `(${totalSourceCount})` : ''}</span>
             <button class="source-sidebar-close" onclick={() => showSourceSidebar = false}>×</button>
           </div>
           <div class="source-sidebar-body">
-            {#if docBrief}
-              <div class="source-group-label layer-label-brief">① Document Analysis</div>
+            {#if docBrief || pres?.aiContext?.brief}
+              <div class="source-group-label layer-label-brief">
+                ① Document Analysis
+                {#if !docBrief && pres?.aiContext?.generatedAt}
+                  <span class="layer-saved-badge">· saved {new Date(pres.aiContext.generatedAt).toLocaleDateString()}</span>
+                {/if}
+              </div>
               <div class="source-entry doc-layer-entry doc-layer-brief">
-                <p class="doc-layer-text">{docBrief}{#if docBriefStreaming}<span class="brief-cursor">▋</span>{/if}</p>
+                <p class="doc-layer-text">{docBrief || pres?.aiContext?.brief || ''}{#if docBriefStreaming}<span class="brief-cursor">▋</span>{/if}</p>
               </div>
             {/if}
-            {#if docOutline}
+            {#if docOutline || pres?.aiContext?.outline}
               <div class="source-group-label layer-label-outline">③ Deck Outline</div>
               <div class="source-entry doc-layer-entry doc-layer-outline">
-                <p class="doc-layer-text">{docOutline}{#if docOutlineStreaming}<span class="brief-cursor">▋</span>{/if}</p>
+                <p class="doc-layer-text">{docOutline || pres?.aiContext?.outline || ''}{#if docOutlineStreaming}<span class="brief-cursor">▋</span>{/if}</p>
               </div>
             {/if}
-            {#if docConcepts}
+            {#if docConcepts || pres?.aiContext?.concepts}
               <div class="source-group-label layer-label-concepts">④ Key Concepts</div>
               <div class="source-entry doc-layer-entry doc-layer-concepts">
-                <p class="doc-layer-text">{docConcepts}{#if docConceptsStreaming}<span class="brief-cursor">▋</span>{/if}</p>
+                <p class="doc-layer-text">{docConcepts || pres?.aiContext?.concepts || ''}{#if docConceptsStreaming}<span class="brief-cursor">▋</span>{/if}</p>
               </div>
             {/if}
-            {#if generatedTitles.length > 0}
-              <div class="source-group-label layer-label-slides">② Slides Generated ({generatedTitles.length}{generating ? '…' : ' / ' + genCount})</div>
+            {#if generatedTitles.length > 0 || (pres?.aiContext?.slideTitles?.length ?? 0) > 0}
+              {@const titles = generatedTitles.length > 0 ? generatedTitles : (pres?.aiContext?.slideTitles ?? [])}
+              <div class="source-group-label layer-label-slides">② Slides Generated ({titles.length}{generating ? '…' : ''})</div>
               <div class="source-entry doc-layer-entry doc-layer-slides">
-                {#each generatedTitles as title, i}
+                {#each titles as title, i}
                   <p class="slide-title-item"><span class="slide-num">{i + 1}</span>{title}</p>
                 {/each}
               </div>
             {/if}
-            {#if (docBrief || docOutline || docConcepts || generatedTitles.length > 0) && (pickedNoteIds.size > 0 || pickedPaperIds.size > 0 || pickedFileIds.size > 0 || pickedRunIds.size > 0)}
+            {#if (docBrief || docOutline || docConcepts || generatedTitles.length > 0 || pres?.aiContext) && (pickedNoteIds.size > 0 || pickedPaperIds.size > 0 || pickedFileIds.size > 0 || pickedRunIds.size > 0)}
               <hr class="sidebar-divider" />
             {/if}
             {#if pickedNoteIds.size > 0}
@@ -1421,7 +1435,7 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .slide-content-wrap { border-bottom: 1px solid var(--bd); }
+  .slide-content-wrap { border-bottom: 1px solid var(--bd); user-select: text; -webkit-user-select: text; }
   :global(.slide-rich-editor) { border: none !important; border-radius: 0 !important; }
   :global(.slide-rich-editor .re-toolbar) { background: var(--sf) !important; }
   :global(.slide-rich-editor .re-content) { padding: 14px 18px !important; min-height: 160px; }
@@ -1621,7 +1635,8 @@
   .source-sidebar-title { font-size: 0.78rem; font-weight: 600; color: var(--tx); }
   .source-sidebar-close { background: none; border: none; color: var(--mu); cursor: pointer; font-size: 1rem; line-height: 1; }
   .source-sidebar-body { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
-  .source-group-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--mu); padding: 4px 0 2px; }
+  .source-group-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--mu); padding: 4px 0 2px; display: flex; align-items: center; gap: 5px; }
+  .layer-saved-badge { font-size: 0.63rem; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--mu); opacity: 0.7; }
   .source-entry { border: 1px solid var(--bd); border-radius: 5px; padding: 6px 8px; }
   .source-entry-title { font-size: 0.77rem; font-weight: 500; color: var(--tx); display: block; }
   .source-entry-snippet { font-size: 0.72rem; color: var(--mu); margin: 3px 0 0; line-height: 1.5; }

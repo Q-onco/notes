@@ -410,6 +410,14 @@ export interface Slide {
 
 export type PresTheme = 'white' | 'dark' | 'moon' | 'serif' | 'minimal';
 
+export interface PresAiContext {
+  brief: string;
+  outline: string;
+  concepts: string;
+  slideTitles: string[];
+  generatedAt: number;
+}
+
 export interface Presentation {
   id: string;
   title: string;
@@ -417,6 +425,7 @@ export interface Presentation {
   theme: PresTheme;
   createdAt: number;
   updatedAt: number;
+  aiContext?: PresAiContext;
 }
 
 // ── Files ─────────────────────────────────────────────────────────────────────
