@@ -34,9 +34,12 @@
   let genMode         = $state<'standard' | 'journal_club' | 'lab_meeting' | 'grant_narrative'>('standard');
   let pickedNoteIds   = $state(new Set<string>());
   let pickedPaperIds  = $state(new Set<string>());
-  let sourcePickerTab = $state<'notes' | 'papers'>('notes');
+  let pickedFileIds   = $state(new Set<string>());
+  let pickedRunIds    = $state(new Set<string>());
+  let sourcePickerTab = $state<'notes' | 'papers' | 'files' | 'pipeline'>('notes');
   let showSourceSidebar = $state(false);
-  let fillTemplateIdx = $state<number | null>(null); // index of template being Enzo-filled
+  let fillTemplateIdx = $state<number | null>(null);
+  let extractingFileId = $state<string | null>(null); // file being PDF-extracted
 
   // ── Presenter timer ───────────────────────────────────────────
   let presentTimer    = $state(0);
@@ -341,15 +344,53 @@
     }
   }
 
-  // ── Enzo inline slide improvement ────────────────────────────
+  // ── PDF text extraction (for Files source tab) ────────────────
+  async function extractPdfTextFromFile(fileId: string): Promise<string> {
+    const f = store.files.find(x => x.id === fileId);
+    if (!f) return '';
+    let url = '';
+    if (f.r2Key) {
+      url = `${store.workerBase}/file/${encodeURIComponent(f.r2Key)}`;
+    } else if (f.data) {
+      const binary = atob(f.data);
+      const arr = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+      url = URL.createObjectURL(new Blob([arr], { type: f.mimeType }));
+    } else if (f.url) {
+      url = f.url;
+    }
+    if (!url) return '';
+    try {
+      const pdfjsLib = await import('pdfjs-dist');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString();
+      const resp = await fetch(url);
+      const arrayBuffer = await resp.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let text = '';
+      const maxPages = Math.min(pdf.numPages, 10);
+      for (let i = 1; i <= maxPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        text += content.items.map((item: any) => item.str).join(' ') + '\n';
+      }
+      if (f.data) URL.revokeObjectURL(url);
+      return text.slice(0, 3000);
+    } catch {
+      if (f.data) URL.revokeObjectURL(url);
+      return '';
+    }
+  }
+
+  // ── Enzo inline slide improvement (v2 — context-aware) ────────
   async function improveSlide(idx: number, slide: Slide) {
     enzoLoadingIdx = idx;
     try {
-      const result = await askEnzoInline(
-        'Rewrite this slide content to be clearer, more concise, and scientifically precise. Keep the same structure and topic. Return only the improved HTML, no explanations.',
-        slide.content
-      );
-      // Strip markdown code fences if Enzo wraps in them
+      const sources = buildSourcesSync();
+      const contextBlock = sources.length
+        ? `You have the following source material:\n${sources.map(s => `[${s.type.toUpperCase()}] ${s.title}:\n${s.content}`).join('\n\n---\n\n')}\n\n`
+        : '';
+      const prompt = `${contextBlock}Improve this research slide. ${sources.length ? 'Use the source material to: add a missing bullet with specific data, strengthen vague claims, insert a citation where one is clearly needed.' : 'Make it clearer, more concise, and scientifically precise.'} Keep the same HTML structure. Return only the improved HTML, no explanations.`;
+      const result = await askEnzoInline(prompt, slide.content);
       const cleaned = result.replace(/^```(?:html)?\n?/i, '').replace(/\n?```$/, '').trim();
       mutate(p => { p.slides[idx].content = cleaned; });
       showToast('Slide improved by Enzo');
@@ -361,7 +402,7 @@
   }
 
   // ── AI generation ─────────────────────────────────────────────
-  function buildSources() {
+  function buildSourcesSync(): { type: string; title: string; content: string; doi?: string }[] {
     const sources: { type: string; title: string; content: string; doi?: string }[] = [];
     for (const id of pickedNoteIds) {
       const n = store.notes.find(x => x.id === id);
@@ -371,13 +412,40 @@
       const r = store.readingList.find(x => x.id === id);
       if (r) sources.push({ type: 'paper', title: r.paper.title, content: r.paper.abstract ?? '', doi: (r.paper as any).doi });
     }
+    for (const id of pickedRunIds) {
+      const run = store.pipelineRuns.find(x => x.id === id);
+      if (run) {
+        const steps = run.steps.filter(s => s.status === 'done' && s.notes).map(s => `${s.name}: ${s.notes}`).join('; ');
+        sources.push({ type: 'pipeline', title: run.title, content: `Type: ${run.pipelineType}. Sample: ${run.sampleDescription}. Notes: ${run.notes}${steps ? '. Steps: ' + steps : ''}`.slice(0, 800) });
+      }
+    }
     return sources;
   }
+
+  async function buildSources(): Promise<{ type: string; title: string; content: string; doi?: string }[]> {
+    const sources = buildSourcesSync();
+    for (const id of pickedFileIds) {
+      const f = store.files.find(x => x.id === id);
+      if (!f) continue;
+      if (f.mimeType === 'text/csv' || f.name.endsWith('.csv')) {
+        const text = f.data ? atob(f.data).slice(0, 2000) : '';
+        sources.push({ type: 'file', title: f.name, content: text });
+      } else if (f.mimeType === 'application/pdf' || f.name.endsWith('.pdf')) {
+        extractingFileId = f.id;
+        const text = await extractPdfTextFromFile(f.id);
+        extractingFileId = null;
+        if (text) sources.push({ type: 'file', title: f.name, content: text });
+      }
+    }
+    return sources;
+  }
+
+  const totalSourceCount = $derived(pickedNoteIds.size + pickedPaperIds.size + pickedFileIds.size + pickedRunIds.size);
 
   async function runGenerate() {
     if (!pres) return;
     generating = true;
-    const useDeck = genMode !== 'standard' || pickedNoteIds.size > 0 || pickedPaperIds.size > 0;
+    const useDeck = genMode !== 'standard' || totalSourceCount > 0;
     try {
       if (useDeck) {
         // New structured path: JSON schema output
@@ -385,9 +453,11 @@
         if (!topic) {
           if (pickedNoteIds.size > 0) topic = store.notes.find(n => pickedNoteIds.has(n.id))?.title ?? 'Research Presentation';
           else if (pickedPaperIds.size > 0) topic = store.readingList.find(r => pickedPaperIds.has(r.id))?.paper.title ?? 'Research Presentation';
+          else if (pickedFileIds.size > 0) topic = store.files.find(f => pickedFileIds.has(f.id))?.name ?? 'Research Presentation';
+          else if (pickedRunIds.size > 0) topic = store.pipelineRuns.find(r => pickedRunIds.has(r.id))?.title ?? 'Research Presentation';
           else topic = 'Research Presentation';
         }
-        const sources = buildSources();
+        const sources = await buildSources();
         const deck = await generateSlidesDeck(topic, genCount, sources, genMode);
         if (!deck.length) throw new Error('Enzo returned an empty deck');
         mutate(p => {
@@ -549,9 +619,9 @@
     <div class="gen-section-label">Topic / prompt</div>
     <textarea class="gen-textarea" bind:value={genTopic} placeholder="e.g. PARPi resistance mechanisms in HGSOC — 2024 updates" rows={3}></textarea>
 
-    <!-- Source picker (Notes + Papers) -->
+    <!-- Source picker -->
     <div class="gen-section-label">
-      Sources <span class="gen-source-count">{pickedNoteIds.size + pickedPaperIds.size} selected</span>
+      Sources <span class="gen-source-count">{totalSourceCount} selected</span>
     </div>
     <div class="gen-source-tabs">
       <button class="gen-source-tab" class:active={sourcePickerTab === 'notes'} onclick={() => sourcePickerTab = 'notes'}>
@@ -560,12 +630,16 @@
       <button class="gen-source-tab" class:active={sourcePickerTab === 'papers'} onclick={() => sourcePickerTab = 'papers'}>
         Papers ({store.readingList.length})
       </button>
+      <button class="gen-source-tab" class:active={sourcePickerTab === 'files'} onclick={() => sourcePickerTab = 'files'}>
+        Files ({store.files.filter(f => f.mimeType === 'application/pdf' || f.name.endsWith('.pdf') || f.name.endsWith('.csv')).length})
+      </button>
+      <button class="gen-source-tab" class:active={sourcePickerTab === 'pipeline'} onclick={() => sourcePickerTab = 'pipeline'}>
+        Pipeline ({store.pipelineRuns.length})
+      </button>
     </div>
     <div class="gen-source-list">
       {#if sourcePickerTab === 'notes'}
         {#each store.notes.filter(n => !n.archived) as n (n.id)}
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
           <label class="source-item" class:picked={pickedNoteIds.has(n.id)}>
             <input type="checkbox" checked={pickedNoteIds.has(n.id)} onchange={() => {
               const next = new Set(pickedNoteIds);
@@ -575,10 +649,8 @@
             <span class="source-title">{n.title || 'Untitled'}</span>
           </label>
         {/each}
-      {:else}
+      {:else if sourcePickerTab === 'papers'}
         {#each store.readingList as r (r.id)}
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
           <label class="source-item" class:picked={pickedPaperIds.has(r.id)}>
             <input type="checkbox" checked={pickedPaperIds.has(r.id)} onchange={() => {
               const next = new Set(pickedPaperIds);
@@ -588,6 +660,39 @@
             <span class="source-title">{r.paper.title.slice(0, 72)}</span>
           </label>
         {/each}
+      {:else if sourcePickerTab === 'files'}
+        {@const pdfCsvFiles = store.files.filter(f => f.mimeType === 'application/pdf' || f.name.endsWith('.pdf') || f.name.endsWith('.csv'))}
+        {#if pdfCsvFiles.length === 0}
+          <p class="gen-source-empty">No PDF or CSV files uploaded yet.</p>
+        {:else}
+          {#each pdfCsvFiles as f (f.id)}
+            <label class="source-item" class:picked={pickedFileIds.has(f.id)}>
+              <input type="checkbox" checked={pickedFileIds.has(f.id)} onchange={() => {
+                const next = new Set(pickedFileIds);
+                if (next.has(f.id)) next.delete(f.id); else next.add(f.id);
+                pickedFileIds = next;
+              }} />
+              <span class="source-title">{f.name}</span>
+              <span class="source-meta">{f.name.endsWith('.csv') ? 'CSV' : 'PDF'} · {Math.round(f.size / 1024)}KB</span>
+            </label>
+          {/each}
+        {/if}
+      {:else}
+        {#if store.pipelineRuns.length === 0}
+          <p class="gen-source-empty">No pipeline runs yet.</p>
+        {:else}
+          {#each store.pipelineRuns.sort((a, b) => b.updatedAt - a.updatedAt) as run (run.id)}
+            <label class="source-item" class:picked={pickedRunIds.has(run.id)}>
+              <input type="checkbox" checked={pickedRunIds.has(run.id)} onchange={() => {
+                const next = new Set(pickedRunIds);
+                if (next.has(run.id)) next.delete(run.id); else next.add(run.id);
+                pickedRunIds = next;
+              }} />
+              <span class="source-title">{run.title}</span>
+              <span class="source-meta">{run.pipelineType} · {run.status}</span>
+            </label>
+          {/each}
+        {/if}
       {/if}
     </div>
 
@@ -605,7 +710,7 @@
       <button
         class="btn btn-primary"
         onclick={runGenerate}
-        disabled={generating || (!genTopic.trim() && pickedNoteIds.size === 0 && pickedPaperIds.size === 0)}
+        disabled={generating || (!genTopic.trim() && totalSourceCount === 0)}
       >
         {#if generating}Generating…{:else}Generate<span class="model-pill">[70B]</span>{/if}
       </button>
@@ -797,10 +902,10 @@
             Export HTML
           </button>
           <!-- Source sidebar toggle -->
-          {#if pickedNoteIds.size + pickedPaperIds.size > 0}
+          {#if totalSourceCount > 0}
             <button class="btn btn-ghost btn-sm" class:active={showSourceSidebar} onclick={() => showSourceSidebar = !showSourceSidebar} title="Toggle source sidebar">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
-              Sources ({pickedNoteIds.size + pickedPaperIds.size})
+              Sources ({totalSourceCount})
             </button>
           {/if}
           <button class="btn btn-primary btn-sm" onclick={startPresent}>
@@ -814,10 +919,10 @@
       <div class="slides-editor-wrap">
 
       <!-- Source sidebar -->
-      {#if showSourceSidebar && (pickedNoteIds.size + pickedPaperIds.size > 0)}
+      {#if showSourceSidebar && totalSourceCount > 0}
         <div class="source-sidebar">
           <div class="source-sidebar-header">
-            <span class="source-sidebar-title">Sources</span>
+            <span class="source-sidebar-title">Sources ({totalSourceCount})</span>
             <button class="source-sidebar-close" onclick={() => showSourceSidebar = false}>×</button>
           </div>
           <div class="source-sidebar-body">
@@ -836,6 +941,24 @@
                 <div class="source-entry">
                   <span class="source-entry-title">{r.paper.title.slice(0, 60)}</span>
                   <p class="source-entry-snippet">{r.paper.abstract?.slice(0, 120) ?? ''}…</p>
+                </div>
+              {/each}
+            {/if}
+            {#if pickedFileIds.size > 0}
+              <div class="source-group-label">Files</div>
+              {#each store.files.filter(f => pickedFileIds.has(f.id)) as f}
+                <div class="source-entry">
+                  <span class="source-entry-title">{f.name}</span>
+                  <p class="source-entry-snippet source-entry-meta">{f.name.endsWith('.csv') ? 'CSV data' : 'PDF document'} · {Math.round(f.size / 1024)}KB{extractingFileId === f.id ? ' · extracting…' : ''}</p>
+                </div>
+              {/each}
+            {/if}
+            {#if pickedRunIds.size > 0}
+              <div class="source-group-label">Pipeline runs</div>
+              {#each store.pipelineRuns.filter(r => pickedRunIds.has(r.id)) as run}
+                <div class="source-entry">
+                  <span class="source-entry-title">{run.title}</span>
+                  <p class="source-entry-snippet">{run.pipelineType} · {run.sampleDescription.slice(0, 80)}</p>
                 </div>
               {/each}
             {/if}
@@ -1367,6 +1490,8 @@
   .source-item:hover { background: var(--hv); }
   .source-item.picked { background: var(--ac-bg); }
   .source-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--tx); }
+  .source-meta { font-size: 0.7rem; color: var(--mu); flex-shrink: 0; }
+  .gen-source-empty { font-size: 0.78rem; color: var(--mu); padding: 8px 6px; }
 
   /* Templates with Enzo fill */
   .template-row { display: flex; align-items: center; gap: 4px; }

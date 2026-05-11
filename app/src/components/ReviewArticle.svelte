@@ -1,8 +1,9 @@
 <script lang="ts">
   import { store } from '../lib/store.svelte';
   import { nanoid } from 'nanoid';
-  import { searchPubMed } from '../lib/pubmed';
+  import { searchPubMed, searchOpenAlex } from '../lib/pubmed';
   import { synthesizeReviewTheme, findMissingCitations, analyzeReviewGaps } from '../lib/groq';
+  import { wordHtml, download } from '../lib/export';
   import RichEditor from './RichEditor.svelte';
   import type { ReviewArticle, ReviewTheme, ReviewPaper, ReviewArticleStatus, ReviewThemeStatus, PaperResult } from '../lib/types';
 
@@ -47,12 +48,11 @@
   let gapThemeId    = $state<string | null>(null);
 
   // ── Citation suggestions state ─────────────────────────────────
-  type CiteSuggestion = { claim: string; search_query: string; relevance_note: string; results?: PaperResult[] };
+  type CiteSuggestion = { claim: string; search_query: string; relevance_note: string; results?: PaperResult[]; searching?: boolean };
   let suggestThemeId   = $state<string | null>(null);
   let suggestions      = $state<CiteSuggestion[]>([]);
   let suggestLoading   = $state(false);
   let suggestError     = $state('');
-  let searchingSuggIdx = $state<number | null>(null);
 
   // ── Bibliography state ─────────────────────────────────────────
   let showBibModal  = $state(false);
@@ -287,22 +287,23 @@
         theme.content || theme.outline,
         themeCorpus.map(p => p.title)
       );
-      suggestions = result.map(r => ({ ...r, results: [] }));
-      if (!suggestions.length) suggestError = 'No suggestions found for this theme.';
+      if (!result.length) { suggestError = 'No suggestions found for this theme.'; suggestLoading = false; return; }
+      // Show claims immediately, then auto-search each in parallel
+      suggestions = result.map(r => ({ ...r, results: [], searching: true }));
+      suggestLoading = false;
+      await Promise.all(result.map(async (r, idx) => {
+        try {
+          let papers = await searchOpenAlex(r.search_query, 5);
+          if (!papers.length) papers = await searchPubMed(r.search_query, 5);
+          suggestions = suggestions.map((s, i) => i === idx ? { ...s, results: papers, searching: false } : s);
+        } catch {
+          suggestions = suggestions.map((s, i) => i === idx ? { ...s, searching: false } : s);
+        }
+      }));
     } catch {
       suggestError = 'Suggestion fetch failed.';
+      suggestLoading = false;
     }
-    suggestLoading = false;
-  }
-
-  async function searchSuggestion(idx: number, query: string) {
-    searchingSuggIdx = idx;
-    try {
-      const { searchPubMed } = await import('../lib/pubmed');
-      const papers = await searchPubMed(query, 6);
-      suggestions = suggestions.map((s, i) => i === idx ? { ...s, results: papers } : s);
-    } catch { /* ignore */ }
-    searchingSuggIdx = null;
   }
 
   function pinSuggestionToResearch(paper: PaperResult) {
@@ -389,6 +390,33 @@ ${bibtexEntries}`;
     });
     a.click(); URL.revokeObjectURL(url);
     showToast('LaTeX file exported');
+  }
+
+  // ── DOCX export ────────────────────────────────────────────────
+  function exportReviewDocx() {
+    if (!ra) return;
+    const bibHtml = ra.corpus.map((p, i) =>
+      `<p style="margin:0 0 6px;padding-left:2em;text-indent:-2em;font-size:11pt">${i + 1}. ${p.authors}. ${p.title}. <em>${p.journal}</em>. ${p.year}${p.doi ? `. <a href="https://doi.org/${p.doi}">doi:${p.doi}</a>` : ''}.</p>`
+    ).join('');
+    const themesHtml = ra.themes.map(t => {
+      const body = t.content
+        ? t.content
+        : `<p><em>Outline: ${t.outline.replace(/\n/g, ' ')}</em></p>`;
+      return `<h2 style="font-size:14pt;margin-top:24pt">${t.title}</h2>${body}`;
+    }).join('');
+    const html = `
+      <h1 style="font-size:18pt">${ra.title}</h1>
+      <p style="font-size:11pt;color:#555">Target journal: ${ra.targetJournal || '—'} · Status: ${ra.status}</p>
+      ${ra.scope ? `<h2 style="font-size:13pt">Scope</h2><p style="font-size:11pt">${ra.scope}</p>` : ''}
+      ${themesHtml}
+      ${ra.corpus.length ? `<h2 style="font-size:14pt;margin-top:24pt">References</h2>${bibHtml}` : ''}
+    `;
+    download(
+      `${ra.title.replace(/\s+/g, '-').slice(0, 50)}.doc`,
+      wordHtml(ra.title, html),
+      'application/msword'
+    );
+    showToast('DOCX exported');
   }
 
   // ── Example data ───────────────────────────────────────────────
@@ -573,6 +601,10 @@ ${bibtexEntries}`;
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             LaTeX
           </button>
+          <button class="btn btn-ghost btn-sm" onclick={exportReviewDocx} title="Export as Word document (.doc)">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            DOCX
+          </button>
         </div>
       </div>
 
@@ -650,9 +682,11 @@ ${bibtexEntries}`;
                 <p class="text-xs text-mu suggest-note">{s.relevance_note}</p>
                 <div class="suggest-search-row">
                   <span class="suggest-query text-xs">{s.search_query}</span>
-                  <button class="btn btn-ghost btn-xs" onclick={() => searchSuggestion(idx, s.search_query)} disabled={searchingSuggIdx === idx}>
-                    {searchingSuggIdx === idx ? '…' : 'Search PubMed'}
-                  </button>
+                  {#if s.searching}
+                    <span class="spinner-xs"></span>
+                  {:else if s.results && s.results.length === 0}
+                    <span class="text-xs text-mu">No results</span>
+                  {/if}
                 </div>
                 {#if s.results && s.results.length > 0}
                   <div class="suggest-results">
