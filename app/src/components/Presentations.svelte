@@ -1085,7 +1085,10 @@
             class="slide-card"
             class:drag-over={dragOver === i}
             draggable="true"
-            ondragstart={() => onDragStart(i)}
+            ondragstart={(e) => {
+              if (!(e.target as HTMLElement).closest('.slide-drag-handle')) { e.preventDefault(); return; }
+              onDragStart(i);
+            }}
             ondragover={(e) => onDragOver(e, i)}
             ondrop={() => onDrop(i)}
             ondragend={() => { dragIdx = null; dragOver = null; }}
@@ -1122,7 +1125,11 @@
               </button>
             </div>
 
-            <div class="slide-content-wrap">
+            <div
+              class="slide-content-wrap"
+              onclick={(e) => e.stopPropagation()}
+              ondragstart={(e) => e.preventDefault()}
+            >
               <RichEditor
                 value={slide.content}
                 onchange={(html) => updateContent(i, html)}
