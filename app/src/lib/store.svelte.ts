@@ -1,7 +1,7 @@
 import type {
   Note, JournalEntry, Task, AudioRecord,
   ChatSession, CalendarEvent, AppSettings, AiFeatureSettings, PaperResult,
-  ReadingListItem, SavedSearch, PipelineRun, Protocol,
+  ReadingListItem, SavedSearch, SearchHistoryEntry, PipelineRun, Protocol,
   SavedJob, ResearcherProfile, Hypothesis,
   CvProfile, CoverLetter, JobContact, JobEmailTemplate, SalaryEntry, JobDeadline,
   Presentation, FileRecord, FileVersion,
@@ -54,6 +54,7 @@ class Store {
   readingList = $state<ReadingListItem[]>([]);
   savedSearches = $state<SavedSearch[]>([]);
   paperCollections = $state<PaperCollection[]>([]);
+  searchHistory = $state<SearchHistoryEntry[]>([]);
   researchSha = $state<string | null>(null);
 
   pipelineRuns = $state<PipelineRun[]>([]);
@@ -235,7 +236,7 @@ class Store {
       loadEncFile<AudioRecord[]>(this.tok, PATHS.audio, []),
       loadEncFile<PaperResult[]>(this.tok, PATHS.pinned, []),
       loadEncFile<AppSettings>(this.tok, PATHS.settings, this.settings),
-      loadEncFile<{readingList: ReadingListItem[], savedSearches: SavedSearch[], paperCollections?: PaperCollection[]}>(this.tok, PATHS.research, { readingList: [], savedSearches: [], paperCollections: [] }),
+      loadEncFile<{readingList: ReadingListItem[], savedSearches: SavedSearch[], paperCollections?: PaperCollection[], searchHistory?: SearchHistoryEntry[]}>(this.tok, PATHS.research, { readingList: [], savedSearches: [], paperCollections: [], searchHistory: [] }),
       loadEncFile<{runs: PipelineRun[], protocols: Protocol[], hypotheses: Hypothesis[]}>(this.tok, PATHS.pipelines, { runs: [], protocols: [], hypotheses: [] }),
       loadEncFile<SavedJob[]>(this.tok, PATHS.jobs, []),
       loadEncFile<{contacts: JobContact[], templates: JobEmailTemplate[], salaries: SalaryEntry[], deadlines: JobDeadline[]}>(this.tok, PATHS.jobExt, { contacts: [], templates: [], salaries: [], deadlines: [] }),
@@ -267,6 +268,7 @@ class Store {
     this.readingList = res.data.readingList ?? [];
     this.savedSearches = res.data.savedSearches ?? [];
     this.paperCollections = res.data.paperCollections ?? [];
+    this.searchHistory = res.data.searchHistory ?? [];
     this.researchSha = res.sha;
     this.pipelineRuns = pip.data.runs ?? [];
     this.protocols = pip.data.protocols ?? [];
@@ -300,7 +302,7 @@ class Store {
     if (!this.tok) return;
     const sha = await saveEncFile(
       this.tok, PATHS.research,
-      { readingList: this.readingList, savedSearches: this.savedSearches, paperCollections: this.paperCollections },
+      { readingList: this.readingList, savedSearches: this.savedSearches, paperCollections: this.paperCollections, searchHistory: this.searchHistory },
       this.researchSha,
       'research: update'
     );

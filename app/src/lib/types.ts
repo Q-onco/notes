@@ -148,6 +148,14 @@ export interface SavedSearch {
   runCount: number;
 }
 
+export interface SearchHistoryEntry {
+  id: string;
+  query: string;
+  sources: string[];
+  ts: number;
+  resultCount: number;
+}
+
 export interface ReadingListItem {
   id: string;
   paper: PaperResult;
