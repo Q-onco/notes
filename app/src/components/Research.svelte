@@ -1,6 +1,6 @@
 <script lang="ts">
   import { searchPubMed, fetchBioRxiv, fetchNatureCell, fetchPubMedAbstract, searchOpenAlex, searchEuropePMC } from '../lib/pubmed';
-  import type { PaperResult, ReadingListItem, SavedSearch, Note, PaperCollection } from '../lib/types';
+  import type { PaperResult, ReadingListItem, SavedSearch, SearchHistoryEntry, Note, PaperCollection } from '../lib/types';
   import { store } from '../lib/store.svelte';
   import { exportPapers, exportPapersDocx, exportPapersBibTeX } from '../lib/export';
   import { askResearch, deepReadPaper, generateReadingNote, critiquePaper, streamRadarSummary, streamMarkerLookup, comparePapers } from '../lib/groq';
@@ -140,6 +140,7 @@
   let summaryText = $state<Record<string, string>>({});
   let summaryStreaming = $state<Record<string, boolean>>({});
   let researchTab = $state<'results' | 'reading-list' | 'radar' | 'markers' | 'network' | 'saved'>('results');
+  let savedTab = $state<'bookmarks' | 'history'>('bookmarks');
 
   // ── Abstract keyword highlighting ──────────────────────────────
   const HGSOC_TERMS = ['TP53','BRCA1','BRCA2','PARPi','PARP inhibitor','olaparib','niraparib','rucaparib','veliparib','HGSOC','high-grade serous','homologous recombination','HRD','TME','tumour microenvironment','tumor microenvironment','CD8','PD-1','PD-L1','CAF','scRNA-seq','spatial transcriptomics','BRCAness','platinum resistance','FOLR1','mirvetuximab','ascites','peritoneal'];
@@ -645,6 +646,18 @@
         return true;
       });
 
+      if (query.trim()) {
+        const entry: SearchHistoryEntry = {
+          id: nanoid(),
+          query: query.trim(),
+          sources: Array.from(activeSources),
+          ts: Date.now(),
+          resultCount: papers.length,
+        };
+        store.searchHistory = [entry, ...store.searchHistory];
+        store.saveResearch().catch(() => {});
+      }
+
     } catch (e) {
       error = (e as Error).message;
     } finally {
@@ -818,6 +831,43 @@ Format your response as:
   async function deleteSavedSearch(id: string) {
     store.savedSearches = store.savedSearches.filter(s => s.id !== id);
     await store.saveResearch();
+  }
+
+  async function runHistoryEntry(entry: SearchHistoryEntry) {
+    query = entry.query;
+    activeSources = new Set(entry.sources as SourceKey[]);
+    researchTab = 'results';
+    await search();
+  }
+
+  async function bookmarkHistory(entry: SearchHistoryEntry) {
+    if (store.savedSearches.some(s => s.query === entry.query)) {
+      showToast('Already bookmarked');
+      return;
+    }
+    store.savedSearches = [{
+      id: nanoid(),
+      label: entry.query,
+      query: entry.query,
+      sources: entry.sources,
+      color: 'ac',
+      createdAt: Date.now(),
+      lastRunAt: null,
+      runCount: 0,
+    }, ...store.savedSearches];
+    await store.saveResearch();
+    showToast('Bookmarked');
+  }
+
+  async function deleteHistoryEntry(id: string) {
+    store.searchHistory = store.searchHistory.filter(h => h.id !== id);
+    await store.saveResearch();
+  }
+
+  async function clearSearchHistory() {
+    store.searchHistory = [];
+    await store.saveResearch();
+    showToast('History cleared');
   }
 
   async function toggleReadItem(id: string) {
@@ -1159,7 +1209,7 @@ Format your response as:
           class:active={researchTab === 'saved'}
           onclick={() => researchTab = 'saved'}
         >
-          Saved {#if store.savedSearches.length > 0}<span class="tab-count">{store.savedSearches.length}</span>{/if}
+          Saved {#if store.savedSearches.length + store.searchHistory.length > 0}<span class="tab-count">{store.savedSearches.length + store.searchHistory.length}</span>{/if}
         </button>
       </div>
       <!-- BibTeX import button -->
@@ -1871,37 +1921,90 @@ Format your response as:
     </div>
 
   {:else if researchTab === 'saved'}
-    <!-- ── Saved searches tab ── -->
+    <!-- ── Saved / History tab ── -->
     <div class="saved-view">
-      {#if store.savedSearches.length === 0}
-        <div class="empty-state">
-          <p class="text-mu">No saved searches yet.</p>
-          <p class="text-xs text-mu">Run a search and click the save icon to save it.</p>
-        </div>
-      {:else}
-        {#each store.savedSearches as ss (ss.id)}
-          <div class="saved-item card">
-            <div class="saved-item-head">
-              <span class="saved-label">{ss.label}</span>
-              <div class="saved-item-actions">
-                <button class="btn btn-primary btn-sm" onclick={() => { runSavedSearch(ss); researchTab = 'results'; }}>Run</button>
-                <button class="btn-icon" onclick={() => deleteSavedSearch(ss.id)} title="Delete">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                </button>
+      <!-- toggle -->
+      <div class="saved-toggle">
+        <button class="saved-toggle-btn" class:active={savedTab === 'bookmarks'} onclick={() => savedTab = 'bookmarks'}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
+          Bookmarks
+          {#if store.savedSearches.length > 0}<span class="tog-count">{store.savedSearches.length}</span>{/if}
+        </button>
+        <button class="saved-toggle-btn" class:active={savedTab === 'history'} onclick={() => savedTab = 'history'}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          History
+          {#if store.searchHistory.length > 0}<span class="tog-count">{store.searchHistory.length}</span>{/if}
+        </button>
+      </div>
+
+      {#if savedTab === 'bookmarks'}
+        {#if store.savedSearches.length === 0}
+          <div class="empty-state">
+            <p class="text-mu">No bookmarked searches yet.</p>
+            <p class="text-xs text-mu">Run a search and click the bookmark icon to save it.</p>
+          </div>
+        {:else}
+          {#each store.savedSearches as ss (ss.id)}
+            <div class="saved-item card">
+              <div class="saved-item-head">
+                <span class="saved-label">{ss.label}</span>
+                <div class="saved-item-actions">
+                  <button class="btn btn-primary btn-sm" onclick={() => { runSavedSearch(ss); researchTab = 'results'; }}>Run</button>
+                  <button class="btn-icon" onclick={() => deleteSavedSearch(ss.id)} title="Delete">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </div>
+              </div>
+              <p class="text-xs text-mu saved-query">"{ss.query}"</p>
+              <div class="saved-meta">
+                {#each ss.sources as src}
+                  <span class="tag {SOURCE_CLS[src] || ''}">{SOURCE_LABELS[src] || src}</span>
+                {/each}
+                {#if ss.lastRunAt}
+                  <span class="text-xs text-mu">Last run: {new Date(ss.lastRunAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
+                {/if}
+                <span class="text-xs text-mu">× {ss.runCount}</span>
               </div>
             </div>
-            <p class="text-xs text-mu saved-query">"{ss.query}"</p>
-            <div class="saved-meta">
-              {#each ss.sources as src}
-                <span class="tag {SOURCE_CLS[src] || ''}">{SOURCE_LABELS[src] || src}</span>
-              {/each}
-              {#if ss.lastRunAt}
-                <span class="text-xs text-mu">Last run: {new Date(ss.lastRunAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
-              {/if}
-              <span class="text-xs text-mu">× {ss.runCount}</span>
-            </div>
+          {/each}
+        {/if}
+
+      {:else}
+        <!-- History view -->
+        {#if store.searchHistory.length === 0}
+          <div class="empty-state">
+            <p class="text-mu">No search history yet.</p>
+            <p class="text-xs text-mu">Every search you run is logged here automatically.</p>
           </div>
-        {/each}
+        {:else}
+          <div class="hist-header">
+            <span class="text-xs text-mu">{store.searchHistory.length} searches</span>
+            <button class="btn btn-ghost btn-sm" onclick={clearSearchHistory}>Clear all</button>
+          </div>
+          {#each store.searchHistory as h (h.id)}
+            <div class="hist-item">
+              <div class="hist-item-head">
+                <span class="hist-query">{h.query}</span>
+                <div class="hist-item-actions">
+                  <button class="btn btn-primary btn-sm" onclick={() => runHistoryEntry(h)}>Re-run</button>
+                  <button class="btn-icon" onclick={() => bookmarkHistory(h)} title="Bookmark">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
+                  </button>
+                  <button class="btn-icon" onclick={() => deleteHistoryEntry(h.id)} title="Remove">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="hist-meta">
+                {#each h.sources as src}
+                  <span class="tag {SOURCE_CLS[src] || ''}">{SOURCE_LABELS[src] || src}</span>
+                {/each}
+                <span class="text-xs text-mu">{h.resultCount} result{h.resultCount !== 1 ? 's' : ''}</span>
+                <span class="text-xs text-mu">{new Date(h.ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+              </div>
+            </div>
+          {/each}
+        {/if}
       {/if}
     </div>
 
@@ -2762,6 +2865,20 @@ Format your response as:
   .saved-item-actions { display: flex; align-items: center; gap: 6px; }
   .saved-query { font-style: italic; }
   .saved-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+  /* ── saved/history toggle ── */
+  .saved-toggle { display: flex; gap: 4px; background: var(--sb); border-radius: 8px; padding: 3px; margin-bottom: 4px; flex-shrink: 0; }
+  .saved-toggle-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 5px 8px; border-radius: 6px; border: none; background: transparent; color: var(--mu); font-size: 0.78rem; font-weight: 500; cursor: pointer; transition: background 0.15s, color 0.15s; }
+  .saved-toggle-btn.active { background: var(--sf); color: var(--tx); }
+  .tog-count { background: var(--ac); color: #fff; font-size: 0.65rem; font-weight: 700; border-radius: 10px; padding: 1px 5px; line-height: 1.4; }
+
+  /* ── history items ── */
+  .hist-header { display: flex; align-items: center; justify-content: space-between; padding: 2px 0 4px; }
+  .hist-item { display: flex; flex-direction: column; gap: 5px; padding: 9px 11px; background: var(--sb); border-radius: 8px; border: 1px solid var(--bd); }
+  .hist-item-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+  .hist-query { font-size: 0.84rem; font-weight: 500; color: var(--tx); flex: 1; min-width: 0; word-break: break-word; }
+  .hist-item-actions { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+  .hist-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
   /* ── Radar history ───────────────────────────────────────────── */
   .radar-history { margin-top: 10px; border-top: 1px solid var(--bd); padding-top: 8px; display: flex; flex-direction: column; gap: 4px; }
