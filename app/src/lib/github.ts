@@ -28,6 +28,7 @@ export const PATHS = {
   peerReviews:   'data/peer-reviews.enc',
   manuscripts:   'data/manuscripts.enc',
   reviews:       'data/reviews.enc',
+  launchpad:     'data/launchpad.enc',
 } as const;
 
 function headers(token: string) {
