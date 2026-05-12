@@ -757,3 +757,16 @@ export interface ReviewArticle {
   createdAt: number;
   updatedAt: number;
 }
+
+export interface LaunchpadCustomResource {
+  id: string;
+  type: string;
+  title: string;
+  desc: string;
+  url: string;
+  platform: string;
+  category: string;
+  tags: string[];
+  stage: string;
+  addedAt: number;
+}

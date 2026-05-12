@@ -1432,7 +1432,7 @@ ${context}
 
 Generate a speculative research idea note in markdown:
 
-## The Hidden Thread
+## Hidden Thread
 What underlying biology or concept connects these items that hasn't been articulated?
 
 ## The Idea
@@ -1449,6 +1449,45 @@ One concrete action Dr. Amritha could take this week to explore this.
 
 This should feel like a sudden insight — bold, specific, grounded in real biology.`
     }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
+export async function streamFounderGPS(
+  situation: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    {
+      role: 'system',
+      content: `You are Enzo, a sharp and direct advisor to life science researchers transitioning into startups. You have deep expertise in biotech company creation, university IP/tech transfer, SBIR/STTR grants, FDA regulatory pathways, fundraising, and the unique cultural challenges academic scientists face in the startup world. You are NOT generic — every answer is specific to life science, biomedical, or cancer research context.`,
+    },
+    {
+      role: 'user',
+      content: `I am a researcher exploring the startup world. Here is where I am right now:
+
+"${situation}"
+
+Give me sharp, specific, actionable startup guidance. Structure your response with these exact sections:
+
+## Stage Assessment
+One honest sentence about where I am and what stage this represents.
+
+## Top 3 Priority Actions
+What I must do RIGHT NOW — be specific, name real organizations, databases, programs. No generic advice.
+
+## Pitfalls to Avoid
+The 2–3 most dangerous mistakes at this exact stage. Be blunt.
+
+## Resources to Start With
+Name 4–5 specific resources (podcasts, channels, tools, communities, or playbooks) with one sentence on why each matters for my situation.
+
+## Your First Two Weeks
+A concrete 10-step action plan for the next 14 days.
+
+Assume I am intelligent but new to startups. Tailor everything to life science / biomedical / cancer research context. Do not pad or be generic.`,
+    },
   ];
   await streamGroq(MODELS.enzo, messages, onChunk, signal);
 }

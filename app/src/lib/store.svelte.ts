@@ -7,13 +7,13 @@ import type {
   Presentation, FileRecord, FileVersion,
   Grant, ConferenceAbstract, PeerReview, Manuscript,
   MailContact, MailSent, MailDraft, MailComposeDraft,
-  ReviewArticle, PaperCollection
+  ReviewArticle, PaperCollection, LaunchpadCustomResource
 } from './types';
 import { loadEncFile, saveEncFile, PATHS, validateToken } from './github';
 import { WORKER_URL } from './groq';
 import { idbGet, idbSet } from './idb';
 
-type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs' | 'presentations' | 'files' | 'grants' | 'manuscript' | 'review' | 'mail';
+type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs' | 'presentations' | 'files' | 'grants' | 'manuscript' | 'review' | 'mail' | 'launchpad';
 
 const DEFAULT_PROFILE: ResearcherProfile = {
   currentRole: 'Postdoctoral Researcher',
@@ -117,6 +117,10 @@ class Store {
 
   reviewArticles = $state<ReviewArticle[]>([]);
   reviewArticlesSha = $state<string | null>(null);
+
+  launchpadBookmarks = $state<string[]>([]);
+  launchpadCustom = $state<LaunchpadCustomResource[]>([]);
+  launchpadSha = $state<string | null>(null);
 
   profile = $state<ResearcherProfile>({ ...DEFAULT_PROFILE });
   profileSha = $state<string | null>(null);
@@ -228,7 +232,7 @@ class Store {
       if (cached) this.files = cached;
     }
 
-    const [n, j, t, c, a, pp, s, res, pip, jb, jbx, cv, cl, prf, pres, fi, gr, conf, pr, ms, rv] = await Promise.all([
+    const [n, j, t, c, a, pp, s, res, pip, jb, jbx, cv, cl, prf, pres, fi, gr, conf, pr, ms, rv, lp] = await Promise.all([
       loadEncFile<Note[]>(this.tok, PATHS.notes, []),
       loadEncFile<JournalEntry[]>(this.tok, PATHS.journal, []),
       loadEncFile<Task[]>(this.tok, PATHS.tasks, []),
@@ -250,6 +254,7 @@ class Store {
       loadEncFile<PeerReview[]>(this.tok, PATHS.peerReviews, []),
       loadEncFile<Manuscript[]>(this.tok, PATHS.manuscripts, []),
       loadEncFile<ReviewArticle[]>(this.tok, PATHS.reviews, []),
+      loadEncFile<{bookmarks?: string[], custom?: LaunchpadCustomResource[]}>(this.tok, PATHS.launchpad, { bookmarks: [], custom: [] }),
     ]);
 
     this.notes = n.data; this.notesSha = n.sha;
@@ -296,6 +301,9 @@ class Store {
     this.peerReviews = pr.data; this.peerReviewsSha = pr.sha;
     this.manuscripts = ms.data; this.manuscriptsSha = ms.sha;
     this.reviewArticles = rv.data; this.reviewArticlesSha = rv.sha;
+    this.launchpadBookmarks = lp.data?.bookmarks ?? [];
+    this.launchpadCustom = lp.data?.custom ?? [];
+    this.launchpadSha = lp.sha;
   }
 
   async saveResearch(): Promise<void> {
@@ -307,6 +315,17 @@ class Store {
       'research: update'
     );
     this.researchSha = sha;
+  }
+
+  async saveLaunchpad(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(
+      this.tok, PATHS.launchpad,
+      { bookmarks: this.launchpadBookmarks, custom: this.launchpadCustom },
+      this.launchpadSha,
+      'launchpad: update'
+    );
+    this.launchpadSha = sha;
   }
 
   async savePipelines(): Promise<void> {

@@ -322,7 +322,9 @@
     try {
       const start = e.view.coordsAtPos(from);
       const end = e.view.coordsAtPos(to);
-      bubbleX = (start.left + end.right) / 2;
+      const rawX = (start.left + end.right) / 2;
+      const BUBBLE_HALF = 130;
+      bubbleX = Math.max(BUBBLE_HALF + 8, Math.min(window.innerWidth - BUBBLE_HALF - 8, rawX));
       bubbleY = Math.min(start.top, end.top) - 46;
       bubbleVisible = true;
     } catch { bubbleVisible = false; }
