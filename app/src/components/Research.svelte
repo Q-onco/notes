@@ -476,6 +476,7 @@
   let savingSearch = $state(false);
   let saveSearchLabel = $state('');
   let showSaveInput = $state(false);
+  let showHistoryDropdown = $state(false);
 
   // ── Paper collections ──────────────────────────────────────────
   let activeCollectionId = $state<string | null>(null);
@@ -1350,14 +1351,29 @@ Format your response as:
 
     <!-- Search bar -->
     <div class="search-row">
-      <div class="search-wrap">
+      <div class="search-wrap" style="position:relative">
         <input
           type="text"
           bind:value={query}
           placeholder="Search PubMed, OpenAlex, preprints…"
-          onkeydown={(e) => e.key === 'Enter' && search()}
+          onkeydown={(e) => { if (e.key === 'Enter') { showHistoryDropdown = false; search(); } if (e.key === 'Escape') showHistoryDropdown = false; }}
+          onfocus={() => showHistoryDropdown = true}
+          onblur={() => setTimeout(() => showHistoryDropdown = false, 150)}
           class="search-input"
         />
+        {#if showHistoryDropdown && store.searchHistory.length > 0}
+          {@const recentQ = [...new Map(store.searchHistory.map(h => [h.query, h])).values()].slice(0, 8)}
+          <div class="search-history-drop">
+            <span class="shd-label">Recent searches</span>
+            {#each recentQ as h (h.id)}
+              <button class="shd-item" onmousedown={(e) => { e.preventDefault(); query = h.query; activeSources = new Set(h.sources as SourceKey[]); showHistoryDropdown = false; search(); }}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                <span class="shd-query">{h.query}</span>
+                <span class="shd-meta">{h.sources.map((s: string) => SOURCE_LABELS[s] || s).join(', ')}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
         {#if conceptSuggestions.length > 0}
           <div class="concept-chips">
             {#each conceptSuggestions as c}
@@ -2460,6 +2476,15 @@ Format your response as:
   .search-wrap { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 8px; }
   .search-input { width: 100%; }
   .search-btn { flex-shrink: 0; align-self: flex-start; }
+
+  /* history dropdown */
+  .search-history-drop { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 120; background: var(--sf); border: 1px solid var(--bd); border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.18); padding: 4px; display: flex; flex-direction: column; gap: 1px; }
+  .shd-label { font-size: 0.68rem; font-weight: 600; color: var(--mu); text-transform: uppercase; letter-spacing: 0.06em; padding: 4px 8px 2px; }
+  .shd-item { display: flex; align-items: center; gap: 7px; padding: 6px 8px; border-radius: 5px; border: none; background: transparent; color: var(--tx); cursor: pointer; text-align: left; width: 100%; }
+  .shd-item:hover { background: var(--hv); }
+  .shd-item svg { color: var(--mu); flex-shrink: 0; }
+  .shd-query { font-size: 0.81rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .shd-meta { font-size: 0.7rem; color: var(--mu); flex-shrink: 0; }
 
   .save-input-row { display: flex; gap: 6px; align-items: center; }
   .save-label-input { width: 160px; font-size: 0.82rem; padding: 5px 8px; }

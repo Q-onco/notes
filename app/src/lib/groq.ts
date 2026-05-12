@@ -1367,3 +1367,88 @@ Write as flowing prose — no bullet points, no headings. 3–4 sentences only.`
   ];
   await streamGroq(MODELS.enzo, messages, onChunk, signal);
 }
+
+export async function streamBridgeNote(
+  nodeA: { title: string; snippet: string; type: 'note' | 'journal' },
+  nodeB: { title: string; snippet: string; type: 'note' | 'journal' },
+  strength: { link: number; tag: number; content: number; composite: number },
+  onChunk: (c: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    {
+      role: 'system' as const,
+      content: 'You are Enzo — Dr. Amritha Sathyanarayanan\'s research companion. Expert in HGSOC, ovarian TME, scRNA-seq, spatial transcriptomics, and PARP inhibitors. Write in active, precise research voice. No filler. No hedging.'
+    },
+    {
+      role: 'user' as const,
+      content: `Two research items are connected (relational strength: ${(strength.composite * 100).toFixed(0)}% — link: ${(strength.link * 100).toFixed(0)}%, tag overlap: ${(strength.tag * 100).toFixed(0)}%, content similarity: ${(strength.content * 100).toFixed(0)}%):
+
+**[${nodeA.type.toUpperCase()}] ${nodeA.title}**
+${nodeA.snippet}
+
+**[${nodeB.type.toUpperCase()}] ${nodeB.title}**
+${nodeB.snippet}
+
+Generate a bridge research note in markdown with these sections:
+
+## The Connection
+What these two items share conceptually — be specific to HGSOC biology where relevant.
+
+## What Each Brings
+One bullet per item — what unique angle, data, or insight it contributes that the other doesn't.
+
+## Emerging Directions
+2–3 concrete research directions or experiments that emerge specifically from crossing these two items. Name assays, pathways, or clinical contexts.
+
+## Hypothesis
+One crisp hypothesis statement that neither item alone would generate.
+
+Be bold, specific, and grounded. Speak peer-to-peer to an expert researcher.`
+    }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
+export async function streamIdeaSpark(
+  candidates: { title: string; snippet: string; type: 'note' | 'journal' }[],
+  onChunk: (c: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const context = candidates.map((c, i) =>
+    `${i + 1}. [${c.type.toUpperCase()}] "${c.title}"\n${c.snippet}`
+  ).join('\n\n');
+
+  const messages = [
+    {
+      role: 'system' as const,
+      content: 'You are Enzo — Dr. Amritha Sathyanarayanan\'s research companion. Expert in HGSOC, ovarian TME, scRNA-seq, spatial transcriptomics, and PARP inhibitors. You are bold, specific, and think across boundaries.'
+    },
+    {
+      role: 'user' as const,
+      content: `The following research notes and journal entries are semantically similar — they share vocabulary and concepts — but are NOT explicitly linked. This is unexplored territory:
+
+${context}
+
+Generate a speculative research idea note in markdown:
+
+## The Hidden Thread
+What underlying biology or concept connects these items that hasn't been articulated?
+
+## The Idea
+A specific hypothesis or experimental direction that only becomes visible by crossing these themes. Name mechanisms, genes, cell types, assays.
+
+## Why This Matters for HGSOC
+Anchor this to ovarian cancer, TME, or PARPi biology specifically.
+
+## What's Needed
+Bullet list: data, samples, tools, or collaborations required.
+
+## First Step
+One concrete action Dr. Amritha could take this week to explore this.
+
+This should feel like a sudden insight — bold, specific, grounded in real biology.`
+    }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
