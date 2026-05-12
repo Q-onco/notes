@@ -574,7 +574,7 @@
   // ── Position ───────────────────────────────────────────────
   // Clamp so the menu never falls off screen
   const menuX = $derived(Math.min(x, window.innerWidth - 310));
-  const menuY = $derived(y + 6);
+  const menuY = $derived(Math.min(y + 6, window.innerHeight - 306));
 </script>
 
 <svelte:window onkeydown={onKeyDown} />

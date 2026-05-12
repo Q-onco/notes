@@ -501,7 +501,10 @@
   function onSlashClose() { slashVisible = false; }
 
   function onNoteLinkQuery(query: string, x: number, y: number, from: number, to: number) {
-    nlQuery = query; nlX = x; nlY = y; nlFrom = from; nlTo = to;
+    nlQuery = query;
+    nlX = Math.min(x, window.innerWidth - 348);
+    nlY = Math.min(y, window.innerHeight - 232);
+    nlFrom = from; nlTo = to;
     nlVisible = true;
   }
 
