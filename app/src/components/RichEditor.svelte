@@ -325,7 +325,8 @@
       const rawX = (start.left + end.right) / 2;
       const BUBBLE_HALF = 130;
       bubbleX = Math.max(BUBBLE_HALF + 8, Math.min(window.innerWidth - BUBBLE_HALF - 8, rawX));
-      bubbleY = Math.min(start.top, end.top) - 46;
+      const aboveY = Math.min(start.top, end.top) - 46;
+      bubbleY = aboveY >= 8 ? aboveY : Math.max(start.bottom, end.bottom) + 6;
       bubbleVisible = true;
     } catch { bubbleVisible = false; }
   }
@@ -599,7 +600,7 @@
 
         <!-- Callout picker -->
         <div class="re-dropdown-wrap">
-          <button type="button" class="re-btn" onclick={() => { showCalloutPicker = !showCalloutPicker; }} title="Insert callout block">
+          <button type="button" class="re-btn" onclick={() => { showCalloutPicker = !showCalloutPicker; showColorPicker = false; showEmojiPicker = false; }} title="Insert callout block">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           </button>
           {#if showCalloutPicker}
@@ -655,7 +656,7 @@
         </button>
         <!-- Text color -->
         <div class="re-dropdown-wrap">
-          <button type="button" class="re-btn re-color-btn" onclick={() => { showColorPicker = !showColorPicker; showCalloutPicker = false; }} title="Text colour">
+          <button type="button" class="re-btn re-color-btn" onclick={() => { showColorPicker = !showColorPicker; showCalloutPicker = false; showEmojiPicker = false; }} title="Text colour">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.37 5.51A7.35 7.35 0 0016.5 16.5"/><circle cx="12" cy="12" r="10"/></svg>
             <span class="re-color-dot" style="background:{activeTextColor}"></span>
           </button>
@@ -725,7 +726,7 @@
       <!-- Emoji picker -->
       <div class="re-group">
         <div class="re-dropdown-wrap">
-          <button type="button" class="re-btn" onclick={() => { showEmojiPicker = !showEmojiPicker; }} title="Insert emoji / symbol">
+          <button type="button" class="re-btn" onclick={() => { showEmojiPicker = !showEmojiPicker; showColorPicker = false; showCalloutPicker = false; }} title="Insert emoji / symbol">
             <span style="font-size:0.95rem;line-height:1">😊</span>
           </button>
           {#if showEmojiPicker}
@@ -797,6 +798,7 @@
     border-bottom: 1px solid var(--bd);
     background: var(--sf);
     flex-shrink: 0;
+    position: relative; z-index: 60;
   }
   .re-row {
     display: flex; align-items: center; gap: 2px;
