@@ -864,10 +864,33 @@ Format your response as:
     await store.saveResearch();
   }
 
+  async function deleteHistoryDay(dayKey: string) {
+    store.searchHistory = store.searchHistory.filter(h => new Date(h.ts).toISOString().slice(0, 10) !== dayKey);
+    await store.saveResearch();
+  }
+
   async function clearSearchHistory() {
     store.searchHistory = [];
     await store.saveResearch();
     showToast('History cleared');
+  }
+
+  function dayLabel(key: string): string {
+    const today = new Date().toISOString().slice(0, 10);
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    if (key === today) return 'Today';
+    if (key === yesterday) return 'Yesterday';
+    return new Date(key + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  }
+
+  function groupHistoryByDay(): { key: string; entries: typeof store.searchHistory }[] {
+    const map = new Map<string, typeof store.searchHistory>();
+    for (const h of store.searchHistory) {
+      const key = new Date(h.ts).toISOString().slice(0, 10);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(h);
+    }
+    return [...map.entries()].map(([key, entries]) => ({ key, entries }));
   }
 
   async function toggleReadItem(id: string) {
@@ -1981,28 +2004,43 @@ Format your response as:
             <span class="text-xs text-mu">{store.searchHistory.length} searches</span>
             <button class="btn btn-ghost btn-sm" onclick={clearSearchHistory}>Clear all</button>
           </div>
-          {#each store.searchHistory as h (h.id)}
-            <div class="hist-item">
-              <div class="hist-item-head">
-                <span class="hist-query">{h.query}</span>
-                <div class="hist-item-actions">
-                  <button class="btn btn-primary btn-sm" onclick={() => runHistoryEntry(h)}>Re-run</button>
-                  <button class="btn-icon" onclick={() => bookmarkHistory(h)} title="Bookmark">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
-                  </button>
-                  <button class="btn-icon" onclick={() => deleteHistoryEntry(h.id)} title="Remove">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                  </button>
-                </div>
-              </div>
-              <div class="hist-meta">
-                {#each h.sources as src}
-                  <span class="tag {SOURCE_CLS[src] || ''}">{SOURCE_LABELS[src] || src}</span>
+          {#each groupHistoryByDay() as day (day.key)}
+            <details class="hist-day" open>
+              <summary class="hist-day-summary">
+                <span class="hist-day-label">{dayLabel(day.key)}</span>
+                <span class="hist-day-count text-xs text-mu">{day.entries.length} search{day.entries.length !== 1 ? 'es' : ''}</span>
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <button class="btn-icon hist-day-del" title="Delete this day"
+                  onclick={(e) => { e.preventDefault(); e.stopPropagation(); deleteHistoryDay(day.key); }}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+                </button>
+              </summary>
+              <div class="hist-day-entries">
+                {#each day.entries as h (h.id)}
+                  <div class="hist-item">
+                    <div class="hist-item-head">
+                      <span class="hist-query">{h.query}</span>
+                      <div class="hist-item-actions">
+                        <button class="btn btn-primary btn-sm" onclick={() => runHistoryEntry(h)}>Re-run</button>
+                        <button class="btn-icon" onclick={() => bookmarkHistory(h)} title="Bookmark">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
+                        </button>
+                        <button class="btn-icon" onclick={() => deleteHistoryEntry(h.id)} title="Remove">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="hist-meta">
+                      {#each h.sources as src}
+                        <span class="tag {SOURCE_CLS[src] || ''}">{SOURCE_LABELS[src] || src}</span>
+                      {/each}
+                      <span class="text-xs text-mu">{h.resultCount} result{h.resultCount !== 1 ? 's' : ''}</span>
+                      <span class="text-xs text-mu">{new Date(h.ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                  </div>
                 {/each}
-                <span class="text-xs text-mu">{h.resultCount} result{h.resultCount !== 1 ? 's' : ''}</span>
-                <span class="text-xs text-mu">{new Date(h.ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
               </div>
-            </div>
+            </details>
           {/each}
         {/if}
       {/if}
@@ -2874,6 +2912,19 @@ Format your response as:
 
   /* ── history items ── */
   .hist-header { display: flex; align-items: center; justify-content: space-between; padding: 2px 0 4px; }
+
+  /* day group */
+  .hist-day { border: none; }
+  .hist-day-summary { display: flex; align-items: center; gap: 8px; padding: 6px 4px; cursor: pointer; list-style: none; user-select: none; }
+  .hist-day-summary::-webkit-details-marker { display: none; }
+  .hist-day-summary::before { content: '▶'; font-size: 0.6rem; color: var(--mu); transition: transform 0.15s; flex-shrink: 0; }
+  .hist-day[open] > .hist-day-summary::before { transform: rotate(90deg); }
+  .hist-day-label { font-size: 0.78rem; font-weight: 600; color: var(--tx); flex: 1; }
+  .hist-day-count { flex-shrink: 0; }
+  .hist-day-del { opacity: 0; transition: opacity 0.15s; color: var(--mu); }
+  .hist-day-summary:hover .hist-day-del { opacity: 1; }
+  .hist-day-entries { display: flex; flex-direction: column; gap: 6px; padding: 0 0 8px 12px; border-left: 2px solid var(--bd); margin-left: 6px; }
+
   .hist-item { display: flex; flex-direction: column; gap: 5px; padding: 9px 11px; background: var(--sb); border-radius: 8px; border: 1px solid var(--bd); }
   .hist-item-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
   .hist-query { font-size: 0.84rem; font-weight: 500; color: var(--tx); flex: 1; min-width: 0; word-break: break-word; }
