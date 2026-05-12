@@ -138,6 +138,7 @@
   // Text colour picker
   let showColorPicker = $state(false);
   let activeTextColor = $state('#e85d5d');
+  let customHexInput = $state('');
 
   // Callout picker
   let showCalloutPicker = $state(false);
@@ -151,8 +152,18 @@
   ];
 
   const TEXT_COLORS = [
-    '#e85d5d', '#f5a623', '#f8d147', '#52c77f', '#4fa3e3',
-    '#7c67ee', '#e865b8', '#94a3b8', '#ffffff', '#1e293b',
+    // reds / pinks
+    '#ff4444', '#e85d5d', '#ff6b9d', '#e865b8',
+    // oranges / yellows
+    '#f97316', '#f5a623', '#f8d147', '#fde68a',
+    // greens
+    '#22c55e', '#52c77f', '#4ade80', '#a3e635',
+    // blues
+    '#3d7fff', '#4fa3e3', '#60a5fa', '#38bdf8',
+    // purples
+    '#7c67ee', '#a855f7', '#c084fc', '#818cf8',
+    // neutrals
+    '#f1f5f9', '#94a3b8', '#475569', '#1e293b',
   ];
 
   // ── Upload helper ──────────────────────────────────────────────────────────
@@ -369,6 +380,14 @@
     activeTextColor = color;
     editor?.chain().focus().setColor(color).run();
     showColorPicker = false;
+  }
+
+  function applyCustomHex() {
+    const hex = customHexInput.trim();
+    if (/^#[0-9a-fA-F]{3,6}$/.test(hex)) {
+      applyTextColor(hex);
+      customHexInput = '';
+    }
   }
 
   // ── Image insert via file input ────────────────────────────────────────────
@@ -642,10 +661,19 @@
             <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
             <div class="re-backdrop" onclick={() => showColorPicker = false}></div>
             <div class="re-dropdown re-color-picker">
-              {#each TEXT_COLORS as c}
-                <button class="re-color-swatch" style="background:{c}" onclick={() => applyTextColor(c)} title={c}></button>
-              {/each}
-              <button class="re-color-swatch re-color-clear" onclick={() => { editor?.chain().focus().unsetColor().run(); showColorPicker = false; }} title="Remove colour">×</button>
+              <div class="re-color-grid">
+                {#each TEXT_COLORS as c}
+                  <button class="re-color-swatch" style="background:{c}" onclick={() => applyTextColor(c)} title={c}
+                    class:re-swatch-active={activeTextColor === c}></button>
+                {/each}
+              </div>
+              <div class="re-color-hex-row">
+                <span class="re-color-preview" style="background:{customHexInput && /^#[0-9a-fA-F]{3,6}$/.test(customHexInput) ? customHexInput : activeTextColor}"></span>
+                <input class="re-color-hex-input" bind:value={customHexInput} placeholder="#hex" maxlength={7}
+                  onkeydown={(e) => e.key === 'Enter' && applyCustomHex()} />
+                <button class="re-color-hex-apply" onclick={applyCustomHex} title="Apply colour">↵</button>
+              </div>
+              <button class="re-color-clear-btn" onclick={() => { editor?.chain().focus().unsetColor().run(); showColorPicker = false; }}>Remove colour</button>
             </div>
           {/if}
         </div>
@@ -811,9 +839,17 @@
   /* Colour picker */
   .re-color-btn { position: relative; width: 32px !important; }
   .re-color-dot { position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 16px; height: 3px; border-radius: 2px; }
-  .re-color-picker { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px; min-width: auto; width: 136px; }
-  .re-color-swatch { width: 20px; height: 20px; border-radius: 4px; border: 2px solid transparent; cursor: pointer; transition: transform var(--transition); }
+  .re-color-picker { display: flex; flex-direction: column; gap: 8px; padding: 10px; min-width: 120px; width: 120px; }
+  .re-color-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+  .re-color-swatch { width: 20px; height: 20px; border-radius: 4px; border: 2px solid transparent; cursor: pointer; transition: transform 0.12s; }
   .re-color-swatch:hover { transform: scale(1.2); border-color: var(--tx); }
+  .re-swatch-active { border-color: #fff !important; box-shadow: 0 0 0 1px var(--tx); }
+  .re-color-hex-row { display: flex; align-items: center; gap: 4px; border-top: 1px solid var(--bd); padding-top: 6px; }
+  .re-color-preview { width: 16px; height: 16px; border-radius: 3px; flex-shrink: 0; border: 1px solid var(--bd); }
+  .re-color-hex-input { flex: 1; min-width: 0; background: var(--ip); border: 1px solid var(--bd); border-radius: 4px; color: var(--tx); font-size: 0.72rem; padding: 3px 5px; outline: none; font-family: monospace; }
+  .re-color-hex-apply { background: transparent; border: none; color: var(--ac); cursor: pointer; font-size: 0.9rem; padding: 0 2px; flex-shrink: 0; }
+  .re-color-clear-btn { background: transparent; border: none; color: var(--mu); font-size: 0.72rem; cursor: pointer; padding: 0; text-align: left; }
+  .re-color-clear-btn:hover { color: var(--tx); }
   .re-color-clear { background: var(--sf2) !important; border-color: var(--bd) !important; font-size: 14px; color: var(--mu); display: flex; align-items: center; justify-content: center; line-height: 1; }
 
   /* Find & Replace */
