@@ -1,4 +1,4 @@
-import type { ChatMessage } from './types';
+import type { ChatMessage, LectureTurn } from './types';
 import { store } from './store.svelte';
 
 // ── Model constants ────────────────────────────────────────────
@@ -799,6 +799,37 @@ export async function streamVoiceToProtocol(
     }
   ];
   await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
+// ── Lecture speaker classification ────────────────────────────────────────────
+export async function classifyLectureTurns(
+  segments: { offsetSec: number; text: string }[],
+  lectureTitle: string,
+  signal?: AbortSignal
+): Promise<LectureTurn[]> {
+  const segList = segments.map((s, i) => `${i}: [${Math.floor(s.offsetSec / 60)}:${String(Math.floor(s.offsetSec % 60)).padStart(2, '0')}] ${s.text}`).join('\n');
+  let buffer = '';
+  const messages = [
+    {
+      role: 'system' as const,
+      content: `You are an expert at analysing lecture and conference recordings. You classify each spoken segment as either the main presenter/lecturer or an audience member (question, comment, or interjection). Return ONLY valid JSON — no markdown, no preamble.`
+    },
+    {
+      role: 'user' as const,
+      content: `Classify each segment of this recording as "lecturer" (main speaker, explanations, continuous presentation) or "audience" (questions, comments, interjections — typically shorter and reactive).\n\nLecture title: "${lectureTitle || 'Unknown'}"\n\nSegments:\n${segList}\n\nReturn JSON array exactly matching the number of segments:\n[{"role":"lecturer","offsetSec":0,"text":"..."},{"role":"audience","offsetSec":15,"text":"..."},...]\n\nPreserve the original text. Only change the "role" field.`
+    }
+  ];
+  await streamGroq(MODELS.enzo, messages, (c) => { buffer += c; }, signal);
+  try {
+    const m = buffer.match(/\[[\s\S]*\]/);
+    if (!m) return segments.map(s => ({ role: 'lecturer' as const, ...s }));
+    const parsed: LectureTurn[] = JSON.parse(m[0]);
+    // ensure same length as input
+    if (parsed.length !== segments.length) return segments.map(s => ({ role: 'lecturer' as const, ...s }));
+    return parsed;
+  } catch {
+    return segments.map(s => ({ role: 'lecturer' as const, ...s }));
+  }
 }
 
 // ── Radar Summary ─────────────────────────────────────────────────────────────

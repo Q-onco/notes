@@ -41,6 +41,12 @@ export interface Task {
   subtasks?: SubTask[];
 }
 
+export interface LectureTurn {
+  role: 'lecturer' | 'audience';
+  text: string;
+  offsetSec: number;
+}
+
 export interface AudioRecord {
   id: string;
   createdAt: number;
@@ -52,6 +58,10 @@ export interface AudioRecord {
   r2Key?: string;       // R2 object key for audio blob (enables replay)
   mimeType?: string;    // e.g. audio/webm
   sessionId?: string;   // CF D1 audio session ID (enables word-level playback sync)
+  lectureMode?: boolean;
+  lectureTitle?: string;
+  lectureVenue?: string;
+  turns?: LectureTurn[];
 }
 
 export interface ChatMessage {
