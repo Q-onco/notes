@@ -1,10 +1,10 @@
 <script lang="ts">
   import { store } from '../lib/store.svelte';
-  import { parseTranscriptForEvents, streamVoiceToProtocol } from '../lib/groq';
+  import { parseTranscriptForEvents, streamVoiceToProtocol, classifyLectureTurns } from '../lib/groq';
   import { nanoid } from 'nanoid';
   import { tick } from 'svelte';
   import { Howl } from 'howler';
-  import type { Note, AudioRecord } from '../lib/types';
+  import type { Note, AudioRecord, LectureTurn } from '../lib/types';
   import RichEditor from './RichEditor.svelte';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
@@ -63,6 +63,47 @@
   let howlActiveWord = $state(-1);
   let howlPollTimer: ReturnType<typeof setInterval> | null = null;
 
+  // ── Lecture mode ─────────────────────────────────────────────
+  let lectureMode = $state(false);
+  let lectureTitle = $state('');
+  let lectureVenue = $state('');
+  let liveTurns = $state<LectureTurn[]>([]);
+  let identifyingSpk = $state(false);
+  let identifyAbort: AbortController | null = null;
+
+  // captured at startRecording so title/venue are frozen for the session
+  let sessionLectureTitle = '';
+  let sessionLectureVenue = '';
+
+  function heuristicRole(text: string): 'lecturer' | 'audience' {
+    const t = text.trim();
+    if (t.split(/\s+/).length > 60) return 'lecturer';
+    if (/\?/.test(t)) return 'audience';
+    if (/^(could you|can you|would you|what |how |why |when |where |who |is it|is there|are there|does it|do you|have you|what about|sorry|excuse me|thank you for|following up|going back|just to|one more)/i.test(t)) return 'audience';
+    return 'lecturer';
+  }
+
+  function turnsToTranscript(turns: LectureTurn[]): string {
+    return turns.map(t => `[${t.role === 'lecturer' ? 'Lecturer' : 'Audience'}] ${t.text}`).join('\n');
+  }
+
+  async function identifySpeakers() {
+    if (!liveTurns.length) return;
+    identifyAbort?.abort();
+    identifyAbort = new AbortController();
+    identifyingSpk = true;
+    try {
+      const better = await classifyLectureTurns(
+        liveTurns.map(t => ({ offsetSec: t.offsetSec, text: t.text })),
+        sessionLectureTitle,
+        identifyAbort.signal
+      );
+      liveTurns = better;
+      draftTranscript = turnsToTranscript(better);
+    } catch { /* aborted or failed — keep heuristic labels */ }
+    identifyingSpk = false;
+  }
+
   // ── Recording ────────────────────────────────────────────────
   async function startRecording() {
     if (!store.settings.workerUrl) {
@@ -81,9 +122,12 @@
     fullAudioChunks = [];
     whisperUsed = getUsed();
     liveSegments = [];
+    liveTurns = [];
     sessionId = null;
     chunkIdx = 0;
     chunkOffsetSec = 0;
+    sessionLectureTitle = lectureTitle;
+    sessionLectureVenue = lectureVenue;
 
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -166,6 +210,9 @@
             }));
             liveText = liveText ? liveText + ' ' + trimmed : trimmed;
             liveSegments = [...liveSegments, { offsetSec: capturedOffset, text: trimmed, words: adjustedWords }];
+            if (lectureMode) {
+              liveTurns = [...liveTurns, { role: heuristicRole(trimmed), text: trimmed, offsetSec: capturedOffset }];
+            }
             if (sessionId && store.workerBase) {
               fetch(`${store.workerBase}/audio/chunk`, {
                 method: 'POST',
@@ -182,7 +229,7 @@
       } finally {
         transcribingCount--;
         if (!isRecordingSession && transcribingCount === 0) {
-          draftTranscript = liveText;
+          draftTranscript = lectureMode ? turnsToTranscript(liveTurns) : liveText;
         }
       }
     }
@@ -190,7 +237,7 @@
     if (isRecordingSession) {
       startChunk();
     } else if (transcribingCount === 0) {
-      draftTranscript = liveText;
+      draftTranscript = lectureMode ? turnsToTranscript(liveTurns) : liveText;
     }
   }
 
@@ -250,6 +297,12 @@
       r2Key,
       mimeType: mime,
       sessionId: sessionId ?? undefined,
+      ...(lectureMode ? {
+        lectureMode: true,
+        lectureTitle: sessionLectureTitle || undefined,
+        lectureVenue: sessionLectureVenue || undefined,
+        turns: liveTurns.length ? liveTurns : undefined,
+      } : {}),
     };
     store.audioRecords = [rec, ...store.audioRecords];
 
@@ -269,6 +322,7 @@
     draftTranscript = '';
     linkNoteId = '';
     liveText = '';
+    liveTurns = [];
     durationSec = 0;
   }
 
@@ -337,16 +391,41 @@
     if (rec.id.startsWith('_')) return;
     const date = new Date(rec.createdAt).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
     const time = new Date(rec.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    const shortDate = new Date(rec.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+    let title: string;
+    let body: string;
+    let tags: string[];
+
+    if (rec.lectureMode) {
+      title = rec.lectureTitle ? `[Lecture] ${rec.lectureTitle} — ${shortDate}` : `[Lecture] ${shortDate}`;
+      const meta = [
+        `**Date:** ${date}`,
+        `**Time:** ${time}`,
+        `**Duration:** ${fmtDur(rec.durationSec)}`,
+        rec.lectureTitle ? `**Session:** ${rec.lectureTitle}` : '',
+        rec.lectureVenue ? `**Venue:** ${rec.lectureVenue}` : '',
+      ].filter(Boolean).join('  \n');
+
+      if (rec.turns && rec.turns.length > 0) {
+        const turnLines = rec.turns.map(t =>
+          `**${t.role === 'lecturer' ? 'Lecturer' : 'Audience'}:** ${t.text}`
+        ).join('\n\n');
+        body = `# ${title}\n\n${meta}\n\n---\n\n${turnLines}\n`;
+      } else {
+        body = `# ${title}\n\n${meta}\n\n---\n\n${rec.transcript}\n`;
+      }
+      tags = ['audio', 'lecture', 'transcript'];
+    } else {
+      title = `Transcript — ${shortDate}`;
+      body = `# Transcript\n\n**Date:** ${date}  \n**Time:** ${time}  \n**Duration:** ${fmtDur(rec.durationSec)}\n\n---\n\n${rec.transcript}\n`;
+      tags = ['audio', 'transcript'];
+    }
+
     const note: Note = {
-      id: nanoid(),
-      title: `Transcript — ${new Date(rec.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`,
-      body: `# Transcript\n\n**Date:** ${date}  \n**Time:** ${time}  \n**Duration:** ${fmtDur(rec.durationSec)}\n\n---\n\n${rec.transcript}\n`,
-      tags: ['audio', 'transcript'],
-      createdAt: rec.createdAt,
-      updatedAt: Date.now(),
-      pinned: false,
-      archived: false,
-      audioIds: [rec.id]
+      id: nanoid(), title, body, tags,
+      createdAt: rec.createdAt, updatedAt: Date.now(),
+      pinned: false, archived: false, audioIds: [rec.id],
     };
     store.notes = [note, ...store.notes];
     store.currentNoteId = note.id;
@@ -678,6 +757,29 @@
     </div>
   </div>
 
+  <!-- Mode tabs -->
+  <div class="mode-tabs">
+    <button class="mode-tab" class:mode-tab-active={!lectureMode} onclick={() => lectureMode = false} disabled={recording || transcribingCount > 0}>Standard</button>
+    <button class="mode-tab" class:mode-tab-active={lectureMode} onclick={() => lectureMode = true} disabled={recording || transcribingCount > 0}>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+      Lecture Mode
+    </button>
+  </div>
+
+  <!-- Lecture setup (shown only when lecture mode, not recording) -->
+  {#if lectureMode && !recording && transcribingCount === 0 && !draftTranscript}
+    <div class="lecture-setup card">
+      <div class="lecture-setup-row">
+        <label class="lec-label text-xs text-mu">Session title</label>
+        <input class="lec-input" bind:value={lectureTitle} placeholder="e.g. AACR 2026 — Tumour Microenvironment" />
+      </div>
+      <div class="lecture-setup-row">
+        <label class="lec-label text-xs text-mu">Venue / location</label>
+        <input class="lec-input" bind:value={lectureVenue} placeholder="e.g. Room B2, Convention Center, San Diego" />
+      </div>
+    </div>
+  {/if}
+
   <!-- Recorder card -->
   <div class="recorder card">
     <div class="recorder-top">
@@ -731,14 +833,27 @@
     {/if}
 
     <!-- Live transcript during recording -->
-    {#if recording && liveSegments.length > 0}
+    {#if recording && (liveSegments.length > 0 || liveTurns.length > 0)}
       <div class="live-transcript">
-        <span class="live-label text-xs">Live transcript</span>
-        <div class="live-segments">
-          {#each liveSegments as seg}
-            <span class="live-stamp">[{fmtDur(Math.floor(seg.offsetSec))}]</span><span class="live-seg-text">{seg.text} </span>
-          {/each}
-        </div>
+        <span class="live-label text-xs">{lectureMode ? 'Live transcript — speaker labels are heuristic' : 'Live transcript'}</span>
+        {#if lectureMode}
+          <div class="live-turns">
+            {#each liveTurns as turn}
+              <div class="live-turn" class:live-turn-audience={turn.role === 'audience'}>
+                <span class="turn-badge" class:turn-badge-audience={turn.role === 'audience'}>
+                  {turn.role === 'lecturer' ? 'Lecturer' : 'Audience'}
+                </span>
+                <span class="live-seg-text">{turn.text}</span>
+              </div>
+            {/each}
+          </div>
+        {:else}
+          <div class="live-segments">
+            {#each liveSegments as seg}
+              <span class="live-stamp">[{fmtDur(Math.floor(seg.offsetSec))}]</span><span class="live-seg-text">{seg.text} </span>
+            {/each}
+          </div>
+        {/if}
       </div>
     {/if}
 
@@ -753,6 +868,20 @@
           placeholder="Transcript will appear here — edit before saving"
           minHeight="120px"
         />
+        {#if lectureMode && liveTurns.length > 0}
+          <div class="spk-identify-bar">
+            <span class="spk-hint text-xs text-mu">Speaker labels are heuristic — use Enzo to improve them</span>
+            <button class="btn btn-ghost btn-sm spk-btn" onclick={identifySpeakers} disabled={identifyingSpk}>
+              {#if identifyingSpk}
+                <span class="spinner-xs-inline"></span> Identifying…
+              {:else}
+                <span class="enzo-dot-tiny"></span>
+                Identify Speakers<span class="model-pill">[70B]</span>
+              {/if}
+            </button>
+          </div>
+        {/if}
+
         <div class="draft-actions">
           <select bind:value={linkNoteId} class="note-select">
             <option value="">Save standalone</option>
@@ -931,6 +1060,9 @@
           <div class="rec-meta">
             <span class="rec-dur">{fmtDur(rec.durationSec)}</span>
             <span class="text-xs text-mu">{relTime(rec.createdAt)}</span>
+            {#if rec.lectureMode}
+              <span class="lec-badge text-xs">Lecture</span>
+            {/if}
             {#if rec.noteId}
               {@const note = store.notes.find(n => n.id === rec.noteId)}
               {#if note}
@@ -1004,6 +1136,12 @@
             </svg>
           </button>
         </div>
+        {#if rec.lectureMode && (rec.lectureTitle || rec.lectureVenue)}
+          <div class="lec-meta-row">
+            {#if rec.lectureTitle}<span class="lec-meta-title text-xs">{rec.lectureTitle}</span>{/if}
+            {#if rec.lectureVenue}<span class="lec-meta-venue text-xs text-mu">{rec.lectureVenue}</span>{/if}
+          </div>
+        {/if}
         {#if rec.r2Key && store.workerBase && playingId === rec.id}
           <div class="howler-player">
             <div class="howl-bar">
@@ -1048,7 +1186,18 @@
             {/if}
           </div>
         {/if}
-        {#if rec.transcript}
+        {#if rec.turns && rec.turns.length > 0}
+          <div class="rec-turns">
+            {#each rec.turns as turn}
+              <div class="rec-turn" class:rec-turn-audience={turn.role === 'audience'}>
+                <span class="turn-badge turn-badge-sm" class:turn-badge-audience={turn.role === 'audience'}>
+                  {turn.role === 'lecturer' ? 'L' : 'Q'}
+                </span>
+                <span class="rec-turn-text text-sm">{turn.text}</span>
+              </div>
+            {/each}
+          </div>
+        {:else if rec.transcript}
           <p class="rec-transcript text-sm">{rec.transcript}</p>
         {/if}
       </div>
@@ -1459,4 +1608,89 @@
     .recorder-top { flex-wrap: wrap; }
     .vis-canvas { height: 60px; }
   }
+
+  /* ── Mode tabs ── */
+  .mode-tabs {
+    display: flex; gap: 4px;
+    background: var(--sf); border: 1px solid var(--bd);
+    border-radius: var(--radius-sm);
+    padding: 3px; align-self: flex-start;
+  }
+  .mode-tab {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 14px; border-radius: calc(var(--radius-sm) - 2px);
+    background: transparent; border: none; cursor: pointer;
+    font-size: 0.8rem; color: var(--tx2); font-family: var(--font);
+    transition: background var(--transition), color var(--transition);
+  }
+  .mode-tab:hover:not(:disabled) { background: var(--sf2); color: var(--tx); }
+  .mode-tab-active { background: var(--sf3) !important; color: var(--tx) !important; font-weight: 600; }
+  .mode-tab:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* ── Lecture setup ── */
+  .lecture-setup {
+    display: flex; flex-direction: column; gap: 10px; padding: 14px 16px;
+  }
+  .lecture-setup-row { display: flex; flex-direction: column; gap: 4px; }
+  .lec-label { font-weight: 500; }
+  .lec-input {
+    background: var(--sf2); border: 1px solid var(--bd); border-radius: var(--radius-sm);
+    color: var(--tx); font-family: var(--font); font-size: 0.85rem;
+    padding: 7px 10px; outline: none; transition: border-color var(--transition);
+  }
+  .lec-input:focus { border-color: var(--ac); }
+  .lec-input::placeholder { color: var(--mu); }
+
+  /* ── Live turns (lecture mode transcript) ── */
+  .live-turns { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+  .live-turn {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 5px 8px; border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--ac) 6%, transparent);
+    border-left: 2px solid var(--ac);
+  }
+  .live-turn-audience {
+    background: color-mix(in srgb, #f5a623 6%, transparent);
+    border-left-color: #f5a623;
+  }
+  .turn-badge {
+    flex-shrink: 0; font-size: 0.68rem; font-weight: 700;
+    padding: 1px 6px; border-radius: 3px;
+    background: var(--ac); color: #fff; margin-top: 2px;
+    letter-spacing: 0.03em;
+  }
+  .turn-badge-audience { background: #f5a623; }
+  .turn-badge-sm { padding: 1px 5px; font-size: 0.65rem; }
+
+  /* ── Speaker identify bar ── */
+  .spk-identify-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 8px 12px; background: color-mix(in srgb, var(--enzo) 6%, var(--sf));
+    border: 1px solid color-mix(in srgb, var(--enzo) 20%, var(--bd));
+    border-radius: var(--radius-sm);
+  }
+  .spk-hint { flex: 1; }
+  .spk-btn { white-space: nowrap; }
+
+  /* ── Lecture badge on past recordings ── */
+  .lec-badge {
+    padding: 1px 7px; border-radius: 3px;
+    background: color-mix(in srgb, var(--pu) 15%, var(--sf2));
+    color: var(--pu); font-weight: 600; letter-spacing: 0.03em;
+  }
+  .lec-meta-row {
+    display: flex; gap: 8px; align-items: baseline;
+    padding: 2px 0 4px;
+  }
+  .lec-meta-title { color: var(--tx2); font-weight: 500; }
+  .lec-meta-venue::before { content: '·'; margin-right: 6px; }
+
+  /* ── Turn display on saved recordings ── */
+  .rec-turns { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+  .rec-turn {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 4px 8px; border-radius: var(--radius-sm);
+  }
+  .rec-turn-audience { background: color-mix(in srgb, #f5a623 5%, transparent); }
+  .rec-turn-text { line-height: 1.5; color: var(--tx2); }
 </style>
