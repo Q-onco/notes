@@ -811,7 +811,7 @@
     </button>
     <div class="tab-spacer"></div>
     {#if activeTab === 'library'}
-      <button class="btn-import" onclick={() => { showImport = true; importMode = 'doi'; importQuery = ''; importPreview = null; importError = ''; }}>
+      <button class="btn-import-tab" onclick={() => { showImport = true; importMode = 'doi'; importQuery = ''; importPreview = null; importError = ''; }}>
         + Import
       </button>
     {/if}
@@ -1380,28 +1380,48 @@
 /* Tabs */
 .biblio-tabs {
   display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.5rem 1rem 0;
+  align-items: stretch;
+  gap: 0;
+  padding: 0 1rem;
   border-bottom: 1px solid #1e293b;
   flex-shrink: 0;
+  background: var(--bg, #0f172a);
 }
 .btab {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.5rem 1rem;
-  background: none;
-  border: none;
+  padding: 0.6rem 1rem;
+  background: transparent;
+  border-top: none;
+  border-left: none;
+  border-right: none;
   border-bottom: 2px solid transparent;
-  color: #94a3b8;
+  color: #64748b;
   cursor: pointer;
   font-size: 0.875rem;
-  transition: color 0.15s, border-color 0.15s;
+  font-family: inherit;
+  transition: color 0.15s;
+  margin-bottom: -1px;
+  white-space: nowrap;
 }
+.btab:hover { color: #94a3b8; }
 .btab.active { color: #e2e8f0; border-bottom-color: #6366f1; }
 .tab-count { background: #1e293b; padding: 0.1rem 0.4rem; border-radius: 999px; font-size: 0.7rem; }
 .tab-spacer { flex: 1; }
+.btn-import-tab {
+  padding: 0.35rem 0.9rem;
+  background: #6366f1;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  align-self: center;
+  margin-right: 0.25rem;
+}
+.btn-import-tab:hover { background: #818cf8; }
 .btn-import {
   padding: 0.35rem 0.9rem;
   background: #6366f1;
