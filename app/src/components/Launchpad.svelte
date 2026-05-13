@@ -1,7 +1,7 @@
 <script lang="ts">
   import { store } from '../lib/store.svelte';
   import { nanoid } from 'nanoid';
-  import { streamFounderGPS } from '../lib/groq';
+  import { streamFounderGPS, streamFundingAdvisor } from '../lib/groq';
   import type { LaunchpadCustomResource } from '../lib/types';
 
   // ── Types ────────────────────────────────────────────────────────────────
@@ -11,6 +11,7 @@
     id: string; type: RType; title: string; desc: string; url: string;
     platform: string; category: string; tags: string[];
     stage: 'all' | 'pre-formation' | 'early-stage' | 'growth';
+    feed?: string; ytPlaylistId?: string;
   }
   interface SOPStep { n: number; title: string; detail: string; }
   interface SOP {
@@ -19,24 +20,36 @@
   }
   interface NewsItem { title: string; url: string; desc: string; pubDate: string; source: string; sourceColor: string; }
   interface GpsMsg { role: 'user' | 'enzo'; text: string; ts: number; }
+  interface Episode { title: string; url: string; date: string; duration: string; desc: string; }
+  interface Grant {
+    id: string; name: string; agency: string; country: string;
+    type: 'government' | 'foundation' | 'eu'; amount: string; cycle: string;
+    focus: string; eligibility: string; tags: string[]; stage: string;
+    url: string; tips: string[];
+  }
+  interface VC {
+    id: string; name: string; vcType: 'vc' | 'angel' | 'cvc' | 'accelerator';
+    focus: string; stage: string; ticket: string; geo: string;
+    thesis: string; approach: string; portfolio: string[]; url: string;
+  }
 
   // ── Static resource library ───────────────────────────────────────────────
   const RESOURCES: Resource[] = [
     // Podcasts
-    { id:'p1',  type:'podcast', title:'The Long Run', desc:'Luke Timmerman interviews biotech founders, CEOs and scientists on building companies in life science. The most essential podcast in the space.', url:'https://timmermanreport.com/podcast/', platform:'Spotify · Web', category:'Founder Journey', tags:['biotech','founders','CEO'], stage:'all' },
-    { id:'p2',  type:'podcast', title:'Mendelspod', desc:'Deep technical interviews on genomics, precision medicine, and biotech startups. For scientists crossing into company building.', url:'https://mendelspod.com/', platform:'Web', category:'Science & Tech', tags:['genomics','precision medicine','diagnostics'], stage:'all' },
-    { id:'p3',  type:'podcast', title:'Petri — Biotech Startups', desc:'Stories of how biotech companies are created — from first idea through IND and IPO. Candid founder conversations.', url:'https://pod.link/1447042357', platform:'Spotify · Apple', category:'Founder Journey', tags:['biotech','startup','IPO'], stage:'all' },
-    { id:'p4',  type:'podcast', title:'Biotech 2050', desc:'Big-picture conversations about the future of healthcare, biotech, and life sciences with founders and investors.', url:'https://biotech2050.podbean.com/', platform:'Podbean · Spotify', category:'Vision & Strategy', tags:['future','healthcare','biotech'], stage:'all' },
-    { id:'p5',  type:'podcast', title:'How I Built This (NPR)', desc:'Guy Raz interviews founders of iconic companies. Essential for founder mindset, resilience under pressure, and early pivots.', url:'https://www.npr.org/series/490248027/how-i-built-this', platform:'NPR · Spotify', category:'Founder Mindset', tags:['founders','mindset','resilience','pivots'], stage:'all' },
-    { id:'p6',  type:'podcast', title:'Masters of Scale', desc:'Reid Hoffman on unconventional theories for growing a business — scaling culture, counter-intuitive fundraising, early team dynamics.', url:'https://mastersofscale.com/', platform:'Spotify', category:'Growth & Strategy', tags:['scaling','strategy','leadership'], stage:'early-stage' },
-    { id:'p7',  type:'podcast', title:'a16z Bio Podcast', desc:"Andreessen Horowitz bio fund on where tech meets biology — company creation playbooks, regulatory strategy, and platform company thinking.", url:'https://a16z.com/podcasts/a16z-podcast/', platform:'Spotify · Web', category:'Investor Perspective', tags:['biotech','VC','platform'], stage:'all' },
-    { id:'p8',  type:'podcast', title:'BioTechNation', desc:"Dr. Moira Gunn interviews biotech innovators and scientists turning research into companies. Global perspective including European biotech.", url:'https://www.biotechnation.com/podcast', platform:'Web · Spotify', category:'Founder Journey', tags:['biotech','science','international'], stage:'all' },
-    { id:'p9',  type:'podcast', title:'Acquired (Biotech Episodes)', desc:'Deep-dive company histories — Moderna, Illumina, Genentech, Pfizer. 3–5 hour case studies with full financial and scientific context.', url:'https://www.acquired.fm/', platform:'Spotify · Web', category:'Company Stories', tags:['deep-dive','history','company building'], stage:'all' },
-    { id:'p10', type:'podcast', title:'The Knowledge Project', desc:"Shane Parrish on mental models, decision-making under uncertainty, and continuous learning — cognitive foundation every founder needs.", url:'https://fs.blog/knowledge-project/', platform:'Spotify', category:'Self-Development', tags:['decision-making','mental models','learning'], stage:'all' },
+    { id:'p1',  type:'podcast', title:'The Long Run', desc:'Luke Timmerman interviews biotech founders, CEOs and scientists on building companies in life science. The most essential podcast in the space.', url:'https://timmermanreport.com/podcast/', platform:'Spotify · Web', category:'Founder Journey', tags:['biotech','founders','CEO'], stage:'all', feed:'https://feeds.transistor.fm/the-long-run-with-luke-timmerman' },
+    { id:'p2',  type:'podcast', title:'Mendelspod', desc:'Deep technical interviews on genomics, precision medicine, and biotech startups. For scientists crossing into company building.', url:'https://mendelspod.com/', platform:'Web', category:'Science & Tech', tags:['genomics','precision medicine','diagnostics'], stage:'all', feed:'https://www.mendelspod.com/podcast/rss' },
+    { id:'p3',  type:'podcast', title:'Petri — Biotech Startups', desc:'Stories of how biotech companies are created — from first idea through IND and IPO. Candid founder conversations.', url:'https://pod.link/1447042357', platform:'Spotify · Apple', category:'Founder Journey', tags:['biotech','startup','IPO'], stage:'all', feed:'https://anchor.fm/s/6e50e108/podcast/rss' },
+    { id:'p4',  type:'podcast', title:'Biotech 2050', desc:'Big-picture conversations about the future of healthcare, biotech, and life sciences with founders and investors.', url:'https://biotech2050.podbean.com/', platform:'Podbean · Spotify', category:'Vision & Strategy', tags:['future','healthcare','biotech'], stage:'all', feed:'https://feed.podbean.com/biotech2050/feed.xml' },
+    { id:'p5',  type:'podcast', title:'How I Built This (NPR)', desc:'Guy Raz interviews founders of iconic companies. Essential for founder mindset, resilience under pressure, and early pivots.', url:'https://www.npr.org/series/490248027/how-i-built-this', platform:'NPR · Spotify', category:'Founder Mindset', tags:['founders','mindset','resilience','pivots'], stage:'all', feed:'https://feeds.npr.org/510313/podcast.xml' },
+    { id:'p6',  type:'podcast', title:'Masters of Scale', desc:'Reid Hoffman on unconventional theories for growing a business — scaling culture, counter-intuitive fundraising, early team dynamics.', url:'https://mastersofscale.com/', platform:'Spotify', category:'Growth & Strategy', tags:['scaling','strategy','leadership'], stage:'early-stage', feed:'https://rss.art19.com/masters-of-scale' },
+    { id:'p7',  type:'podcast', title:'a16z Bio Podcast', desc:"Andreessen Horowitz bio fund on where tech meets biology — company creation playbooks, regulatory strategy, and platform company thinking.", url:'https://a16z.com/podcasts/a16z-podcast/', platform:'Spotify · Web', category:'Investor Perspective', tags:['biotech','VC','platform'], stage:'all', feed:'https://a16z.com/podcasts/a16z-podcast/feed/' },
+    { id:'p8',  type:'podcast', title:'BioTechNation', desc:"Dr. Moira Gunn interviews biotech innovators and scientists turning research into companies. Global perspective including European biotech.", url:'https://www.biotechnation.com/podcast', platform:'Web · Spotify', category:'Founder Journey', tags:['biotech','science','international'], stage:'all', feed:'https://www.biotechnation.com/podcast/rss' },
+    { id:'p9',  type:'podcast', title:'Acquired (Biotech Episodes)', desc:'Deep-dive company histories — Moderna, Illumina, Genentech, Pfizer. 3–5 hour case studies with full financial and scientific context.', url:'https://www.acquired.fm/', platform:'Spotify · Web', category:'Company Stories', tags:['deep-dive','history','company building'], stage:'all', feed:'https://feeds.simplecast.com/i7gKCjMB' },
+    { id:'p10', type:'podcast', title:'The Knowledge Project', desc:"Shane Parrish on mental models, decision-making under uncertainty, and continuous learning — cognitive foundation every founder needs.", url:'https://fs.blog/knowledge-project/', platform:'Spotify', category:'Self-Development', tags:['decision-making','mental models','learning'], stage:'all', feed:'https://fs.blog/knowledge-project-podcast/feed/' },
     { id:'p11', type:'podcast', title:'Invest Like the Best (Bio)', desc:'Patrick OShaughnessy — episodic biotech deep dives with leading investors. Good for learning investor vocabulary and thesis frameworks.', url:'https://www.joincolossus.com/episodes', platform:'Spotify', category:'Investor Perspective', tags:['VC','biotech','investing','vocabulary'], stage:'all' },
     { id:'p12', type:'podcast', title:'Startup Podcast (Gimlet)', desc:'Alex Blumberg documents founding a company in real time — the most honest, emotional account of early-stage startup struggles ever recorded.', url:'https://gimletmedia.com/shows/startup', platform:'Spotify', category:'Founder Mindset', tags:['startup','authentic','early stage'], stage:'pre-formation' },
-    { id:'p13', type:'podcast', title:'Y Combinator Podcast', desc:'YC partners on fundraising, co-founders, idea validation. Listen to the "Dalton & Michael" series on startup mistakes — required listening.', url:'https://www.ycombinator.com/library', platform:'Spotify · Web', category:'Startup School', tags:['YC','fundraising','co-founders','tactics'], stage:'all' },
-    { id:'p14', type:'podcast', title:'The Bio Report', desc:'Weekly news and analysis for the business of biotechnology. Keeps you current on deal flow, clinical results, and regulatory decisions.', url:'https://thebioreport.com/', platform:'Web', category:'Industry News', tags:['biotech','news','deals','regulatory'], stage:'all' },
+    { id:'p13', type:'podcast', title:'Y Combinator Podcast', desc:'YC partners on fundraising, co-founders, idea validation. Listen to the "Dalton & Michael" series on startup mistakes — required listening.', url:'https://www.ycombinator.com/library', platform:'Spotify · Web', category:'Startup School', tags:['YC','fundraising','co-founders','tactics'], stage:'all', feed:'https://feeds.simplecast.com/GlKBhORV' },
+    { id:'p14', type:'podcast', title:'The Bio Report', desc:'Weekly news and analysis for the business of biotechnology. Keeps you current on deal flow, clinical results, and regulatory decisions.', url:'https://thebioreport.com/', platform:'Web', category:'Industry News', tags:['biotech','news','deals','regulatory'], stage:'all', feed:'https://thebioreport.com/feed/podcast/' },
 
     // Video Channels
     { id:'v1',  type:'video', title:'Y Combinator', desc:'Startup School lectures, founder interviews, office hours. "How to Start a Startup" playlist is the best free startup MBA available.', url:'https://www.youtube.com/@ycombinator', platform:'YouTube', category:'Startup School', tags:['YC','startup school','lectures'], stage:'all' },
@@ -45,14 +58,14 @@
     { id:'v4',  type:'video', title:'a16z Channel', desc:'Andreessen Horowitz on bio + health: company creation playbooks, regulatory innovation, how to think about platform vs asset companies.', url:'https://www.youtube.com/@a16z', platform:'YouTube', category:'Investor Perspective', tags:['a16z','bio','VC','platform'], stage:'all' },
     { id:'v5',  type:'video', title:'LabCentral Founder Series', desc:'Cambridge MA life science incubator — candid founder talks, demo days, and panels from real biotech startups at formation stage.', url:'https://www.youtube.com/@labcentral', platform:'YouTube', category:'Founder Journey', tags:['biotech','incubator','Cambridge','real founders'], stage:'early-stage' },
     { id:'v6',  type:'video', title:'Biotech Primer', desc:'Accessible explainer videos on biotech science, business, and investment. Bridges scientist vocabulary to startup world.', url:'https://www.youtube.com/@BiotechPrimer', platform:'YouTube', category:'Science & Tech', tags:['explainer','vocabulary','science to business'], stage:'pre-formation' },
-    { id:'v7',  type:'video', title:'TED — Health & Medicine', desc:'Curated TED talks from cancer researchers, genomics pioneers, and health innovators. Good for vision and pitch inspiration.', url:'https://www.youtube.com/playlist?list=PLbLbu_eGNBBCxmRB4WaCQWN72fVPRE0oW', platform:'YouTube', category:'Vision & Strategy', tags:['TED','cancer','innovation','pitch inspiration'], stage:'all' },
+    { id:'v7',  type:'video', title:'TED — Health & Medicine', desc:'Curated TED talks from cancer researchers, genomics pioneers, and health innovators. Good for vision and pitch inspiration.', url:'https://www.youtube.com/playlist?list=PLbLbu_eGNBBCxmRB4WaCQWN72fVPRE0oW', platform:'YouTube', category:'Vision & Strategy', tags:['TED','cancer','innovation','pitch inspiration'], stage:'all', ytPlaylistId:'PLbLbu_eGNBBCxmRB4WaCQWN72fVPRE0oW' },
     { id:'v8',  type:'video', title:'First Round Capital', desc:'Tactical startup advice from seed investors — hiring first team, building culture, product thinking, and "Ask Me Anything" series.', url:'https://www.youtube.com/@FirstRoundCapital', platform:'YouTube', category:'Investor Perspective', tags:['seed','hiring','culture','product'], stage:'early-stage' },
     { id:'v9',  type:'video', title:'MIT Entrepreneurship Center', desc:"MIT's Martin Trust Center for Entrepreneurship — biomedical ventures, regulatory strategy, and deep tech company creation courses.", url:'https://www.youtube.com/@MITOpenCourseWare', platform:'YouTube', category:'Startup School', tags:['MIT','biomedical','deep tech','courses'], stage:'all' },
     { id:'v10', type:'video', title:'Endpoints News Video', desc:'Short news videos on drug development, clinical trials and M&A from one of biotech\'s most-read trade publications.', url:'https://www.youtube.com/c/EndpointsNews', platform:'YouTube', category:'Industry News', tags:['news','clinical trials','M&A','pharma'], stage:'all' },
 
     // Playlists
     { id:'pl1', type:'playlist', title:'YC Startup School 2024 (Full Series)', desc:'20+ lectures from Y Combinator\'s 2024 Startup School — idea validation, co-founders, fundraising, and growth. The essential free startup curriculum.', url:'https://www.ycombinator.com/library', platform:'YouTube', category:'Startup School', tags:['YC','full course','fundraising','validation'], stage:'all' },
-    { id:'pl2', type:'playlist', title:'How to Start a Startup — Stanford CS183B', desc:"Sam Altman's legendary Stanford lecture series with YC partners, Peter Thiel, Dustin Moskovitz and others. 20 essential lectures.", url:'https://www.youtube.com/playlist?list=PLQ-uHSnFig5MaafmEh1-1DVsD9SDVV0Qd', platform:'YouTube', category:'Startup School', tags:['Stanford','Sam Altman','fundamentals'], stage:'pre-formation' },
+    { id:'pl2', type:'playlist', title:'How to Start a Startup — Stanford CS183B', desc:"Sam Altman's legendary Stanford lecture series with YC partners, Peter Thiel, Dustin Moskovitz and others. 20 essential lectures.", url:'https://www.youtube.com/playlist?list=PLQ-uHSnFig5MaafmEh1-1DVsD9SDVV0Qd', platform:'YouTube', category:'Startup School', tags:['Stanford','Sam Altman','fundamentals'], stage:'pre-formation', ytPlaylistId:'PLQ-uHSnFig5MaafmEh1-1DVsD9SDVV0Qd' },
     { id:'pl3', type:'playlist', title:'NIH SBIR/STTR Application Tutorial', desc:'Official NIH video series on SBIR/STTR grants — eligibility, writing specific aims, submission systems, and post-award reporting.', url:'https://www.youtube.com/results?search_query=NIH+SBIR+STTR+tutorial', platform:'YouTube', category:'Funding', tags:['SBIR','STTR','NIH','grants','application writing'], stage:'early-stage' },
     { id:'pl4', type:'playlist', title:'Endpoints News Founder Conversations', desc:'Video interviews with biotech founders — drug discovery origins, financing strategies, and hard lessons from the front line.', url:'https://www.youtube.com/c/EndpointsNews', platform:'YouTube', category:'Founder Journey', tags:['biotech','founders','drug discovery','financing'], stage:'all' },
     { id:'pl5', type:'playlist', title:'Women in Life Science Leadership', desc:'Panel discussions and keynotes featuring women founding and leading biotech and medtech companies. WIB, WLSA, and EWIT conference talks.', url:'https://www.youtube.com/results?search_query=women+life+science+biotech+founder+leadership', platform:'YouTube', category:'Founder Journey', tags:['women','diversity','leadership','panels'], stage:'all' },
@@ -89,13 +102,13 @@
     { id:'t15', type:'tool', title:'Carta', desc:'Cap table management and equity administration. Essential from day one — a clean cap table prevents enormous pain in Series A due diligence.', url:'https://carta.com/', platform:'Web · Paid', category:'Legal & Finance', tags:['cap table','equity','due diligence','clean records'], stage:'early-stage' },
 
     // Newsletters
-    { id:'n1', type:'newsletter', title:'STAT News', desc:'The highest-quality daily biotech and health news. FDA decisions, clinical results, founder profiles, and policy. Subscribe free — the essential daily read.', url:'https://www.statnews.com/sign-up/', platform:'Email · Free', category:'Industry News', tags:['daily','FDA','clinical','founders','free'], stage:'all' },
-    { id:'n2', type:'newsletter', title:'Endpoints News', desc:'Biotech drug development news focused on clinical trial results, deals, and company milestones. The morning brief is concise and authoritative.', url:'https://endpts.com/', platform:'Email · Free', category:'Industry News', tags:['drug development','clinical','deals','daily'], stage:'all' },
-    { id:'n3', type:'newsletter', title:'FierceBiotech Newsletter', desc:'Daily biotech briefing — funding rounds, partnerships, clinical results, M&A. Broad coverage, useful for competitive landscape monitoring.', url:'https://www.fiercebiotech.com/newsletters', platform:'Email · Free', category:'Industry News', tags:['funding','M&A','partnerships','daily'], stage:'all' },
-    { id:'n4', type:'newsletter', title:'Rock Health Digest', desc:'Digital health VC quarterly funding reports and market analysis. Best data source for health tech investment trends and startup spotlights.', url:'https://rockhealth.com/insights/', platform:'Email · Free', category:'Health Tech', tags:['digital health','VC','funding data','quarterly'], stage:'all' },
-    { id:'n5', type:'newsletter', title:'Timmerman Report', desc:"Luke Timmerman's deep, opinionated essays on biotech company building and science. The best long-form analysis in biotech — subscriber paid.", url:'https://timmermanreport.com/', platform:'Email · Paid', category:'Analysis', tags:['deep analysis','company building','opinion','biotech'], stage:'all' },
-    { id:'n6', type:'newsletter', title:'LifeSciVC Blog', desc:"Atlas Venture partner Bruce Booth's essays on biotech VC, company creation philosophy, and strategy. Must-read to understand how VCs actually think.", url:'https://lifescivc.com/', platform:'Email · Free', category:'VC Perspective', tags:['VC thinking','company creation','strategy','Atlas'], stage:'all' },
-    { id:'n7', type:'newsletter', title:'BioPharma Dive', desc:'Industry news and analysis for biopharma — regulatory strategy, business deals, pipeline updates. Especially good for competitive intelligence.', url:'https://www.biopharmadive.com/newsletters/', platform:'Email · Free', category:'Industry News', tags:['biopharma','regulatory','competitive intel','pipeline'], stage:'all' },
+    { id:'n1', type:'newsletter', title:'STAT News', desc:'The highest-quality daily biotech and health news. FDA decisions, clinical results, founder profiles, and policy. Subscribe free — the essential daily read.', url:'https://www.statnews.com/sign-up/', platform:'Email · Free', category:'Industry News', tags:['daily','FDA','clinical','founders','free'], stage:'all', feed:'https://www.statnews.com/feed/' },
+    { id:'n2', type:'newsletter', title:'Endpoints News', desc:'Biotech drug development news focused on clinical trial results, deals, and company milestones. The morning brief is concise and authoritative.', url:'https://endpts.com/', platform:'Email · Free', category:'Industry News', tags:['drug development','clinical','deals','daily'], stage:'all', feed:'https://endpts.com/feed/' },
+    { id:'n3', type:'newsletter', title:'FierceBiotech Newsletter', desc:'Daily biotech briefing — funding rounds, partnerships, clinical results, M&A. Broad coverage, useful for competitive landscape monitoring.', url:'https://www.fiercebiotech.com/newsletters', platform:'Email · Free', category:'Industry News', tags:['funding','M&A','partnerships','daily'], stage:'all', feed:'https://www.fiercebiotech.com/rss/xml' },
+    { id:'n4', type:'newsletter', title:'Rock Health Digest', desc:'Digital health VC quarterly funding reports and market analysis. Best data source for health tech investment trends and startup spotlights.', url:'https://rockhealth.com/insights/', platform:'Email · Free', category:'Health Tech', tags:['digital health','VC','funding data','quarterly'], stage:'all', feed:'https://rockhealth.com/insights/feed/' },
+    { id:'n5', type:'newsletter', title:'Timmerman Report', desc:"Luke Timmerman's deep, opinionated essays on biotech company building and science. The best long-form analysis in biotech — subscriber paid.", url:'https://timmermanreport.com/', platform:'Email · Paid', category:'Analysis', tags:['deep analysis','company building','opinion','biotech'], stage:'all', feed:'https://timmermanreport.com/feed/' },
+    { id:'n6', type:'newsletter', title:'LifeSciVC Blog', desc:"Atlas Venture partner Bruce Booth's essays on biotech VC, company creation philosophy, and strategy. Must-read to understand how VCs actually think.", url:'https://lifescivc.com/', platform:'Email · Free', category:'VC Perspective', tags:['VC thinking','company creation','strategy','Atlas'], stage:'all', feed:'https://lifescivc.com/feed/' },
+    { id:'n7', type:'newsletter', title:'BioPharma Dive', desc:'Industry news and analysis for biopharma — regulatory strategy, business deals, pipeline updates. Especially good for competitive intelligence.', url:'https://www.biopharmadive.com/newsletters/', platform:'Email · Free', category:'Industry News', tags:['biopharma','regulatory','competitive intel','pipeline'], stage:'all', feed:'https://www.biopharmadive.com/feeds/news/' },
     { id:'n8', type:'newsletter', title:'Nature Biotechnology News & Views', desc:"High-quality scientific and business coverage of biotech from Nature's editorial team — peer-reviewed context for major technological developments.", url:'https://www.nature.com/nbt', platform:'Email · Free tier', category:'Science & Tech', tags:['Nature','peer-reviewed','technology','scientific'], stage:'all' },
   ];
 
@@ -223,8 +236,61 @@
     },
   ];
 
+  // ── Grants ────────────────────────────────────────────────────────────────
+  const GRANTS: Grant[] = [
+    { id:'g1', name:'NIH SBIR Phase I', agency:'National Institutes of Health', country:'US', type:'government', amount:'Up to $300K direct costs', cycle:'Omnibus: Feb · Jun · Sep', focus:'Biomedical research commercialisation — cancer, diagnostics, therapeutics', eligibility:'US small business ≤500 employees; PI employed ≥51% by company (SBIR) or ≥30% + university partner (STTR)', tags:['non-dilutive','cancer','NIH','SBIR'], stage:'early-stage', url:'https://www.sbir.gov/', tips:['Contact Program Officer BEFORE submitting — it is expected and welcomed','Write Specific Aims last after full grant is drafted','NCI is the primary institute for cancer therapeutics','Phase II follows: up to $2M over 2 years','STTR mechanism allows continued university affiliation'] },
+    { id:'g2', name:'NSF SBIR/STTR', agency:'National Science Foundation', country:'US', type:'government', amount:'Phase I: $275K · Phase II: $1M', cycle:'Annual — check seedfund.nsf.gov', focus:'Deep tech, enabling platforms, diagnostic tools, AI in health', eligibility:'US small business; I-Corps 100-customer-interview program mandatory for SBIR', tags:['non-dilutive','platform','NSF','deep-tech'], stage:'early-stage', url:'https://seedfund.nsf.gov/', tips:['NSF I-Corps is mandatory — plan 6 weeks for 100 customer interviews','Best fit for platform tech, diagnostics, data tools rather than drug molecules','STTR lets you keep university lab partnership for 30% of work'] },
+    { id:'g3', name:'ARPA-H Funding', agency:'Advanced Research Projects Agency for Health', country:'US', type:'government', amount:'$1M–$50M+ per project', cycle:'Ad hoc BAAs — monitor arpa-h.gov continuously', focus:'High-risk, high-reward biomedical breakthroughs including cancer immunology', eligibility:'Open to all — academic labs, companies, consortia; very flexible', tags:['high-risk','ARPA-H','breakthrough'], stage:'early-stage', url:'https://arpa-h.gov/', tips:['Funds what others consider too risky — ideal for paradigm-shifting HGSOC approaches','Program Managers are highly responsive — contact them directly with 1-page pitch','No preliminary data required; vision + feasibility is sufficient','European co-investigators are welcome'] },
+    { id:'g4', name:'BMBF Innovation in Medicine', agency:'Federal Ministry of Education & Research (Germany)', country:'Germany', type:'government', amount:'€500K–€3M typical', cycle:'Varies by call — monitor foerderportal.bund.de', focus:'Oncology, precision medicine, diagnostics, translational research', eligibility:'German research institutions or companies; international partners accepted as subcontractors', tags:['Germany','BMBF','Heidelberg','non-dilutive'], stage:'all', url:'https://www.bmbf.de/', tips:['Heidelberg affiliation is an explicit advantage — use it','Translational projects (lab → company) are explicitly favoured in scoring','Partner with a German SME to strengthen the consortium','Project management agencies (VDI/VDE, DLR) handle submissions — identify yours early'] },
+    { id:'g5', name:'BMBF GO-Bio Initial', agency:'Federal Ministry of Education & Research (Germany)', country:'Germany', type:'government', amount:'~€300K (initial) · Up to €2M (main phase)', cycle:'Biannual calls — check bmbf.de/go-bio', focus:'Life science startup creation from German academic research', eligibility:'Researchers at German institutions targeting company spinout', tags:['Germany','BMBF','startup','spinout','GO-Bio'], stage:'pre-formation', url:'https://www.bmbf.de/bmbf/en/research/life-sciences/go-bio', tips:['GO-Bio initial gives 12 months to test feasibility before GO-Bio main', 'Specifically designed for academic spinouts in Germany', 'Winning GO-Bio significantly boosts credibility with HTGF and European VCs', 'HTGF (High-Tech Gründerfonds) frequently co-invests with GO-Bio winners'] },
+    { id:'g6', name:'DFG Emmy Noether Programme', agency:'Deutsche Forschungsgemeinschaft', country:'Germany', type:'government', amount:'~€1.5M over 6 years', cycle:'Open — apply anytime', focus:'Independent research group leadership, any life science domain', eligibility:'Postdoctoral researchers 2–4 years post-PhD, strong publication record', tags:['Germany','DFG','independence','career','personal'], stage:'pre-formation', url:'https://www.dfg.de/emmy_noether', tips:['Best personal grant for postdoc → group leader transition in Germany', 'Does not require a startup — builds academic independence needed for a spinout', 'Heidelberg University routinely provides host letters', 'Combine with a planned TTO spinout: Emmy Noether builds resources and credibility'] },
+    { id:'g7', name:'ERC Starting Grant', agency:'European Research Council', country:'EU', type:'eu', amount:'Up to €1.5M over 5 years', cycle:'Annual — deadline typically Feb/Mar', focus:'Frontier research, any domain, investigator-driven', eligibility:'2–7 years post-PhD at call deadline; hosted by EU/associated institution', tags:['EU','ERC','prestigious','frontier-research','personal'], stage:'pre-formation', url:'https://erc.europa.eu/funding/starting-grants', tips:['Winning an ERC StG is transformative for VC fundraising — treated as proof of excellence', 'Heidelberg University is an ideal host institution', 'Success rate ~10–15% — resubmission is common and encouraged', 'Does not fund clinical work directly, but enables preclinical discovery that supports a spinout'] },
+    { id:'g8', name:'MSCA Postdoctoral Fellowship', agency:'Marie Skłodowska-Curie Actions (EU)', country:'EU', type:'eu', amount:'€180K–€250K over 2 years', cycle:'Annual — deadline typically Sep', focus:'Researcher mobility and training across Europe', eligibility:'PhD holders moving to a different country from their last 12 months', tags:['EU','MSCA','postdoc','mobility','personal'], stage:'pre-formation', url:'https://marie-sklodowska-curie-actions.ec.europa.eu/', tips:['Indian researchers moving to Germany or other EU countries can apply', 'Can include a secondment at a company — use this to start spinout conversations', 'MSCA alumni are viewed very favourably by ERC and BMBF committees', 'Excellent for building European networks needed for later VC introductions'] },
+    { id:'g9', name:'ERA-PerMed Joint Transnational Call', agency:'ERA-PerMed (EU-funded network)', country:'EU', type:'eu', amount:'€300K–€500K per partner', cycle:'Annual — monitor era-permed.eu', focus:'Precision medicine, HGSOC biomarkers, patient stratification, omics', eligibility:'Consortium of 3+ partners from different ERA-PerMed countries', tags:['EU','precision-medicine','HGSOC','consortium','omics'], stage:'all', url:'https://www.era-permed.eu/', tips:['Direct relevance to HGSOC biomarker research — tailored fit', 'Indian partners (ICMR-funded) can join ERA-PerMed consortia', 'Heidelberg DKFZ is a regular ERA-PerMed participant — approach their grants team', 'NKI Amsterdam, ITB Milan, and DKFZ are natural consortium partners'] },
+    { id:'g10', name:'EIT Health Accelerator & Funding', agency:'European Institute of Innovation & Technology', country:'EU', type:'eu', amount:'€50K–€200K grants + equity instruments', cycle:'Rolling calls — check eithealth.eu', focus:'Digital health, medtech, precision oncology startups in Europe', eligibility:'European startups and academic spinouts, especially RIS countries', tags:['EU','EIT-Health','startup','Heidelberg','medtech'], stage:'early-stage', url:'https://eithealth.eu/', tips:['Heidelberg is in EIT Health RIS region — additional funding and support available', 'Annual Headstart and Wild Card competitions worth applying to', 'Combines grant funding + mentoring + investor access in one programme'] },
+    { id:'g11', name:'Wellcome Trust Seed Awards', agency:'Wellcome Trust', country:'UK', type:'foundation', amount:'Up to £100K over 18 months', cycle:'Open rolling — apply anytime', focus:'Biomedical research, proof of concept, early feasibility', eligibility:'Researchers at eligible institutions worldwide — Germany and India included', tags:['UK','Wellcome','seed','proof-of-concept','international'], stage:'pre-formation', url:'https://wellcome.org/grant-funding/schemes/seed-awards-science', tips:['Most flexible grant for early feasibility work — very accessible for postdocs', 'International institutions (Germany, India) eligible for many Wellcome schemes', 'Global health angles (HGSOC burden in LMICs) strengthen applications', 'Discovery Award (up to £2M) is the natural next step after Seed Awards'] },
+    { id:'g12', name:'Cancer Research UK IDEA Award', agency:'Cancer Research UK', country:'UK', type:'foundation', amount:'Up to £150K over 1 year', cycle:'Annual competition', focus:'Novel cancer concepts, early validation of genuinely new ideas', eligibility:'Cancer researchers at eligible institutions worldwide', tags:['UK','CRUK','cancer','HGSOC','innovation'], stage:'pre-formation', url:'https://www.cancerresearchuk.org/funding-for-researchers', tips:['Designed for high-risk cancer ideas — ideal for HGSOC mechanism work', 'Commercial potential is a positive factor in scoring', 'Previous CRUK-funded researchers have strong track record with ERC and Wellcome'] },
+    { id:'g13', name:'Innosuisse Start-up Grant', agency:'Swiss Innovation Agency', country:'Switzerland', type:'government', amount:'CHF 150K coaching + CHF 25K cash', cycle:'Quarterly deadlines', focus:'Innovative startups with Swiss institutional connection', eligibility:'Must have affiliation with a Swiss research institution; international founders eligible', tags:['Switzerland','Innosuisse','startup','Basel','coaching'], stage:'pre-formation', url:'https://www.innosuisse.ch/', tips:['Heidelberg is 70km from Basel — Swiss affiliation is achievable', 'ETH Zürich, University of Basel, and EPFL are natural co-applicant institutions', 'The 20-module coaching programme is as valuable as the cash grant', 'Strong pathway to Roche and Novartis partnerships for oncology companies'] },
+    { id:'g14', name:'BIRAC BIG Grant', agency:'Biotechnology Industry Research Assistance Council (India)', country:'India', type:'government', amount:'Up to INR 50L (~€55K)', cycle:'Open rolling — apply via birac.nic.in portal', focus:'Biomedical innovation, diagnostics, therapeutics, health tech', eligibility:'DPIIT-registered Indian startup or academic researcher; Indian entity required', tags:['India','BIRAC','BIG','non-dilutive','startup'], stage:'pre-formation', url:'https://birac.nic.in/', tips:['India\'s SBIR equivalent — fastest route to non-dilutive Indian funding', 'DPIIT Startup India recognition takes only 2–3 days — do it first', 'BIRAC SoCH programme can extend funding to INR 1Cr+ for scaling', 'India-Germany co-funded projects possible via IGSTC (BMBF + DBT simultaneously)'] },
+    { id:'g15', name:'IGSTC 2+2 Indo-German Programme', agency:'Indo-German Science & Technology Centre (BMBF + DBT)', country:'India', type:'government', amount:'Up to €500K split India-Germany', cycle:'Annual call', focus:'Collaborative industrial R&D — life sciences, diagnostics, oncology', eligibility:'1 German + 1 Indian company or research institute as partners', tags:['India','Germany','IGSTC','bilateral','DBT'], stage:'early-stage', url:'https://www.igstc.org/', tips:['Purpose-built for Heidelberg-India collaborations — perfect profile fit', 'German side funded by BMBF, Indian side by DBT — two grants simultaneously', 'NCG (National Cancer Grid India) + DKFZ Heidelberg is a natural pairing for HGSOC', 'IGSTC has facilitated 100+ India-Germany projects — strong track record'] },
+    { id:'g16', name:'Atal Innovation Mission (AIM)', agency:'NITI Aayog, Government of India', country:'India', type:'government', amount:'Up to INR 10Cr (~€110K) for incubation support', cycle:'Rolling — monitor aim.gov.in', focus:'Deep tech and health innovation startups in India', eligibility:'DPIIT-registered Indian startups; AIC incubator affiliation strengthens application', tags:['India','AIM','NITI Aayog','incubation','health'], stage:'early-stage', url:'https://aim.gov.in/', tips:['AIC-supported incubators provide lab space, mentoring, and seed funding in India', 'Useful when building an India entity alongside European operations', 'BIRAC and AIM grants are stackable — apply to both', 'National Cancer Grid affiliation helps with AIM health track applications'] },
+  ];
+
+  // ── VC & Angel Directory ──────────────────────────────────────────────────
+  const VCS: VC[] = [
+    { id:'vc1', name:'Sofinnova Partners', vcType:'vc', focus:'Drug discovery, oncology, rare disease', stage:'Seed → Series B', ticket:'€500K–€50M', geo:'Europe (Paris · London)', thesis:'Company creation model — co-founds startups from academic IP. Prefers European academic spinouts in oncology and rare disease. HGSOC is in their thesis.', approach:'Proactively co-create companies from strong academic IP. Introductions via European universities (Heidelberg, EMBL, NKI) work well.', portfolio:['Imago BioSciences','Cellipont Bioservices','Abivax'], url:'https://www.sofinnova.com/' },
+    { id:'vc2', name:'Forbion', vcType:'vc', focus:'Biopharmaceuticals, oncology, rare disease', stage:'Seed → Series B', ticket:'€5M–€40M', geo:'Europe (Amsterdam)', thesis:'European biotech specialist backing companies with strong preclinical packages. Gynecologic oncology is in their investment history.', approach:'Warm introductions via EMBL, NKI Amsterdam, or portfolio companies. Cold outreach via forbion.com also works for well-structured decks.', portfolio:['Merus','Bicycle Therapeutics','argenx'], url:'https://www.forbion.com/' },
+    { id:'vc3', name:'Andera Partners', vcType:'vc', focus:'Oncology, rare disease, cell therapy', stage:'Seed → Series B', ticket:'€5M–€30M', geo:'Europe (Paris)', thesis:'Deep cancer focus with strong clinical development expertise. Interested in European academic spinouts with ESMO/AACR-level data.', approach:'ESMO/ASCO presentations are the highest-conversion entry point. European cancer networks (EORTC, AGO) are warm intro paths.', portfolio:['Cardior','Impact Therapeutics'], url:'https://www.anderapartners.com/' },
+    { id:'vc4', name:'Jeito Capital', vcType:'vc', focus:'Late-stage oncology, rare disease, gene therapy', stage:'Series B → Growth', ticket:'€20M–€100M+', geo:'Europe (Paris)', thesis:'Backs companies with Phase I–II data heading toward pivotal trials. Clinical proof-of-concept required. HGSOC Phase I data would be of strong interest.', approach:'CEO introductions via European oncology networks or co-investors (Sofinnova, Forbion) are most effective.', portfolio:['Atea Pharmaceuticals','Cardurion'], url:'https://www.jeito.fund/' },
+    { id:'vc5', name:'Kurma Partners', vcType:'vc', focus:'Digital health, oncology biomarkers, precision medicine', stage:'Seed → Series A', ticket:'€2M–€15M', geo:'Europe (Paris)', thesis:'Precision oncology, AI diagnostics, and digital health in Europe. Strong interest in HGSOC biomarker stratification and companion diagnostics.', approach:'Direct outreach via kurma.eu or introductions from French biotech ecosystem (Institut Curie, Gustave Roussy).', portfolio:['Cardiawave','Voluntis'], url:'https://www.kurma.eu/' },
+    { id:'vc6', name:'Novo Seeds (Novo Holdings)', vcType:'vc', focus:'Biotech company creation, oncology, metabolic disease', stage:'Company creation → Series A', ticket:'€1M–€20M', geo:'Europe (Copenhagen)', thesis:'Company creation model backed by the Novo Nordisk Foundation — patient capital with long-term horizon. Strong cancer research track.', approach:'Nordic academic connections (DTU, KU) are primary paths. Also accessible via EMBL alumni network.', portfolio:['Halo Labs','LifeCycle Pharma'], url:'https://novoseeds.com/' },
+    { id:'vc7', name:'High-Tech Gründerfonds (HTGF)', vcType:'vc', focus:'Deep tech, medtech, biotech', stage:'Seed', ticket:'€1M–€3M initial', geo:'Germany (Bonn)', thesis:"Germany's most active seed VC. Government-backed, science-friendly. Frequently co-invests with BMBF GO-Bio. Heidelberg spinouts are a priority.", approach:'Direct application via htgf.de. HTGF has backed multiple DKFZ and Heidelberg University spinouts.', portfolio:['Aelius Biotech','Immunyx Pharma','Tubulis'], url:'https://www.htgf.de/' },
+    { id:'vc8', name:'Boehringer Ingelheim Venture Fund', vcType:'cvc', focus:'Oncology, immunology, CNS, next-gen medicines', stage:'Seed → Series B', ticket:'€5M–€30M', geo:'Germany / Global', thesis:"Corporate VC from one of Germany's largest pharma companies. Strategic interest in oncology IO + targeted therapies. Ingelheim is 80km from Heidelberg.", approach:'Academic collaboration with Boehringer Ingelheim R&D is the best entry. Also responds to outreach via BIVF website.', portfolio:['Numab','IFM Therapeutics','Immusoft'], url:'https://www.boehringer-ingelheim.com/research-and-development/venture-fund' },
+    { id:'vc9', name:'BioMed Partners', vcType:'vc', focus:'Biopharmaceuticals, oncology, rare disease', stage:'Series A → B', ticket:'CHF 5M–30M', geo:'Switzerland / Germany', thesis:'Swiss-German specialty pharma and biotech. Backs companies with strong IP and clear pharma exit path. Basel proximity gives strategic Roche/Novartis access.', approach:'Swiss academic introductions (ETH, University of Basel) or German academic network.', portfolio:['Molecular Partners','Evolent Health'], url:'https://www.biomedpartners.ch/' },
+    { id:'vc10', name:'a16z Bio + Health', vcType:'vc', focus:'Bio + health platform companies, AI + biology', stage:'Seed → Growth', ticket:'$5M–$250M+', geo:'US (San Francisco)', thesis:'Platform over asset. Invests in companies building transformative biological tools and platforms, not just single drugs. European founders welcome.', approach:'Apply via a16z.com or warm introductions via YC bio alumni. US company structure (Delaware C-Corp) is required.', portfolio:['Recursion','Generate Biomedicines'], url:'https://a16z.com/bio-health/' },
+    { id:'vc11', name:'Atlas Venture', vcType:'vc', focus:'Company creation, oncology, rare disease', stage:'Company creation → Series A', ticket:'$2M–$30M', geo:'US (Cambridge MA)', thesis:'Creates companies from scratch with academic founders. Strong cancer focus. European spinouts with US co-development interest are a fit.', approach:'Warm introductions via Harvard/MIT/Broad most effective. Atlas PMs are accessible at AACR/ASCO.', portfolio:['KSQ Therapeutics','C4 Therapeutics','Relay Therapeutics'], url:'https://www.atlasventure.com/' },
+    { id:'vc12', name:'Third Rock Ventures', vcType:'vc', focus:'Company creation, oncology, immunology', stage:'Company creation → Series B', ticket:'$10M–$75M', geo:'US (Boston)', thesis:'High-conviction company creation with hands-on scientific involvement. HGSOC precision oncology is within their investment thesis.', approach:'Scientific connections via DFCI, MGH, or Broad are primary paths. Third Rock PMs publish regularly — engage with their science.', portfolio:['Blueprint Medicines','Editas Medicine','Relay Therapeutics'], url:'https://www.thirdrock.com/' },
+    { id:'vc13', name:'LifeSci Venture Partners', vcType:'vc', focus:'Oncology, rare disease, biotherapeutics', stage:'Seed → Series B', ticket:'$3M–$30M', geo:'US (New York)', thesis:'Deep oncology specialist. Gynecologic oncology (HGSOC, endometrial) is an active thesis area. Strong SGO and ASCO presence.', approach:'SGO/ASCO presentations are high-conversion entry points. Direct pitch via website also works.', portfolio:['Imvax','KaryoPharm'], url:'https://www.lifescivc.com/' },
+    { id:'vc14', name:'OrbiMed', vcType:'vc', focus:'Biopharmaceuticals, oncology, rare disease', stage:'Seed → Growth', ticket:'$5M–$100M+', geo:'Global (NY · SF · India)', thesis:'One of the largest dedicated healthcare investors. Active in both US and India (OrbiMed India fund). HGSOC is an active thesis given PARPi landscape.', approach:'US fund via US academic connections; India fund via Indian oncology KOLs (Tata Memorial, AIIMS, CMC Vellore).', portfolio:['Karuna Therapeutics','Relay Therapeutics','Zydus'], url:'https://www.orbimed.com/' },
+    { id:'vc15', name:'AngelList Bio', vcType:'angel', focus:'Early biotech, diagnostics, digital health', stage:'Pre-seed → Seed', ticket:'$50K–$2M syndicated', geo:'US / Global', thesis:'Syndicated angel rounds. Easy access to a large pool of life science-knowledgeable angels without a VC gatekeeper. Most successful with a lead already committed.', approach:'Create a fundraise on AngelList or use their Roll Up Vehicle (RUV) for small rounds.', portfolio:['Various early-stage bio companies'], url:'https://www.angellist.com/venture/bio' },
+    { id:'vc16', name:'Aarin Capital', vcType:'vc', focus:'Healthcare, life sciences, med-tech India', stage:'Seed → Series A', ticket:'INR 3Cr–30Cr', geo:'India (Bangalore)', thesis:"Founded by Kiran Mazumdar-Shaw (Biocon) and TV Mohandas Pai. Deep healthcare focus with pharma/diagnostics expertise and strong Indian oncology KOL network.", approach:'Warm introductions via Biocon or Mazumdar-Shaw network most effective. India-Germany collaborative proposals receive warm reception.', portfolio:['Advaita Biocorp','HealthPlix','Tricog Health'], url:'https://aarincapital.com/' },
+    { id:'vc17', name:'Chiratae Ventures', vcType:'vc', focus:'Health tech, diagnostics, precision medicine India', stage:'Seed → Series B', ticket:'$1M–$15M', geo:'India (Bangalore · Chennai)', thesis:'Strong digital health thesis with growing interest in diagnostics and precision medicine aligned with India\'s cancer burden. HGSOC biomarker AI would fit.', approach:'Portfolio referrals or direct outreach via chiratae.com. Regular presence at NASSCOM Healthcare Summit and India Bio.', portfolio:['Tricog Health','Niramai','1mg'], url:'https://chiratae.com/' },
+    { id:'vc18', name:'Eight Roads Ventures India', vcType:'vc', focus:'Healthcare, life sciences, health tech', stage:'Series A → B', ticket:'$5M–$30M', geo:'India (Mumbai)', thesis:"Fidelity's VC arm in India. One of the most active healthcare investors with global co-investment capacity. Indian-origin founders from European labs receive warm reception.", approach:"Strong connections via Mumbai biotech ecosystem. Warm intros via Fidelity's global network.", portfolio:['Acuvon Therapeutics','Lybrate'], url:'https://www.eightroads.com/india' },
+    { id:'vc19', name:'Villgro Innovations', vcType:'accelerator', focus:'Health innovation for underserved communities India', stage:'Pre-seed → Seed', ticket:'INR 25L–2Cr', geo:'India (Chennai · Delhi)', thesis:'Backs health startups addressing Indian cancer care access — diagnostics, early detection, care delivery. HGSOC late-stage detection in India is a priority problem.', approach:'Apply via villgro.org/apply. Strong connections to NCG, Tata Memorial Hospital, and ICMR.', portfolio:['LifeCell International','Remidio','Biosense Technologies'], url:'https://villgro.org/' },
+    { id:'vc20', name:'CIIE.CO (IIM Ahmedabad)', vcType:'accelerator', focus:'Health, biotech, deep tech India', stage:'Pre-seed → Seed', ticket:'INR 25L–1Cr', geo:'India (Ahmedabad)', thesis:"India's premier deep-tech incubator at IIM Ahmedabad. Strong health innovation track and access to Ahmedabad pharma ecosystem (Sun Pharma, Cadila).", approach:'Annual CIIE application cycle. Indian academic affiliations strengthen the application.', portfolio:['Uniphore','SatSure'], url:'https://www.ciie.co/' },
+    { id:'vc21', name:'Peak XV Partners (Sequoia India)', vcType:'vc', focus:'Tech-enabled health, diagnostics, digital pharma', stage:'Series A → Growth', ticket:'$5M–$100M', geo:'India (Bangalore)', thesis:"India's most prominent growth-stage investor. Health portfolio focused on digital health platforms and scalable diagnostics. HGSOC AI diagnostics would be of interest.", approach:'Warm introductions via existing portfolio companies most effective. Indian founder or co-founder strongly preferred.', portfolio:['Pristyn Care','BeatO','Portea Medical'], url:'https://www.peakxv.com/' },
+  ];
+
+  // ── Funding news feeds ────────────────────────────────────────────────────
+  const FUNDING_FEEDS = [
+    { name:'Rock Health', url:'https://rockhealth.com/insights/feed/', color:'#2d6a9f' },
+    { name:'FierceBiotech', url:'https://www.fiercebiotech.com/rss/xml', color:'#1d7ac5' },
+    { name:'Endpoints News', url:'https://endpts.com/feed/', color:'#2d6a4f' },
+    { name:'STAT News', url:'https://www.statnews.com/feed/', color:'#e63946' },
+  ];
+
   // ── UI state ──────────────────────────────────────────────────────────────
-  let activeTab = $state<'resources' | 'sops' | 'news' | 'saved'>('resources');
+  let activeTab = $state<'resources' | 'sops' | 'news' | 'funding' | 'saved'>('resources');
   let typeFilter = $state('all');
   let stageFilter = $state('all');
   let search = $state('');
@@ -243,6 +309,36 @@
   let newsItems = $state<NewsItem[]>([]);
   let newsLoading = $state(false);
   let newsError = $state('');
+
+  // ── Funding tab state ─────────────────────────────────────────────────────
+  let fundingSubTab = $state<'grants' | 'vc' | 'news'>('grants');
+  let grantSearch = $state(''); let grantCountry = $state('all'); let grantType = $state('all');
+  let selectedGrant = $state<Grant | null>(null);
+  let vcSearch = $state(''); let vcGeo = $state('all'); let vcStage = $state('all');
+  let expandedVC = $state<string | null>(null);
+  let fundingNews = $state<NewsItem[]>([]); let fundingNewsLoading = $state(false); let fundingNewsError = $state('');
+  let fundAdvisorOpen = $state(false);
+  let fundAdvisorMsgs = $state<GpsMsg[]>([]);
+  let fundAdvisorInput = $state('');
+  let fundAdvisorStreaming = $state(false);
+  let fundAdvisorAbort: AbortController | null = null;
+  let fundAdvisorContainer: HTMLElement;
+
+  // ── In-app panel state ────────────────────────────────────────────────────
+  let inAppPanel = $state<'podcast' | 'video' | 'article' | null>(null);
+  let panelResource = $state<Resource | null>(null);
+  let panelArticle = $state<NewsItem | null>(null);
+  let podcastEps = $state<Episode[]>([]); let podcastLoading = $state(false); let podcastError = $state('');
+
+  // ── Audio mini player state ───────────────────────────────────────────────
+  let currentEp = $state<Episode | null>(null);
+  let audioPlaying = $state(false);
+  let audioProgress = $state(0);
+  let audioTime = $state(0);
+  let audioDuration = $state(0);
+  let audioSpeed = $state(1);
+  let audioLoading = $state(false);
+  let audioEl: HTMLAudioElement;
 
   // ── Add custom resource ───────────────────────────────────────────────────
   let showAdd = $state(false);
@@ -296,7 +392,7 @@
   });
 
   const savedItems = $derived.by(() => {
-    const all: any[] = [...RESOURCES, ...SOPS, ...store.launchpadCustom];
+    const all: any[] = [...RESOURCES, ...SOPS, ...GRANTS, ...VCS, ...store.launchpadCustom];
     return all.filter(x => store.launchpadBookmarks.includes(x.id));
   });
 
@@ -409,6 +505,178 @@
     if (activeTab === 'news' && newsItems.length === 0 && !newsLoading) fetchNews();
   });
 
+  $effect(() => {
+    if (activeTab === 'funding' && fundingSubTab === 'news' && fundingNews.length === 0 && !fundingNewsLoading) fetchFundingNews();
+  });
+
+  // ── Funding news ──────────────────────────────────────────────────────────
+  async function fetchFundingNews() {
+    if (fundingNewsLoading) return;
+    fundingNewsLoading = true; fundingNewsError = '';
+    try {
+      const results = await Promise.allSettled(
+        FUNDING_FEEDS.map(async feed => {
+          const r = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.url)}&count=8`, { signal: AbortSignal.timeout(8000) });
+          const data = await r.json();
+          return (data.items || []).map((item: any) => ({
+            title: item.title?.replace(/&amp;/g,'&').replace(/&#039;/g,"'"),
+            url: item.link, desc: (item.description || item.content || '').replace(/<[^>]+>/g,'').slice(0,300).trim(),
+            pubDate: item.pubDate, source: feed.name, sourceColor: feed.color,
+          }));
+        })
+      );
+      const all: NewsItem[] = results.filter(r => r.status === 'fulfilled').flatMap(r => (r as PromiseFulfilledResult<NewsItem[]>).value);
+      all.sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime());
+      fundingNews = all;
+    } catch { fundingNewsError = 'Could not load funding news.'; }
+    fundingNewsLoading = false;
+  }
+
+  // ── Enzo Funding Advisor ──────────────────────────────────────────────────
+  async function sendFundAdvisor() {
+    const text = fundAdvisorInput.trim();
+    if (!text || fundAdvisorStreaming) return;
+    fundAdvisorInput = '';
+    fundAdvisorMsgs = [...fundAdvisorMsgs, { role:'user', text, ts:Date.now() }];
+    const idx = fundAdvisorMsgs.length;
+    fundAdvisorMsgs = [...fundAdvisorMsgs, { role:'enzo', text:'', ts:Date.now() }];
+    fundAdvisorStreaming = true;
+    fundAdvisorAbort = new AbortController();
+    try {
+      await streamFundingAdvisor(text, chunk => {
+        fundAdvisorMsgs[idx] = { ...fundAdvisorMsgs[idx], text: fundAdvisorMsgs[idx].text + chunk };
+        fundAdvisorMsgs = [...fundAdvisorMsgs];
+        if (fundAdvisorContainer) fundAdvisorContainer.scrollTop = fundAdvisorContainer.scrollHeight;
+      }, fundAdvisorAbort.signal);
+    } catch { /* aborted */ }
+    fundAdvisorStreaming = false;
+  }
+
+  function stopFundAdvisor() { fundAdvisorAbort?.abort(); fundAdvisorStreaming = false; }
+
+  function fundAdvisorNoteBody(): string {
+    return `# Enzo Funding Advisor Session\n\n${fundAdvisorMsgs.map(m => m.role === 'user' ? `**You:** ${m.text}` : `**Enzo:** ${m.text}`).join('\n\n---\n\n')}`;
+  }
+
+  // ── Podcast panel ─────────────────────────────────────────────────────────
+  function fmtDur(raw: string): string {
+    if (!raw) return '';
+    if (/^\d+$/.test(raw)) {
+      const s = parseInt(raw); const h = Math.floor(s/3600); const m = Math.floor((s%3600)/60);
+      return h > 0 ? `${h}h ${m}m` : `${m}m`;
+    }
+    return raw;
+  }
+
+  function formatTime(s: number): string {
+    if (isNaN(s) || s === 0) return '0:00';
+    const h = Math.floor(s/3600); const m = Math.floor((s%3600)/60); const sec = Math.floor(s%60);
+    if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+    return `${m}:${String(sec).padStart(2,'0')}`;
+  }
+
+  async function fetchPodcastEps(r: Resource) {
+    if (!r.feed) return;
+    podcastLoading = true; podcastError = ''; podcastEps = [];
+    try {
+      const resp = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(r.feed)}&count=15`, { signal: AbortSignal.timeout(10000) });
+      const data = await resp.json();
+      if (data.status !== 'ok') throw new Error('Feed error');
+      podcastEps = (data.items || []).filter((item: any) => item.enclosure?.link).map((item: any) => ({
+        title: (item.title || '').replace(/&amp;/g,'&').replace(/&#039;/g,"'").replace(/&quot;/g,'"'),
+        url: item.enclosure.link,
+        date: item.pubDate,
+        duration: fmtDur(item.itunes_duration || ''),
+        desc: (item.description || item.content || '').replace(/<[^>]+>/g,'').slice(0,140).trim(),
+      }));
+      if (podcastEps.length === 0) podcastError = 'No playable episodes found in this feed.';
+    } catch { podcastError = 'Could not load episodes — feed may be unavailable.'; }
+    podcastLoading = false;
+  }
+
+  function openPodcastPanel(r: Resource) { panelResource = r; inAppPanel = 'podcast'; podcastEps = []; podcastError = ''; fetchPodcastEps(r); }
+  function openVideoPanel(r: Resource) { panelResource = r; inAppPanel = 'video'; }
+  function openArticlePanel(item: NewsItem) { panelArticle = item; inAppPanel = 'article'; }
+  function closePanel() { inAppPanel = null; panelResource = null; panelArticle = null; }
+
+  function ytEmbedUrl(r: Resource): string | null {
+    if (r.ytPlaylistId) return `https://www.youtube.com/embed/videoseries?list=${r.ytPlaylistId}&modestbranding=1&rel=0`;
+    const plMatch = r.url.match(/[?&]list=([^&]+)/);
+    if (plMatch) return `https://www.youtube.com/embed/videoseries?list=${plMatch[1]}&modestbranding=1&rel=0`;
+    const vidMatch = r.url.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+    if (vidMatch) return `https://www.youtube.com/embed/${vidMatch[1]}?modestbranding=1&rel=0`;
+    return null;
+  }
+
+  // ── Audio player ──────────────────────────────────────────────────────────
+  function playEpisode(ep: Episode) {
+    currentEp = ep;
+    if (audioEl) { audioEl.src = ep.url; audioEl.playbackRate = audioSpeed; audioEl.play().catch(() => {}); }
+  }
+
+  function togglePlay() {
+    if (!audioEl || !currentEp) return;
+    if (audioPlaying) audioEl.pause(); else audioEl.play().catch(() => {});
+  }
+
+  function seekAudio(e: MouseEvent) {
+    if (!audioEl || !audioDuration) return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    audioEl.currentTime = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * audioDuration;
+  }
+
+  function cycleSpeed() {
+    const speeds = [1, 1.25, 1.5, 2];
+    audioSpeed = speeds[(speeds.indexOf(audioSpeed) + 1) % speeds.length];
+    if (audioEl) audioEl.playbackRate = audioSpeed;
+  }
+
+  $effect(() => {
+    if (!audioEl) return;
+    const onTime = () => { audioTime = audioEl.currentTime; audioDuration = audioEl.duration || 0; audioProgress = audioDuration > 0 ? (audioTime / audioDuration) * 100 : 0; };
+    const onEnded = () => { audioPlaying = false; audioProgress = 0; };
+    const onPlay = () => { audioPlaying = true; audioLoading = false; };
+    const onPause = () => { audioPlaying = false; };
+    const onWait = () => { audioLoading = true; };
+    const onCanPlay = () => { audioLoading = false; };
+    audioEl.addEventListener('timeupdate', onTime);
+    audioEl.addEventListener('ended', onEnded);
+    audioEl.addEventListener('playing', onPlay);
+    audioEl.addEventListener('pause', onPause);
+    audioEl.addEventListener('waiting', onWait);
+    audioEl.addEventListener('canplay', onCanPlay);
+    return () => {
+      audioEl?.removeEventListener('timeupdate', onTime);
+      audioEl?.removeEventListener('ended', onEnded);
+      audioEl?.removeEventListener('playing', onPlay);
+      audioEl?.removeEventListener('pause', onPause);
+      audioEl?.removeEventListener('waiting', onWait);
+      audioEl?.removeEventListener('canplay', onCanPlay);
+    };
+  });
+
+  // ── Derived: filtered grants / VCs ────────────────────────────────────────
+  const filteredGrants = $derived.by(() => {
+    let g = GRANTS;
+    if (grantCountry !== 'all') g = g.filter(x => x.country === grantCountry);
+    if (grantType !== 'all') g = g.filter(x => x.type === grantType);
+    if (grantSearch.trim()) { const q = grantSearch.toLowerCase(); g = g.filter(x => x.name.toLowerCase().includes(q) || x.agency.toLowerCase().includes(q) || x.focus.toLowerCase().includes(q) || x.tags.some(t => t.toLowerCase().includes(q))); }
+    return g;
+  });
+
+  const filteredVCs = $derived.by(() => {
+    let v = VCS;
+    if (vcGeo !== 'all') v = v.filter(x => x.geo.toLowerCase().includes(vcGeo.toLowerCase()));
+    if (vcStage !== 'all') {
+      const s = vcStage;
+      if (s === 'seed') v = v.filter(x => x.stage.toLowerCase().includes('seed') || x.stage.toLowerCase().includes('pre-seed') || x.stage.toLowerCase().includes('company creation'));
+      else if (s === 'series-a') v = v.filter(x => x.stage.toLowerCase().includes('series a') || x.stage.toLowerCase().includes('series b'));
+      else if (s === 'growth') v = v.filter(x => x.stage.toLowerCase().includes('growth') || x.stage.toLowerCase().includes('series b') || x.stage.toLowerCase().includes('series c'));
+    }
+    if (vcSearch.trim()) { const q = vcSearch.toLowerCase(); v = v.filter(x => x.name.toLowerCase().includes(q) || x.focus.toLowerCase().includes(q) || x.thesis.toLowerCase().includes(q) || x.geo.toLowerCase().includes(q)); }
+    return v;
+  });
+
   // ── Add custom resource ───────────────────────────────────────────────────
   function addCustom() {
     if (!addTitle.trim() || !addUrl.trim()) return;
@@ -475,6 +743,8 @@
       <div class="lp-header-stats">
         <span class="lp-stat">{RESOURCES.length} resources</span>
         <span class="lp-stat">{SOPS.length} playbooks</span>
+        <span class="lp-stat">{GRANTS.length} grants</span>
+        <span class="lp-stat">{VCS.length} investors</span>
         <span class="lp-stat">{store.launchpadBookmarks.length} saved</span>
       </div>
     </div>
@@ -541,18 +811,21 @@
   <!-- Tab bar + search -->
   <div class="lp-controls">
     <div class="lp-tabs">
-      {#each [['resources','Resources'], ['sops','Playbooks'], ['news','Live News'], ['saved','Saved']] as [id, label]}
-        <button class="lp-tab" class:active={activeTab === id} onclick={() => { activeTab = id as any; search = ''; }}>
+      {#each [['resources','Resources'], ['sops','Playbooks'], ['funding','Funding'], ['news','Live News'], ['saved','Saved']] as [id, label]}
+        <button class="lp-tab" class:active={activeTab === id} onclick={() => { activeTab = id as any; search = ''; closePanel(); }}>
           {label}
           {#if id === 'saved' && store.launchpadBookmarks.length > 0}
             <span class="lp-tab-badge">{store.launchpadBookmarks.length}</span>
+          {/if}
+          {#if id === 'funding'}
+            <span class="lp-tab-badge" style="background:var(--gn)">NEW</span>
           {/if}
         </button>
       {/each}
       <button class="lp-tab lp-tab-add" onclick={() => showAdd = !showAdd}>+ Add</button>
     </div>
 
-    {#if activeTab !== 'news'}
+    {#if activeTab !== 'news' && activeTab !== 'funding'}
       <div class="lp-search-row">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
         <input class="lp-search" placeholder="Search resources, tags, categories…" bind:value={search} />
@@ -581,6 +854,10 @@
     </div>
   {/if}
 
+  <!-- ── Body: content + side panel ── -->
+  <div class="lp-body">
+  <div class="lp-content">
+
   <!-- ── Resources tab ── -->
   {#if activeTab === 'resources'}
     <div class="lp-filters">
@@ -603,7 +880,8 @@
       <div class="lp-grid">
         {#each filtered as r (r.id)}
           {@const saved = isSaved(r.id)}
-          <div class="lp-card">
+          {@const rr = r as Resource}
+          <div class="lp-card" class:lp-card-active={panelResource?.id === r.id}>
             <div class="lp-card-top">
               <div class="lp-card-type" style="color:{TYPE_COLORS[r.type] || 'var(--ac)'}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -632,8 +910,14 @@
               <span class="lp-card-cat">{r.category}</span>
               <div class="lp-card-btns">
                 <button class="lp-note-btn" onclick={() => saveToNotes(r.title, resourceToNoteBody(r))} title="Save to Notes">↗ Note</button>
-                {#if (r as any).url}
-                  <a class="lp-open-btn" href={(r as any).url} target="_blank" rel="noopener">Open →</a>
+                {#if rr.feed && rr.type === 'podcast'}
+                  <button class="lp-inapp-btn" onclick={() => openPodcastPanel(rr)}>▶ Listen</button>
+                {:else if rr.type === 'video' || rr.type === 'playlist'}
+                  <button class="lp-inapp-btn" onclick={() => openVideoPanel(rr)}>▶ Watch</button>
+                {:else if rr.feed && rr.type === 'newsletter'}
+                  <button class="lp-inapp-btn" onclick={() => openVideoPanel(rr)}>↳ Browse</button>
+                {:else if (r as any).url}
+                  <a class="lp-open-btn" href={(r as any).url} target="_blank" rel="noopener">Open ↗</a>
                 {/if}
               </div>
             </div>
@@ -771,6 +1055,360 @@
         {/each}
       </div>
     {/if}
+  <!-- ── Funding tab ── -->
+  {:else if activeTab === 'funding'}
+    <!-- Enzo Funding Advisor -->
+    <div class="lp-fund-advisor-wrap">
+      <button class="lp-gps-toggle" onclick={() => fundAdvisorOpen = !fundAdvisorOpen}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <span>Enzo Funding Advisor</span>
+        <span class="lp-gps-sub">Ask about grants, VC strategy, India-Germany funding paths</span>
+        <svg class="lp-gps-caret" class:open={fundAdvisorOpen} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 9l-7 7-7-7"/></svg>
+      </button>
+      {#if fundAdvisorOpen}
+      <div class="lp-gps-body">
+        {#if fundAdvisorMsgs.length > 0}
+          <div class="lp-gps-thread" bind:this={fundAdvisorContainer}>
+            {#each fundAdvisorMsgs as msg}
+              <div class="lp-gps-msg" class:user={msg.role==='user'} class:enzo={msg.role==='enzo'}>
+                {#if msg.role==='enzo'}<div class="lp-gps-avatar">E</div>{/if}
+                <div class="lp-gps-bubble">
+                  <div class="lp-gps-text">{msg.text}{fundAdvisorStreaming && msg===fundAdvisorMsgs[fundAdvisorMsgs.length-1] && msg.role==='enzo' ? '▋' : ''}</div>
+                  {#if msg.role==='enzo' && msg.text && !fundAdvisorStreaming}
+                    <button class="lp-gps-savenote" onclick={() => saveToNotes('Enzo Funding Advisor · ' + new Date(msg.ts).toLocaleDateString(), msg.text)}>Save to Notes ↗</button>
+                  {/if}
+                </div>
+              </div>
+            {/each}
+          </div>
+          {#if fundAdvisorMsgs.length > 1}
+            <div class="lp-gps-save-convo">
+              <button onclick={() => saveToNotes('Enzo Funding Session · ' + new Date().toLocaleDateString(), fundAdvisorNoteBody())}>Save conversation to Notes ↗</button>
+              <button onclick={() => { fundAdvisorMsgs = []; }}>Clear</button>
+            </div>
+          {/if}
+        {:else}
+          <p class="lp-gps-hint">Ask about the best grants for your stage, how to stack India + EU funding, VC approach strategy, or anything about the funding landscape.</p>
+        {/if}
+        <div class="lp-gps-input-row">
+          <textarea class="lp-gps-input" placeholder="e.g. 'I'm at pre-formation stage in HGSOC research at Heidelberg. What non-dilutive grants should I apply for first, and how do I involve my India collaborators?'" bind:value={fundAdvisorInput} onkeydown={e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendFundAdvisor(); } }} rows="2"></textarea>
+          {#if fundAdvisorStreaming}
+            <button class="lp-gps-send stop" onclick={stopFundAdvisor}>■ Stop</button>
+          {:else}
+            <button class="lp-gps-send" onclick={sendFundAdvisor} disabled={!fundAdvisorInput.trim()}>Ask Enzo →</button>
+          {/if}
+        </div>
+      </div>
+      {/if}
+    </div>
+
+    <!-- Funding sub-tabs -->
+    <div class="lp-fund-subtabs">
+      {#each [['grants','Grants & Non-Dilutive'],['vc','VCs & Angels'],['news','Funding News']] as [id, label]}
+        <button class="lp-fund-stab" class:active={fundingSubTab === id} onclick={() => fundingSubTab = id as any}>{label}</button>
+      {/each}
+    </div>
+
+    <!-- Grants sub-tab -->
+    {#if fundingSubTab === 'grants'}
+      {#if selectedGrant}
+        <div class="lp-grant-detail">
+          <button class="lp-sop-back" onclick={() => selectedGrant = null}>← Back to grants</button>
+          <div class="lp-grant-detail-head">
+            <div>
+              <div class="lp-grant-detail-name">{selectedGrant.name}</div>
+              <div class="lp-grant-detail-agency">{selectedGrant.agency}</div>
+            </div>
+            <div class="lp-grant-detail-badges">
+              <span class="lp-gbadge country">{selectedGrant.country}</span>
+              <span class="lp-gbadge type">{selectedGrant.type}</span>
+              <button class="lp-save-btn" class:saved={isSaved(selectedGrant.id)} onclick={() => toggleSave(selectedGrant!.id)}>{isSaved(selectedGrant.id) ? '♥' : '♡'}</button>
+            </div>
+          </div>
+          <div class="lp-grant-detail-row">
+            <div class="lp-grant-kv"><span>Amount</span><strong>{selectedGrant.amount}</strong></div>
+            <div class="lp-grant-kv"><span>Cycle</span><strong>{selectedGrant.cycle}</strong></div>
+            <div class="lp-grant-kv"><span>Stage</span><strong>{selectedGrant.stage}</strong></div>
+          </div>
+          <div class="lp-grant-section">
+            <div class="lp-grant-section-label">Focus</div>
+            <p>{selectedGrant.focus}</p>
+          </div>
+          <div class="lp-grant-section">
+            <div class="lp-grant-section-label">Eligibility</div>
+            <p>{selectedGrant.eligibility}</p>
+          </div>
+          <div class="lp-grant-section">
+            <div class="lp-grant-section-label">Tips for Dr. Amritha</div>
+            <ul>{#each selectedGrant.tips as tip}<li>{tip}</li>{/each}</ul>
+          </div>
+          <div class="lp-grant-actions">
+            <a class="lp-open-btn" href={selectedGrant.url} target="_blank" rel="noopener">Official Website ↗</a>
+            <button class="lp-note-btn" onclick={() => saveToNotes(selectedGrant!.name, `# ${selectedGrant!.name}\n\n**Agency:** ${selectedGrant!.agency}\n**Country:** ${selectedGrant!.country}\n**Amount:** ${selectedGrant!.amount}\n**Cycle:** ${selectedGrant!.cycle}\n\n## Focus\n${selectedGrant!.focus}\n\n## Eligibility\n${selectedGrant!.eligibility}\n\n## Tips\n${selectedGrant!.tips.map(t => '- '+t).join('\n')}\n\n**Link:** ${selectedGrant!.url}`)}>↗ Save to Notes</button>
+          </div>
+        </div>
+      {:else}
+        <div class="lp-fund-filters">
+          <div class="lp-filter-row">
+            {#each [['all','All Countries'],['US','US'],['Germany','Germany'],['EU','EU'],['UK','UK'],['Switzerland','Switzerland'],['India','India']] as [val, label]}
+              <button class="lp-chip" class:active={grantCountry === val} onclick={() => grantCountry = val}>{label}</button>
+            {/each}
+          </div>
+          <div class="lp-filter-row">
+            {#each [['all','All Types'],['government','Government'],['foundation','Foundation'],['eu','EU Programme']] as [val, label]}
+              <button class="lp-chip" class:active={grantType === val} onclick={() => grantType = val}>{label}</button>
+            {/each}
+          </div>
+          <div class="lp-search-row" style="max-width:340px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            <input class="lp-search" placeholder="Search grants…" bind:value={grantSearch} />
+            {#if grantSearch}<button class="lp-search-clear" onclick={() => grantSearch = ''}>×</button>{/if}
+          </div>
+        </div>
+        <div class="lp-count">{filteredGrants.length} grant{filteredGrants.length !== 1 ? 's' : ''}</div>
+        <div class="lp-grant-grid">
+          {#each filteredGrants as g (g.id)}
+            <div class="lp-grant-card" onclick={() => selectedGrant = g}>
+              <div class="lp-grant-card-top">
+                <div class="lp-grant-badges">
+                  <span class="lp-gbadge country">{g.country}</span>
+                  <span class="lp-gbadge type">{g.type}</span>
+                </div>
+                <button class="lp-save-btn" class:saved={isSaved(g.id)} onclick={e => { e.stopPropagation(); toggleSave(g.id); }}>{isSaved(g.id) ? '♥' : '♡'}</button>
+              </div>
+              <div class="lp-grant-name">{g.name}</div>
+              <div class="lp-grant-agency">{g.agency}</div>
+              <div class="lp-grant-amount">{g.amount}</div>
+              <div class="lp-grant-focus">{g.focus.slice(0,90)}{g.focus.length>90 ? '…' : ''}</div>
+              <div class="lp-grant-card-footer">
+                <span class="lp-grant-cycle">{g.cycle.split('·')[0].trim()}</span>
+                <button class="lp-open-btn" onclick={e => { e.stopPropagation(); selectedGrant = g; }}>View Details →</button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+    <!-- VCs & Angels sub-tab -->
+    {:else if fundingSubTab === 'vc'}
+      <div class="lp-fund-filters">
+        <div class="lp-filter-row">
+          {#each [['all','All Regions'],['US','US'],['Europe','Europe'],['India','India'],['Global','Global']] as [val, label]}
+            <button class="lp-chip" class:active={vcGeo === val} onclick={() => vcGeo = val}>{label}</button>
+          {/each}
+        </div>
+        <div class="lp-filter-row">
+          {#each [['all','All Stages'],['seed','Seed / Pre-seed'],['series-a','Series A–B'],['growth','Growth']] as [val, label]}
+            <button class="lp-chip" class:active={vcStage === val} onclick={() => vcStage = val}>{label}</button>
+          {/each}
+        </div>
+        <div class="lp-search-row" style="max-width:340px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input class="lp-search" placeholder="Search investors…" bind:value={vcSearch} />
+          {#if vcSearch}<button class="lp-search-clear" onclick={() => vcSearch = ''}>×</button>{/if}
+        </div>
+      </div>
+      <div class="lp-count">{filteredVCs.length} investor{filteredVCs.length !== 1 ? 's' : ''}</div>
+      <div class="lp-vc-grid">
+        {#each filteredVCs as vc (vc.id)}
+          {@const expanded = expandedVC === vc.id}
+          <div class="lp-vc-card" class:expanded>
+            <div class="lp-vc-card-top">
+              <div>
+                <div class="lp-vc-name">{vc.name}</div>
+                <div class="lp-vc-meta">
+                  <span class="lp-gbadge type">{vc.vcType}</span>
+                  <span class="lp-gbadge country">{vc.geo.split('(')[0].trim()}</span>
+                </div>
+              </div>
+              <button class="lp-save-btn" class:saved={isSaved(vc.id)} onclick={() => toggleSave(vc.id)}>{isSaved(vc.id) ? '♥' : '♡'}</button>
+            </div>
+            <div class="lp-vc-row"><span>Focus</span><span>{vc.focus}</span></div>
+            <div class="lp-vc-row"><span>Stage</span><span>{vc.stage}</span></div>
+            <div class="lp-vc-row"><span>Ticket</span><span>{vc.ticket}</span></div>
+            <div class="lp-vc-thesis">{vc.thesis}</div>
+            {#if expanded}
+              <div class="lp-vc-approach">
+                <div class="lp-grant-section-label">How to approach</div>
+                <p>{vc.approach}</p>
+                {#if vc.portfolio.length > 0}
+                  <div class="lp-grant-section-label" style="margin-top:.5rem">Portfolio examples</div>
+                  <p>{vc.portfolio.join(' · ')}</p>
+                {/if}
+              </div>
+            {/if}
+            <div class="lp-vc-footer">
+              <button class="lp-note-btn" onclick={() => expandedVC = expanded ? null : vc.id}>{expanded ? '▲ Less' : '▼ Approach'}</button>
+              <div style="display:flex;gap:.4rem">
+                <button class="lp-note-btn" onclick={() => saveToNotes(vc.name, `# ${vc.name}\n\n**Type:** ${vc.vcType}\n**Stage:** ${vc.stage}\n**Ticket:** ${vc.ticket}\n**Geography:** ${vc.geo}\n\n## Thesis\n${vc.thesis}\n\n## How to approach\n${vc.approach}\n\n**Portfolio:** ${vc.portfolio.join(', ')}\n**Website:** ${vc.url}`)}>↗ Note</button>
+                <a class="lp-open-btn" href={vc.url} target="_blank" rel="noopener">Website ↗</a>
+              </div>
+            </div>
+          </div>
+        {/each}
+      </div>
+
+    <!-- Funding news sub-tab -->
+    {:else if fundingSubTab === 'news'}
+      <div class="lp-news-header">
+        <span class="lp-news-title">Funding & Deal News</span>
+        <div class="lp-news-feeds">
+          {#each FUNDING_FEEDS as f}
+            <span class="lp-news-badge" style="background:{f.color}22;color:{f.color}">{f.name}</span>
+          {/each}
+        </div>
+        <button class="lp-refresh-btn" onclick={fetchFundingNews} disabled={fundingNewsLoading}>{fundingNewsLoading ? 'Loading…' : '↻ Refresh'}</button>
+      </div>
+      {#if fundingNewsError}
+        <div class="lp-news-error">{fundingNewsError}</div>
+      {:else if fundingNewsLoading && fundingNews.length === 0}
+        <div class="lp-news-loading">Loading funding news…</div>
+      {:else if fundingNews.length === 0}
+        <div class="lp-empty">Click Refresh to load the latest funding and deal news.</div>
+      {:else}
+        <div class="lp-news-list">
+          {#each fundingNews as item}
+            <div class="lp-news-item">
+              <div class="lp-news-item-meta">
+                <span class="lp-news-badge sm" style="background:{item.sourceColor}22;color:{item.sourceColor}">{item.source}</span>
+                <span class="lp-news-date">{relDate(item.pubDate)}</span>
+              </div>
+              <div class="lp-news-item-title" role="button" onclick={() => openArticlePanel(item)} style="cursor:pointer">{item.title}</div>
+              {#if item.desc}<p class="lp-news-item-desc">{item.desc}…</p>{/if}
+              <div class="lp-news-item-actions">
+                <button class="lp-note-btn sm" onclick={() => openArticlePanel(item)}>↳ Read in-app</button>
+                <button class="lp-note-btn sm" onclick={() => saveToNotes(item.title, `**Source:** ${item.source}\n**Date:** ${item.pubDate}\n**Link:** [${item.url}](${item.url})\n\n${item.desc}`)}>↗ Note</button>
+                <a class="lp-note-btn sm" href={item.url} target="_blank" rel="noopener">Open ↗</a>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    {/if}
+
+  {/if}
+
+  </div><!-- end .lp-content -->
+
+  <!-- ── In-app side panel ── -->
+  {#if inAppPanel}
+  <div class="lp-panel">
+    <div class="lp-panel-header">
+      <div class="lp-panel-title">
+        {#if inAppPanel === 'podcast' && panelResource}
+          <span class="lp-panel-type">▶ Podcast</span>
+          <span>{panelResource.title}</span>
+        {:else if inAppPanel === 'video' && panelResource}
+          <span class="lp-panel-type">▶ Video</span>
+          <span>{panelResource.title}</span>
+        {:else if inAppPanel === 'article' && panelArticle}
+          <span class="lp-panel-type">↳ Article</span>
+          <span>{panelArticle.source}</span>
+        {/if}
+      </div>
+      <button class="lp-panel-close" onclick={closePanel}>×</button>
+    </div>
+
+    <!-- Podcast panel -->
+    {#if inAppPanel === 'podcast' && panelResource}
+      <div class="lp-panel-body">
+        {#if panelResource.feed}
+          <div class="lp-pod-meta">{panelResource.desc}</div>
+          {#if podcastLoading}
+            <div class="lp-news-loading">Fetching episodes…</div>
+          {:else if podcastError}
+            <div class="lp-news-error">{podcastError}</div>
+            <a class="lp-open-btn" style="display:inline-block;margin:.8rem 0" href={panelResource.url} target="_blank" rel="noopener">Open on web ↗</a>
+          {:else}
+            <div class="lp-ep-list">
+              {#each podcastEps as ep}
+                <div class="lp-ep" class:lp-ep-active={currentEp?.url === ep.url}>
+                  <div class="lp-ep-head">
+                    <button class="lp-ep-play" onclick={() => playEpisode(ep)}>
+                      {currentEp?.url === ep.url && audioPlaying ? '❚❚' : '▶'}
+                    </button>
+                    <div class="lp-ep-info">
+                      <div class="lp-ep-title">{ep.title}</div>
+                      <div class="lp-ep-meta">{relDate(ep.date)}{ep.duration ? ' · ' + ep.duration : ''}</div>
+                    </div>
+                  </div>
+                  {#if ep.desc}<div class="lp-ep-desc">{ep.desc}</div>{/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
+        {:else}
+          <div class="lp-news-error">No RSS feed available for this podcast.</div>
+          <a class="lp-open-btn" style="display:inline-block;margin:.8rem 0" href={panelResource.url} target="_blank" rel="noopener">Open on web ↗</a>
+        {/if}
+      </div>
+
+    <!-- Video panel -->
+    {:else if inAppPanel === 'video' && panelResource}
+      {@const embedUrl = ytEmbedUrl(panelResource)}
+      <div class="lp-panel-body lp-panel-body-video">
+        {#if embedUrl}
+          <iframe
+            src={embedUrl}
+            title={panelResource.title}
+            class="lp-yt-frame"
+            frameborder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowfullscreen
+          ></iframe>
+        {:else}
+          <div class="lp-pod-meta">{panelResource.desc}</div>
+          <p class="lp-panel-note">This channel cannot be embedded directly — open on YouTube to browse all videos.</p>
+        {/if}
+        <div class="lp-panel-ext">
+          <a class="lp-open-btn" href={panelResource.url} target="_blank" rel="noopener">Open on YouTube ↗</a>
+          <button class="lp-note-btn" onclick={() => saveToNotes(panelResource!.title, resourceToNoteBody(panelResource! as any))}>↗ Note</button>
+        </div>
+      </div>
+
+    <!-- Article panel -->
+    {:else if inAppPanel === 'article' && panelArticle}
+      <div class="lp-panel-body">
+        <div class="lp-article-meta">
+          <span class="lp-news-badge sm" style="background:{panelArticle.sourceColor}22;color:{panelArticle.sourceColor}">{panelArticle.source}</span>
+          <span class="lp-news-date">{relDate(panelArticle.pubDate)}</span>
+        </div>
+        <div class="lp-article-title">{panelArticle.title}</div>
+        <div class="lp-article-body">{panelArticle.desc}</div>
+        <p class="lp-panel-note">Full article text requires visiting the source — RSS previews are limited.</p>
+        <div class="lp-panel-ext">
+          <a class="lp-open-btn" href={panelArticle.url} target="_blank" rel="noopener">Read full article ↗</a>
+          <button class="lp-note-btn" onclick={() => saveToNotes(panelArticle!.title, `**Source:** ${panelArticle!.source}\n**Date:** ${panelArticle!.pubDate}\n**Link:** [${panelArticle!.url}](${panelArticle!.url})\n\n${panelArticle!.desc}`)}>↗ Note</button>
+        </div>
+      </div>
+    {/if}
+  </div>
+  {/if}
+
+  </div><!-- end .lp-body -->
+
+  <!-- ── Mini audio player ── -->
+  {#if currentEp}
+  <div class="lp-player">
+    <audio bind:this={audioEl}></audio>
+    <div class="lp-player-info">
+      <div class="lp-player-ep">{currentEp.title}</div>
+      <div class="lp-player-src">{panelResource?.title || 'Podcast'}</div>
+    </div>
+    <div class="lp-player-controls">
+      <button class="lp-player-btn" onclick={togglePlay} disabled={audioLoading}>
+        {#if audioLoading}…{:else if audioPlaying}❚❚{:else}▶{/if}
+      </button>
+      <div class="lp-player-progress-wrap" onclick={seekAudio} role="progressbar">
+        <div class="lp-player-progress-bar">
+          <div class="lp-player-progress-fill" style="width:{audioProgress}%"></div>
+        </div>
+      </div>
+      <span class="lp-player-time">{formatTime(audioTime)} / {formatTime(audioDuration)}</span>
+      <button class="lp-player-speed" onclick={cycleSpeed}>{audioSpeed}x</button>
+      <button class="lp-player-close" onclick={() => { audioEl?.pause(); currentEp = null; }}>×</button>
+    </div>
+  </div>
   {/if}
 
   <!-- Toast -->
@@ -780,7 +1418,9 @@
 </div>
 
 <style>
-  .lp { display:flex; flex-direction:column; height:100%; overflow-y:auto; background:var(--bg); }
+  .lp { display:flex; flex-direction:column; height:100%; overflow:hidden; background:var(--bg); }
+  .lp-body { display:flex; flex:1; overflow:hidden; }
+  .lp-content { flex:1; overflow-y:auto; display:flex; flex-direction:column; }
 
   /* Header */
   .lp-header { background:linear-gradient(135deg, var(--ac-bg) 0%, var(--pu-bg,#1e1b4b22) 100%); border-bottom:1px solid var(--br); padding:1.2rem 1.5rem 1rem; flex-shrink:0; }
@@ -935,4 +1575,118 @@
   /* Toast */
   .lp-toast { position:fixed; bottom:1.5rem; left:50%; transform:translateX(-50%); background:var(--tx); color:var(--bg); border-radius:8px; padding:.5rem 1rem; font-size:.8rem; z-index:9999; pointer-events:none; animation:lp-fadein .15s ease; }
   @keyframes lp-fadein { from{opacity:0;transform:translateX(-50%) translateY(6px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+
+  /* In-app button on resource cards */
+  .lp-inapp-btn { background:var(--gn-bg,#0d3321); color:var(--gn); border:1px solid var(--gn); border-radius:5px; font-size:.72rem; padding:.15rem .45rem; cursor:pointer; white-space:nowrap; }
+  .lp-inapp-btn:hover { background:var(--gn); color:#fff; }
+  .lp-card-active { border-color:var(--gn) !important; }
+
+  /* Side panel */
+  .lp-panel { width:400px; min-width:320px; border-left:1px solid var(--br); display:flex; flex-direction:column; background:var(--bg); flex-shrink:0; overflow:hidden; }
+  .lp-panel-header { display:flex; align-items:center; justify-content:space-between; padding:.6rem .9rem; border-bottom:1px solid var(--br); flex-shrink:0; gap:.5rem; }
+  .lp-panel-title { display:flex; align-items:center; gap:.4rem; flex:1; overflow:hidden; font-size:.82rem; font-weight:600; color:var(--tx); }
+  .lp-panel-title span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lp-panel-type { font-size:.7rem; background:var(--gn-bg,#0d3321); color:var(--gn); border-radius:4px; padding:.1rem .35rem; white-space:nowrap; flex-shrink:0; }
+  .lp-panel-close { background:none; border:none; cursor:pointer; color:var(--tx3); font-size:1.2rem; line-height:1; padding:.1rem .3rem; border-radius:4px; }
+  .lp-panel-close:hover { color:var(--tx); background:var(--sf); }
+  .lp-panel-body { flex:1; overflow-y:auto; padding:.8rem; display:flex; flex-direction:column; gap:.7rem; }
+  .lp-panel-body-video { padding:.6rem; }
+  .lp-panel-ext { display:flex; gap:.5rem; flex-wrap:wrap; }
+  .lp-panel-note { font-size:.73rem; color:var(--tx3); font-style:italic; margin:0; }
+
+  /* Podcast panel */
+  .lp-pod-meta { font-size:.78rem; color:var(--tx2); line-height:1.5; }
+  .lp-ep-list { display:flex; flex-direction:column; gap:0; }
+  .lp-ep { border-bottom:1px solid var(--br); padding:.6rem 0; }
+  .lp-ep:hover { background:var(--sf); padding:.6rem .3rem; border-radius:4px; }
+  .lp-ep-active { background:var(--gn-bg,#0d3321) !important; border-radius:4px; padding:.6rem .3rem !important; }
+  .lp-ep-head { display:flex; align-items:flex-start; gap:.5rem; }
+  .lp-ep-play { background:var(--sf); border:1px solid var(--br); border-radius:50%; width:1.8rem; height:1.8rem; display:flex; align-items:center; justify-content:center; font-size:.75rem; cursor:pointer; color:var(--tx); flex-shrink:0; margin-top:.1rem; }
+  .lp-ep-play:hover { background:var(--gn); color:#fff; border-color:var(--gn); }
+  .lp-ep-active .lp-ep-play { background:var(--gn); color:#fff; border-color:var(--gn); }
+  .lp-ep-info { flex:1; }
+  .lp-ep-title { font-size:.82rem; font-weight:600; color:var(--tx); line-height:1.35; }
+  .lp-ep-meta { font-size:.7rem; color:var(--tx3); margin-top:.1rem; }
+  .lp-ep-desc { font-size:.75rem; color:var(--tx2); margin:.3rem 0 0 2.3rem; line-height:1.4; }
+
+  /* Video panel */
+  .lp-yt-frame { width:100%; aspect-ratio:16/9; border:none; border-radius:6px; background:#000; }
+
+  /* Article panel */
+  .lp-article-meta { display:flex; align-items:center; gap:.5rem; }
+  .lp-article-title { font-size:.95rem; font-weight:700; color:var(--tx); line-height:1.35; }
+  .lp-article-body { font-size:.82rem; color:var(--tx2); line-height:1.6; white-space:pre-wrap; }
+
+  /* Mini audio player */
+  .lp-player { display:flex; align-items:center; gap:.8rem; padding:.5rem 1rem; border-top:1px solid var(--br); background:var(--sf); flex-shrink:0; }
+  .lp-player-info { flex:1; min-width:0; }
+  .lp-player-ep { font-size:.78rem; font-weight:600; color:var(--tx); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .lp-player-src { font-size:.68rem; color:var(--tx3); }
+  .lp-player-controls { display:flex; align-items:center; gap:.5rem; flex-shrink:0; }
+  .lp-player-btn { width:2rem; height:2rem; border-radius:50%; background:var(--gn); color:#fff; border:none; cursor:pointer; font-size:.85rem; display:flex; align-items:center; justify-content:center; }
+  .lp-player-btn:disabled { opacity:.5; cursor:default; }
+  .lp-player-progress-wrap { width:160px; cursor:pointer; padding:.5rem 0; }
+  .lp-player-progress-bar { height:3px; background:var(--br); border-radius:3px; }
+  .lp-player-progress-fill { height:100%; background:var(--gn); border-radius:3px; transition:width .3s linear; }
+  .lp-player-time { font-size:.68rem; color:var(--tx3); white-space:nowrap; }
+  .lp-player-speed { background:var(--sf2); border:1px solid var(--br); border-radius:4px; font-size:.68rem; color:var(--tx2); padding:.1rem .35rem; cursor:pointer; }
+  .lp-player-speed:hover { color:var(--tx); }
+  .lp-player-close { background:none; border:none; cursor:pointer; color:var(--tx3); font-size:1.1rem; padding:.1rem; }
+
+  /* Funding tab */
+  .lp-fund-advisor-wrap { border-bottom:1px solid var(--br); flex-shrink:0; }
+  .lp-fund-subtabs { display:flex; gap:.3rem; padding:.5rem 1rem; border-bottom:1px solid var(--br); flex-shrink:0; }
+  .lp-fund-stab { background:none; border:none; cursor:pointer; font-size:.82rem; color:var(--tx2); padding:.3rem .7rem; border-radius:6px; }
+  .lp-fund-stab:hover { background:var(--sf2); color:var(--tx); }
+  .lp-fund-stab.active { background:var(--gn-bg,#0d3321); color:var(--gn); font-weight:600; }
+  .lp-fund-filters { display:flex; flex-direction:column; gap:.3rem; padding:.6rem 1rem; border-bottom:1px solid var(--br); flex-shrink:0; }
+
+  /* Grant cards */
+  .lp-grant-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:.8rem; padding:.8rem 1rem 2rem; }
+  .lp-grant-card { background:var(--sf); border:1px solid var(--br); border-radius:10px; padding:.85rem; cursor:pointer; display:flex; flex-direction:column; gap:.35rem; transition:border-color .15s; }
+  .lp-grant-card:hover { border-color:var(--gn); }
+  .lp-grant-card-top { display:flex; align-items:center; justify-content:space-between; }
+  .lp-grant-badges { display:flex; gap:.3rem; flex-wrap:wrap; }
+  .lp-gbadge { font-size:.66rem; border-radius:4px; padding:.12rem .38rem; font-weight:600; }
+  .lp-gbadge.country { background:var(--ac-bg); color:var(--ac); }
+  .lp-gbadge.type { background:var(--gn-bg,#0d3321); color:var(--gn); }
+  .lp-grant-name { font-size:.88rem; font-weight:700; color:var(--tx); line-height:1.3; }
+  .lp-grant-agency { font-size:.72rem; color:var(--tx3); }
+  .lp-grant-amount { font-size:.78rem; font-weight:600; color:var(--yw,#f5a623); }
+  .lp-grant-focus { font-size:.76rem; color:var(--tx2); line-height:1.4; }
+  .lp-grant-card-footer { display:flex; align-items:center; justify-content:space-between; margin-top:.2rem; }
+  .lp-grant-cycle { font-size:.7rem; color:var(--tx3); }
+
+  /* Grant detail */
+  .lp-grant-detail { padding:1rem; display:flex; flex-direction:column; gap:.8rem; max-width:720px; }
+  .lp-grant-detail-head { display:flex; align-items:flex-start; justify-content:space-between; gap:.8rem; flex-wrap:wrap; }
+  .lp-grant-detail-name { font-size:1.2rem; font-weight:700; color:var(--tx); }
+  .lp-grant-detail-agency { font-size:.8rem; color:var(--tx2); margin-top:.2rem; }
+  .lp-grant-detail-badges { display:flex; align-items:center; gap:.4rem; }
+  .lp-grant-detail-row { display:flex; gap:1.5rem; flex-wrap:wrap; }
+  .lp-grant-kv { display:flex; flex-direction:column; gap:.1rem; }
+  .lp-grant-kv span { font-size:.7rem; color:var(--tx3); text-transform:uppercase; letter-spacing:.05em; }
+  .lp-grant-kv strong { font-size:.85rem; color:var(--yw,#f5a623); }
+  .lp-grant-section { display:flex; flex-direction:column; gap:.3rem; }
+  .lp-grant-section-label { font-size:.72rem; font-weight:700; color:var(--tx3); text-transform:uppercase; letter-spacing:.06em; }
+  .lp-grant-section p { font-size:.84rem; color:var(--tx2); line-height:1.55; margin:0; }
+  .lp-grant-section ul { margin:.3rem 0 0 1rem; padding:0; }
+  .lp-grant-section ul li { font-size:.82rem; color:var(--tx2); line-height:1.5; margin-bottom:.3rem; }
+  .lp-grant-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
+
+  /* VC cards */
+  .lp-vc-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:.8rem; padding:.8rem 1rem 2rem; }
+  .lp-vc-card { background:var(--sf); border:1px solid var(--br); border-radius:10px; padding:.85rem; display:flex; flex-direction:column; gap:.35rem; transition:border-color .15s; }
+  .lp-vc-card:hover { border-color:var(--ac); }
+  .lp-vc-card.expanded { border-color:var(--ac); }
+  .lp-vc-card-top { display:flex; align-items:flex-start; justify-content:space-between; }
+  .lp-vc-name { font-size:.9rem; font-weight:700; color:var(--tx); }
+  .lp-vc-meta { display:flex; gap:.3rem; margin-top:.2rem; }
+  .lp-vc-row { display:flex; justify-content:space-between; font-size:.75rem; gap:.5rem; }
+  .lp-vc-row span:first-child { color:var(--tx3); flex-shrink:0; }
+  .lp-vc-row span:last-child { color:var(--tx2); text-align:right; }
+  .lp-vc-thesis { font-size:.78rem; color:var(--tx2); line-height:1.45; border-top:1px solid var(--br); padding-top:.35rem; margin-top:.1rem; }
+  .lp-vc-approach { background:var(--sf2); border-radius:6px; padding:.6rem .7rem; display:flex; flex-direction:column; gap:.3rem; }
+  .lp-vc-approach p { font-size:.78rem; color:var(--tx2); margin:0; line-height:1.5; }
+  .lp-vc-footer { display:flex; align-items:center; justify-content:space-between; margin-top:.3rem; }
 </style>
