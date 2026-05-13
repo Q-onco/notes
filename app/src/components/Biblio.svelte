@@ -1795,7 +1795,25 @@
       <div class="net-cy-wrap">
         <div class="net-cy-container" bind:this={netContainer}></div>
         {#if store.biblioRefs.length === 0}
-          <div class="net-empty">Add references to My Library to build the citation network.</div>
+          <div class="net-empty net-empty-msg">
+            <span>📚</span>
+            <span>Add references to My Library to build the citation network.</span>
+          </div>
+        {:else if !store.biblioRefs.some(r => r.doi)}
+          <div class="net-empty net-empty-msg">
+            <span>🔗</span>
+            <span>References need DOIs for citation linking.<br>Try importing via DOI, PMID, or from the Curated Library.</span>
+          </div>
+        {:else if netFetchDone && netEdges.length === 0}
+          <div class="net-empty net-empty-msg">
+            <span>📭</span>
+            <span>No citation links found.<br><small>OpenCitations covers mainly published articles from 2000 onward. Preprints and very recent papers may return no data.</small></span>
+          </div>
+        {:else if !netFetchDone && !netFetching && netEdges.length === 0}
+          <div class="net-empty net-empty-msg">
+            <span>🕸️</span>
+            <span>Click <strong>Fetch Links</strong> to load citation connections from OpenCitations.</span>
+          </div>
         {/if}
         {#if netFetching}
           <div class="net-fetching-overlay">
@@ -2770,6 +2788,12 @@
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   color: var(--bd2); font-size: 0.88rem; pointer-events: none;
 }
+.net-empty-msg {
+  flex-direction: column; gap: 0.5rem; text-align: center; color: var(--mu);
+  padding: 2rem; line-height: 1.6;
+}
+.net-empty-msg span:first-child { font-size: 2rem; }
+.net-empty-msg small { font-size: 0.78rem; color: var(--mu); opacity: 0.8; }
 .net-fetching-overlay {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 0.75rem; background: rgba(0,0,0,0.5); color: var(--tx2); font-size: 0.85rem; z-index: 10;
