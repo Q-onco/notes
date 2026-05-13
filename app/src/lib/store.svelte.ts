@@ -12,7 +12,7 @@ import type {
 } from './types';
 import { loadEncFile, saveEncFile, PATHS, validateToken } from './github';
 import { WORKER_URL } from './groq';
-import { idbGet, idbSet } from './idb';
+import { idbGet, idbSet, idbNuke } from './idb';
 
 type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs' | 'presentations' | 'files' | 'grants' | 'manuscript' | 'review' | 'mail' | 'launchpad' | 'biblio';
 
@@ -212,20 +212,64 @@ class Store {
     }
   }
 
-  logout(): void {
+  async logout(): Promise<void> {
+    // ── 1. Zero every in-memory data field ───────────────────────────────
     this.tok = null;
-    sessionStorage.removeItem('_qt');
-    localStorage.removeItem('qonco_device');
-    localStorage.setItem('_lo', '1');
-    this.notes = [];
-    this.journal = [];
-    this.tasks = [];
-    this.chatSessions = [];
-    this.audioRecords = [];
+    this.userLogin = '';
+    this.notes = []; this.notesSha = null;
+    this.journal = []; this.journalSha = null;
+    this.tasks = []; this.tasksSha = null;
+    this.chatSessions = []; this.chatSha = null;
+    this.audioRecords = []; this.audioSha = null;
+    this.pinnedPapers = []; this.pinnedPapersSha = null;
+    this.readingList = []; this.savedSearches = []; this.paperCollections = [];
+    this.searchHistory = []; this.researchSha = null;
+    this.pipelineRuns = []; this.protocols = []; this.hypotheses = [];
+    this.pipelinesSha = null;
     this.calEvents = [];
-    this.pinnedPapers = [];
-    this.savedJobs = [];
-    this.profile = { ...DEFAULT_PROFILE };
+    this.savedJobs = []; this.jobsSha = null;
+    this.jobContacts = []; this.emailTemplates = []; this.salaryEntries = [];
+    this.jobDeadlines = []; this.jobExtSha = null;
+    this.coverLetters = []; this.coverLettersSha = null;
+    this.presentations = []; this.presentationsSha = null;
+    this.files = []; this.filesSha = null;
+    this.grants = []; this.grantsSha = null;
+    this.conferences = []; this.conferencesSha = null;
+    this.peerReviews = []; this.peerReviewsSha = null;
+    this.manuscripts = []; this.manuscriptsSha = null;
+    this.reviewArticles = []; this.reviewArticlesSha = null;
+    this.launchpadBookmarks = []; this.launchpadCustom = []; this.launchpadSha = null;
+    this.biblioRefs = []; this.biblioCollections = []; this.biblioSha = null;
+    this.profile = { ...DEFAULT_PROFILE }; this.profileSha = null;
+    this.mailContacts = []; this.mailSent = []; this.mailDrafts = []; this.mailLoaded = false;
+
+    // ── 2. Clear all Web Storage (origin-scoped — safe to nuke entirely) ─
+    try { sessionStorage.clear(); } catch { /* ignore */ }
+    try { localStorage.clear(); } catch { /* ignore */ }
+    // Restore logout flag so Login won't auto-fill the trusted-device token
+    try { localStorage.setItem('_lo', '1'); } catch { /* ignore */ }
+
+    // ── 3. Delete IndexedDB cache database ──────────────────────────────
+    await idbNuke();
+
+    // ── 4. Delete all Cache API entries ─────────────────────────────────
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+    } catch { /* ignore */ }
+
+    // ── 5. Unregister service workers ───────────────────────────────────
+    try {
+      if (navigator.serviceWorker) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+    } catch { /* ignore */ }
+
+    // ── 6. Hard reload — clears JS heap, component state, and HTTP cache ─
+    window.location.reload();
   }
 
   async loadAll(): Promise<void> {
