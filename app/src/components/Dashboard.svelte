@@ -151,7 +151,6 @@
     } catch { /* offline */ }
     pubLoading = false;
   }
-  $effect(() => { fetchPubImpact(); });
 
   // ── Grant countdown (60-day window) ───────────────────────────
   const EX_GRANTS = [

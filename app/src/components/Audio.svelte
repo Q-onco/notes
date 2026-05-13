@@ -827,10 +827,8 @@
       </div>
     </div>
 
-    <!-- Frequency visualiser during recording -->
-    {#if recording}
-      <canvas bind:this={visualiserCanvas} class="vis-canvas" width="600" height="80"></canvas>
-    {/if}
+    <!-- Frequency visualiser — always in DOM so bind:this is ready before setupVisualiser fires -->
+    <canvas bind:this={visualiserCanvas} class="vis-canvas" class:vis-hidden={!recording} width="600" height="80"></canvas>
 
     <!-- Live transcript during recording -->
     {#if recording && (liveSegments.length > 0 || liveTurns.length > 0)}
@@ -1518,6 +1516,7 @@
     border: 1px solid var(--bd);
     display: block;
   }
+  .vis-hidden { display: none; }
 
   /* ── Live segments ── */
   .live-segments {
