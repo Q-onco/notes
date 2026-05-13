@@ -98,6 +98,11 @@
   let newProtoType = $state<ProtocolType>('scrna-seq');
   let newProtoVersion = $state('1.0');
 
+  // Biblio ref picker state
+  let refPickerOpen = $state(false);
+  let refPickerTarget = $state<{ runId: string; stepId: string } | null>(null);
+  let refPickerSearch = $state('');
+
   // Auto-save timer
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -317,6 +322,20 @@
     store.pipelineRuns = store.pipelineRuns.map(r => {
       if (r.id !== runId) return r;
       const steps = r.steps.map(s => s.id === stepId ? { ...s, [key]: value } : s);
+      return { ...r, steps, updatedAt: Date.now() };
+    });
+    scheduleSave();
+  }
+
+  function toggleStepRef(runId: string, stepId: string, refId: string) {
+    store.pipelineRuns = store.pipelineRuns.map(r => {
+      if (r.id !== runId) return r;
+      const steps = r.steps.map(s => {
+        if (s.id !== stepId) return s;
+        const ids = s.biblioRefIds ?? [];
+        const updated = ids.includes(refId) ? ids.filter(i => i !== refId) : [...ids, refId];
+        return { ...s, biblioRefIds: updated };
+      });
       return { ...r, steps, updatedAt: Date.now() };
     });
     scheduleSave();
@@ -1104,6 +1123,21 @@
                         onchange={(e) => updateStepField(run.id, step.id, 'notes', (e.target as HTMLTextAreaElement).value)}
                       ></textarea>
                     </div>
+                    <!-- Attached biblio refs -->
+                    <div class="step-refs">
+                      {#each (step.biblioRefIds ?? []) as refId}
+                        {@const ref = store.biblioRefs.find(r => r.id === refId)}
+                        {#if ref}
+                          <span class="step-ref-chip">
+                            📄 {ref.authors[0]?.family ?? '?'} {ref.year ?? ''}
+                            <button class="step-ref-remove" onclick={() => toggleStepRef(run.id, step.id, refId)} title="Remove">×</button>
+                          </span>
+                        {/if}
+                      {/each}
+                      <button class="step-ref-add-btn" onclick={() => { refPickerTarget = { runId: run.id, stepId: step.id }; refPickerSearch = ''; refPickerOpen = true; }} title="Attach a reference">
+                        🔗 Attach ref
+                      </button>
+                    </div>
                     {#if step.completedAt}
                       <p class="text-xs text-mu">Completed: {formatDate(step.completedAt)}</p>
                     {/if}
@@ -1421,6 +1455,34 @@
     {/if}
   </main>
 </div>
+{/if}
+
+<!-- Biblio ref picker modal -->
+{#if refPickerOpen && refPickerTarget}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="ref-picker-overlay" onclick={() => refPickerOpen = false} onkeydown={e => e.key === 'Escape' && (refPickerOpen = false)} role="button" tabindex="-1" aria-label="Close"></div>
+  <div class="ref-picker-modal" role="dialog">
+    <div class="ref-picker-header">
+      <span>Attach Reference</span>
+      <button class="ref-picker-close" onclick={() => refPickerOpen = false}>×</button>
+    </div>
+    <input class="ref-picker-search" bind:value={refPickerSearch} placeholder="Search library…" />
+    <div class="ref-picker-list">
+      {#each store.biblioRefs.filter(r => !refPickerSearch || r.title.toLowerCase().includes(refPickerSearch.toLowerCase()) || r.authors.some(a => a.family.toLowerCase().includes(refPickerSearch.toLowerCase()))) as ref (ref.id)}
+        {@const attached = (store.pipelineRuns.find(r => r.id === refPickerTarget!.runId)?.steps.find(s => s.id === refPickerTarget!.stepId)?.biblioRefIds ?? []).includes(ref.id)}
+        <button class="ref-picker-item" class:ref-attached={attached}
+          onclick={() => { toggleStepRef(refPickerTarget!.runId, refPickerTarget!.stepId, ref.id); }}>
+          <span class="ref-picker-title">{ref.title}</span>
+          <span class="ref-picker-meta">{ref.authors[0]?.family ?? ''}{ref.year ? ` · ${ref.year}` : ''} · {ref.journal}</span>
+          {#if attached}<span class="ref-attached-badge">✓</span>{/if}
+        </button>
+      {:else}
+        <p style="padding:1rem;color:#64748b;font-size:0.8rem;">
+          {store.biblioRefs.length === 0 ? 'No references in Biblio library yet.' : 'No matches.'}
+        </p>
+      {/each}
+    </div>
+  </div>
 {/if}
 
 <style>
@@ -2245,4 +2307,25 @@
     .qc-header, .qc-row { grid-template-columns: 1fr 60px 24px; }
     .qc-header span:nth-child(2), .qc-row span:nth-child(2) { display: none; }
   }
+
+  /* Step biblio refs */
+  .step-refs { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.35rem; align-items: center; }
+  .step-ref-chip { display: flex; align-items: center; gap: 0.2rem; background: #1e1b4b; border: 1px solid #6366f1; color: #c7d2fe; padding: 0.1rem 0.4rem; border-radius: 999px; font-size: 0.7rem; }
+  .step-ref-remove { background: none; border: none; color: #818cf8; cursor: pointer; padding: 0; font-size: 0.8rem; line-height: 1; }
+  .step-ref-add-btn { background: none; border: 1px dashed #334155; color: #64748b; padding: 0.1rem 0.5rem; border-radius: 999px; cursor: pointer; font-size: 0.7rem; }
+  .step-ref-add-btn:hover { border-color: #6366f1; color: #818cf8; }
+
+  /* Ref picker modal */
+  .ref-picker-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 999; }
+  .ref-picker-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 1000; background: #0f172a; border: 1px solid #334155; border-radius: 10px; width: min(480px, 95vw); max-height: 70vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.4); }
+  .ref-picker-header { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; border-bottom: 1px solid #1e293b; font-size: 0.875rem; font-weight: 600; color: #e2e8f0; }
+  .ref-picker-close { background: none; border: none; color: #64748b; cursor: pointer; font-size: 1.2rem; }
+  .ref-picker-search { margin: 0.5rem; background: #1e293b; border: 1px solid #334155; color: #e2e8f0; border-radius: 6px; padding: 0.35rem 0.7rem; font-size: 0.82rem; }
+  .ref-picker-list { overflow-y: auto; flex: 1; padding: 0.25rem 0; }
+  .ref-picker-item { width: 100%; text-align: left; background: none; border: none; padding: 0.5rem 1rem; cursor: pointer; display: flex; flex-direction: column; gap: 0.15rem; }
+  .ref-picker-item:hover { background: #1e293b; }
+  .ref-picker-item.ref-attached { background: #1e1b4b; }
+  .ref-picker-title { font-size: 0.8rem; color: #e2e8f0; line-height: 1.3; }
+  .ref-picker-meta { font-size: 0.72rem; color: #64748b; }
+  .ref-attached-badge { font-size: 0.7rem; color: #86efac; }
 </style>

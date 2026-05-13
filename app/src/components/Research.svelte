@@ -1,6 +1,6 @@
 <script lang="ts">
   import { searchPubMed, fetchBioRxiv, fetchNatureCell, fetchPubMedAbstract, searchOpenAlex, searchEuropePMC } from '../lib/pubmed';
-  import type { PaperResult, ReadingListItem, SavedSearch, SearchHistoryEntry, Note, PaperCollection } from '../lib/types';
+  import type { PaperResult, ReadingListItem, SavedSearch, SearchHistoryEntry, Note, PaperCollection, BiblioReference, BiblioAuthor } from '../lib/types';
   import { store } from '../lib/store.svelte';
   import { exportPapers, exportPapersDocx, exportPapersBibTeX } from '../lib/export';
   import { askResearch, deepReadPaper, generateReadingNote, critiquePaper, streamRadarSummary, streamMarkerLookup, comparePapers } from '../lib/groq';
@@ -791,6 +791,36 @@ Format your response as:
     showToast('Paper saved as note');
   }
 
+  function isInBiblio(paper: PaperResult): boolean {
+    if (paper.doi) return store.biblioRefs.some(r => r.doi === paper.doi);
+    return store.biblioRefs.some(r => r.title.toLowerCase() === paper.title.toLowerCase());
+  }
+
+  function saveToBiblio(paper: PaperResult) {
+    if (isInBiblio(paper)) { showToast('Already in Biblio library'); return; }
+    const authors: BiblioAuthor[] = paper.authors.map(a => {
+      const parts = a.trim().split(/\s+/);
+      return { family: parts[parts.length - 1] ?? '', given: parts.slice(0, -1).join(' ') };
+    });
+    const now = Date.now();
+    const citeKeyBase = `${authors[0]?.family ?? 'Unknown'}${paper.year ?? 0}`;
+    const existing = store.biblioRefs.filter(r => r.citeKey.startsWith(citeKeyBase));
+    const citeKey = existing.length ? `${citeKeyBase}${'abcdefghij'[existing.length - 1] ?? existing.length}` : citeKeyBase;
+    const ref: BiblioReference = {
+      id: paper.id, type: 'article', title: paper.title, authors,
+      year: paper.year || null, journal: paper.journal, volume: '', issue: '', pages: '',
+      doi: paper.doi ?? '', pmid: '', pmcid: '', arxivId: '', url: paper.url ?? '',
+      pdfUrl: paper.pdfUrl ?? '', abstract: paper.abstract ?? '',
+      keywords: [], language: '', publisher: '', edition: '',
+      collectionIds: [], tags: [paper.source], rating: 0, readStatus: 'unread',
+      citeKey, notes: '', citationCount: null, annotations: [],
+      addedAt: now, updatedAt: now, source: 'doi'
+    };
+    store.biblioRefs = [...store.biblioRefs, ref];
+    store.saveBiblio();
+    showToast('Saved to Biblio library');
+  }
+
   async function runSavedSearch(ss: SavedSearch) {
     query = ss.query;
     activeSources = new Set(ss.sources as SourceKey[]);
@@ -1477,6 +1507,15 @@ Format your response as:
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                 </svg>
+              </button>
+              <button class="btn-icon biblio-save-btn" class:biblio-saved={isInBiblio(paper)}
+                onclick={() => saveToBiblio(paper)}
+                title={isInBiblio(paper) ? 'Already in Biblio' : 'Save to Biblio library'}>
+                {#if isInBiblio(paper)}
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+                {:else}
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+                {/if}
               </button>
               {#if store.aiSettings.deepRead}
                 <button
@@ -2605,6 +2644,9 @@ Format your response as:
   .critique-btn:hover, .critique-active { background: rgba(251,146,60,0.12); }
   .deep-read-btn { color: var(--enzo); }
   .deep-read-btn:hover, .deep-read-active { background: var(--enzo-bg); }
+  .biblio-save-btn { color: #64748b; }
+  .biblio-save-btn:hover { color: #818cf8; background: rgba(99,102,241,0.1); }
+  .biblio-save-btn.biblio-saved { color: #818cf8; }
   .reading-note-btn { color: var(--ac); }
   .reading-note-btn:hover { background: var(--ac-bg); }
 

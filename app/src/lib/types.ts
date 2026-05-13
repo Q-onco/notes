@@ -186,6 +186,7 @@ export interface PipelineStep {
   status: 'pending' | 'running' | 'done' | 'failed' | 'skipped';
   notes: string;
   completedAt: number | null;
+  biblioRefIds?: string[];
 }
 
 export interface QCMetric {
