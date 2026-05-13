@@ -29,6 +29,7 @@ export const PATHS = {
   manuscripts:   'data/manuscripts.enc',
   reviews:       'data/reviews.enc',
   launchpad:     'data/launchpad.enc',
+  biblio:        'data/biblio.enc',
 } as const;
 
 function headers(token: string) {
