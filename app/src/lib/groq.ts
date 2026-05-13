@@ -1567,11 +1567,13 @@ export async function biblioPaperSummary(
   title: string,
   abstract: string,
   onChunk: (text: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  highlights?: string
 ): Promise<void> {
+  const highlightCtx = highlights ? `\n\n**Reader's highlights/annotations:**\n${highlights}` : '';
   const messages = [
     { role: 'system' as const, content: 'You are Enzo, an expert oncology researcher. Produce concise, structured paper summaries.' },
-    { role: 'user' as const, content: `Summarise this paper in structured format:\n\n**Title:** ${title}\n\n**Abstract:** ${abstract}\n\nUse exactly these headings on separate lines:\n**Population/Model:** [1 sentence]\n**Intervention/Method:** [1 sentence]\n**Key Findings:** [2-3 bullet points]\n**Limitations:** [1-2 bullet points]\n**Relevance:** [1 sentence on translational or clinical relevance]` }
+    { role: 'user' as const, content: `Summarise this paper in structured format:\n\n**Title:** ${title}\n\n**Abstract:** ${abstract}${highlightCtx}\n\nUse exactly these headings on separate lines:\n**Population/Model:** [1 sentence]\n**Intervention/Method:** [1 sentence]\n**Key Findings:** [2-3 bullet points]\n**Limitations:** [1-2 bullet points]\n**Relevance:** [1 sentence on translational or clinical relevance]` }
   ];
   await streamGroq(MODELS.enzo, messages, onChunk, signal);
 }
@@ -1581,11 +1583,14 @@ export async function biblioKeyQuotes(
   title: string,
   abstract: string,
   onChunk: (text: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  highlights?: string
 ): Promise<void> {
+  const highlightCtx = highlights ? `\n\n**Reader's highlights:**\n${highlights}` : '';
+  const source = highlights ? 'abstract and reader highlights' : 'abstract';
   const messages = [
     { role: 'system' as const, content: 'You are Enzo, an expert oncology researcher.' },
-    { role: 'user' as const, content: `From the abstract of this paper, extract 3 sentences that are most worth citing verbatim in a manuscript. Number them 1-3. For each, add a one-line explanation of when/why to use it.\n\n**Title:** ${title}\n\n**Abstract:** ${abstract}` }
+    { role: 'user' as const, content: `From the ${source} of this paper, extract 3-5 sentences most worth citing verbatim in a manuscript. Number them. For each, add a one-line explanation of when/why to use it.\n\n**Title:** ${title}\n\n**Abstract:** ${abstract}${highlightCtx}` }
   ];
   await streamGroq(MODELS.enzo, messages, onChunk, signal);
 }
@@ -1595,11 +1600,13 @@ export async function biblioGapFinder(
   title: string,
   abstract: string,
   onChunk: (text: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  highlights?: string
 ): Promise<void> {
+  const highlightCtx = highlights ? `\n\n**Reader's annotations (pay special attention to these):**\n${highlights}` : '';
   const messages = [
     { role: 'system' as const, content: 'You are Enzo, an expert oncology researcher and critical reviewer.' },
-    { role: 'user' as const, content: `Based on this paper's abstract, identify 3-4 specific research gaps or unanswered questions it leaves open. Be precise and actionable — these should be things a researcher could write a grant or study around.\n\n**Title:** ${title}\n\n**Abstract:** ${abstract}` }
+    { role: 'user' as const, content: `Identify 3-4 specific research gaps or unanswered questions left open by this paper. Be precise and actionable.\n\n**Title:** ${title}\n\n**Abstract:** ${abstract}${highlightCtx}` }
   ];
   await streamGroq(MODELS.enzo, messages, onChunk, signal);
 }
@@ -1609,11 +1616,13 @@ export async function biblioPICO(
   title: string,
   abstract: string,
   onChunk: (text: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  highlights?: string
 ): Promise<void> {
+  const highlightCtx = highlights ? `\n\n**Reader's annotations:**\n${highlights}` : '';
   const messages = [
     { role: 'system' as const, content: 'You are Enzo, an expert in evidence-based oncology research.' },
-    { role: 'user' as const, content: `Extract PICO elements from this paper. If any element cannot be determined from the abstract, say "Not specified".\n\n**Title:** ${title}\n\n**Abstract:** ${abstract}\n\nFormat:\n**P (Population):** ...\n**I (Intervention):** ...\n**C (Comparison):** ...\n**O (Outcome):** ...\n**Study Design:** ...\n**Sample Size:** ...` }
+    { role: 'user' as const, content: `Extract PICO elements from this paper. If any element cannot be determined, say "Not specified".\n\n**Title:** ${title}\n\n**Abstract:** ${abstract}${highlightCtx}\n\nFormat:\n**P (Population):** ...\n**I (Intervention):** ...\n**C (Comparison):** ...\n**O (Outcome):** ...\n**Study Design:** ...\n**Sample Size:** ...` }
   ];
   await streamGroq(MODELS.enzo, messages, onChunk, signal);
 }
@@ -1622,11 +1631,13 @@ export async function biblioPICO(
 export async function biblioAutoTag(
   title: string,
   abstract: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  highlights?: string
 ): Promise<string[]> {
+  const highlightCtx = highlights ? `\nHighlights: ${highlights.slice(0, 300)}` : '';
   const messages = [
     { role: 'system' as const, content: 'You are a biomedical research librarian. Return only a JSON array of strings, no markdown, no explanation.' },
-    { role: 'user' as const, content: `Suggest 5 concise keyword tags for this paper. Return ONLY a JSON array like ["tag1","tag2","tag3","tag4","tag5"].\n\nTitle: ${title}\nAbstract: ${abstract.slice(0, 400)}` }
+    { role: 'user' as const, content: `Suggest 5-7 concise keyword tags for this paper. Return ONLY a JSON array like ["tag1","tag2","tag3","tag4","tag5"].\n\nTitle: ${title}\nAbstract: ${abstract.slice(0, 400)}${highlightCtx}` }
   ];
   let full = '';
   await streamGroq(MODELS.quick, messages, c => { full += c; }, signal);
