@@ -46,3 +46,14 @@ export async function idbDel(key: string): Promise<void> {
     });
   } catch { /* ignore */ }
 }
+
+export async function idbNuke(): Promise<void> {
+  try {
+    await new Promise<void>((resolve) => {
+      const req = indexedDB.deleteDatabase(DB_NAME);
+      req.onsuccess = () => resolve();
+      req.onerror   = () => resolve();
+      req.onblocked = () => resolve();
+    });
+  } catch { /* ignore */ }
+}

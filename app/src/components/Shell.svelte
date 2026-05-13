@@ -111,6 +111,30 @@
   let toastMsg = $state('');
   let toastType = $state<'success' | 'error' | ''>('');
   let toastTimer: ReturnType<typeof setTimeout>;
+
+  // Logout confirmation
+  let logoutConfirm = $state(false);
+  let logoutWorking = $state(false);
+  let logoutConfirmTimer: ReturnType<typeof setTimeout>;
+
+  function requestLogout() {
+    if (logoutConfirm) return; // already showing confirm
+    logoutConfirm = true;
+    clearTimeout(logoutConfirmTimer);
+    logoutConfirmTimer = setTimeout(() => { logoutConfirm = false; }, 5000);
+  }
+
+  async function confirmLogout() {
+    clearTimeout(logoutConfirmTimer);
+    logoutConfirm = false;
+    logoutWorking = true;
+    await store.logout(); // also does window.location.reload()
+  }
+
+  function cancelLogout() {
+    clearTimeout(logoutConfirmTimer);
+    logoutConfirm = false;
+  }
   let helpOpen = $state(false);
   let clockOpen = $state(false);
   let searchOpen = $state(false);
@@ -851,11 +875,29 @@
           <line x1="12" y1="17" x2="12.01" y2="17"/>
         </svg>
       </button>
-      <button class="btn-icon logout-btn" onclick={() => store.logout()} title="Lock">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-        </svg>
-      </button>
+      <div class="logout-wrap">
+        <button class="btn-icon logout-btn" class:logout-primed={logoutConfirm}
+          onclick={requestLogout}
+          title="Sign out"
+          disabled={logoutWorking}>
+          {#if logoutWorking}
+            <span class="logout-spinner"></span>
+          {:else}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          {/if}
+        </button>
+        {#if logoutConfirm}
+        <div class="logout-confirm-pop">
+          <p class="logout-confirm-msg">Sign out &amp; clear all local session data?</p>
+          <div class="logout-confirm-btns">
+            <button class="logout-confirm-yes" onclick={confirmLogout}>Sign out</button>
+            <button class="logout-confirm-no" onclick={cancelLogout}>Cancel</button>
+          </div>
+        </div>
+        {/if}
+      </div>
     </div>
   </header>
 
@@ -1499,6 +1541,36 @@
     color: var(--mu);
   }
   .theme-toggle:hover, .logout-btn:hover { color: var(--tx); background: var(--sf2); }
+  .logout-btn.logout-primed { color: #f87171; background: rgba(239,68,68,0.12); }
+
+  .logout-wrap { position: relative; }
+  .logout-confirm-pop {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 2000;
+    background: #0f172a; border: 1px solid #ef4444;
+    border-radius: 8px; padding: 0.65rem 0.75rem;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    min-width: 210px;
+  }
+  .logout-confirm-msg {
+    font-size: 0.76rem; color: #fca5a5; margin-bottom: 0.5rem; line-height: 1.4;
+  }
+  .logout-confirm-btns { display: flex; gap: 0.4rem; }
+  .logout-confirm-yes {
+    background: #991b1b; border: 1px solid #ef4444; color: #fca5a5;
+    padding: 0.25rem 0.65rem; border-radius: 5px; cursor: pointer; font-size: 0.76rem;
+    font-weight: 600;
+  }
+  .logout-confirm-yes:hover { background: #b91c1c; }
+  .logout-confirm-no {
+    background: #1e293b; border: 1px solid #334155; color: #94a3b8;
+    padding: 0.25rem 0.65rem; border-radius: 5px; cursor: pointer; font-size: 0.76rem;
+  }
+  .logout-confirm-no:hover { border-color: #475569; color: #e2e8f0; }
+  .logout-spinner {
+    display: inline-block; width: 13px; height: 13px;
+    border: 2px solid rgba(248,113,113,0.3); border-top-color: #f87171;
+    border-radius: 50%; animation: spin 0.7s linear infinite;
+  }
 
   /* ── Main layout ── */
   .main-layout {
