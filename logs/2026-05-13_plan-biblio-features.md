@@ -46,6 +46,14 @@
 - Initial attempt used `{@const}` inside `<div>` — Svelte 5 forbids this
 - Fixed by moving to `$derived.by()` in script block
 
-## Feature 6: PDF Full-Text Search (PENDING)
-- Needs: `pdfSearchQuery` state, `searchPDF()` iterating pages via `page.getTextContent()`
-- Highlight overlay on canvas, prev/next navigation buttons in PDF viewer toolbar
+## Feature 6: PDF Full-Text Search ✅
+
+### Changes (Biblio.svelte)
+- [x] State: `pdfSearchQuery`, `pdfSearchHits` (page numbers), `pdfSearchIdx`, `pdfSearching`, `pdfSearchDone`
+- [x] `runPDFSearch()`: iterates all pages, calls `page.getTextContent()`, joins item strings, case-insensitive match
+- [x] `searchJumpPrev()` / `searchJumpNext()`: cycle through matching page numbers
+- [x] Search bar row below PDF controls: input (Enter triggers search) + ⌕ button + "N/M pg" count + prev/next + clear ✕
+- [x] `closePDFViewer` resets all search state
+- [x] `pdfSearchDone` flag prevents "0 results" showing before search is run; `oninput` resets it when query changes
+- [x] CSS: `.pdf-search-row`, `.pdf-search-input`, `.pdf-search-count`, `.pdf-search-none`
+- [x] Build passes (39.33s, clean)
