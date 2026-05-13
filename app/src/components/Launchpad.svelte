@@ -912,11 +912,10 @@
                 <button class="lp-note-btn" onclick={() => saveToNotes(r.title, resourceToNoteBody(r))} title="Save to Notes">↗ Note</button>
                 {#if rr.feed && rr.type === 'podcast'}
                   <button class="lp-inapp-btn" onclick={() => openPodcastPanel(rr)}>▶ Listen</button>
-                {:else if rr.type === 'video' || rr.type === 'playlist'}
+                {:else if (rr.type === 'video' || rr.type === 'playlist') && ytEmbedUrl(rr)}
                   <button class="lp-inapp-btn" onclick={() => openVideoPanel(rr)}>▶ Watch</button>
-                {:else if rr.feed && rr.type === 'newsletter'}
-                  <button class="lp-inapp-btn" onclick={() => openVideoPanel(rr)}>↳ Browse</button>
-                {:else if (r as any).url}
+                {/if}
+                {#if (r as any).url}
                   <a class="lp-open-btn" href={(r as any).url} target="_blank" rel="noopener">Open ↗</a>
                 {/if}
               </div>
@@ -1387,10 +1386,12 @@
 
   </div><!-- end .lp-body -->
 
+  <!-- Audio element always mounted so bind:this wires up on load -->
+  <audio bind:this={audioEl} style="display:none"></audio>
+
   <!-- ── Mini audio player ── -->
   {#if currentEp}
   <div class="lp-player">
-    <audio bind:this={audioEl}></audio>
     <div class="lp-player-info">
       <div class="lp-player-ep">{currentEp.title}</div>
       <div class="lp-player-src">{panelResource?.title || 'Podcast'}</div>
