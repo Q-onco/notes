@@ -809,6 +809,7 @@ export interface BiblioReference {
   citeKey: string;
   notes: string;
   citationCount: number | null;
+  annotations: BiblioAnnotation[];
   addedAt: number;
   updatedAt: number;
   source: 'doi' | 'pmid' | 'arxiv' | 'bibtex' | 'manual' | 'curated';
@@ -819,6 +820,15 @@ export interface BiblioCollection {
   name: string;
   parentId: string | null;
   color: string;
+}
+
+export interface BiblioAnnotation {
+  id: string;
+  page: number;
+  text: string;
+  note: string;
+  color: string;
+  createdAt: number;
 }
 
 export interface LaunchpadCustomResource {

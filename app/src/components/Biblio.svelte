@@ -137,7 +137,7 @@
   let editingRef = $state<BiblioReference | null>(null);
   let showDetail = $state(false);
 
-  // Filters
+  // Filters + sort
   let search = $state('');
   let typeFilter = $state('');
   let statusFilter = $state('');
@@ -145,6 +145,14 @@
   let tagFilter = $state('');
   let yearFrom = $state('');
   let yearTo = $state('');
+  let sortBy = $state<'added' | 'year-desc' | 'year-asc' | 'author' | 'title' | 'rating'>('added');
+
+  // OpenAlex fetch
+  let citeFetchingId = $state<string | null>(null);
+
+  // Multi-select for batch ops
+  let selectedIds = $state<Set<string>>(new Set());
+  let selectMode = $state(false);
 
   // Citation
   let citeStyle = $state<CiteStyle>('vancouver');
@@ -196,7 +204,14 @@
     }
     if (yearFrom) refs = refs.filter(r => r.year !== null && r.year >= parseInt(yearFrom));
     if (yearTo) refs = refs.filter(r => r.year !== null && r.year <= parseInt(yearTo));
-    return [...refs].sort((a, b) => b.addedAt - a.addedAt);
+    return [...refs].sort((a, b) => {
+      if (sortBy === 'year-desc') return (b.year ?? 0) - (a.year ?? 0);
+      if (sortBy === 'year-asc') return (a.year ?? 0) - (b.year ?? 0);
+      if (sortBy === 'author') return (a.authors[0]?.family ?? '').localeCompare(b.authors[0]?.family ?? '');
+      if (sortBy === 'title') return a.title.localeCompare(b.title);
+      if (sortBy === 'rating') return b.rating - a.rating;
+      return b.addedAt - a.addedAt;
+    });
   });
 
   let allTags = $derived.by(() => {
@@ -231,7 +246,7 @@
       journal: '', volume: '', issue: '', pages: '', doi: '', pmid: '', pmcid: '',
       arxivId: '', url: '', pdfUrl: '', abstract: '', keywords: [], language: '',
       publisher: '', edition: '', collectionIds: [], tags: [], rating: 0,
-      readStatus: 'unread', citeKey: '', notes: '', citationCount: null,
+      readStatus: 'unread', citeKey: '', notes: '', citationCount: null, annotations: [],
       addedAt: now, updatedAt: now, source: 'manual',
       ...partial
     };
@@ -399,6 +414,98 @@
     return entries;
   }
 
+  function parseRIS(raw: string): Partial<BiblioReference>[] {
+    const entries: Partial<BiblioReference>[] = [];
+    const blocks = raw.split(/\nER\s*-/).map(b => b.trim()).filter(Boolean);
+    for (const block of blocks) {
+      const fields: Record<string, string[]> = {};
+      for (const line of block.split('\n')) {
+        const m = line.match(/^([A-Z][A-Z0-9])\s+-\s+(.*)/);
+        if (!m) continue;
+        const [, tag, val] = m;
+        if (!fields[tag]) fields[tag] = [];
+        fields[tag].push(val.trim());
+      }
+      const ty = fields['TY']?.[0] ?? 'JOUR';
+      const refType: BiblioRefType = ty === 'BOOK' ? 'book' : ty === 'THES' ? 'thesis'
+        : ty === 'CONF' ? 'conference' : ty === 'ELEC' ? 'preprint' : 'article';
+      const authors: BiblioAuthor[] = (fields['AU'] ?? fields['A1'] ?? []).map(s => {
+        const [fam, giv] = s.split(',');
+        return { family: fam?.trim() ?? '', given: giv?.trim() ?? '' };
+      });
+      const year = parseInt(fields['PY']?.[0] ?? fields['Y1']?.[0] ?? '') || null;
+      const sp = fields['SP']?.[0] ?? '';
+      const ep = fields['EP']?.[0] ?? '';
+      const pages = sp && ep ? `${sp}-${ep}` : sp || ep;
+      entries.push({
+        type: refType,
+        title: fields['TI']?.[0] ?? fields['T1']?.[0] ?? '',
+        authors, year,
+        journal: fields['JO']?.[0] ?? fields['T2']?.[0] ?? fields['JF']?.[0] ?? '',
+        volume: fields['VL']?.[0] ?? '',
+        issue: fields['IS']?.[0] ?? '',
+        pages,
+        doi: fields['DO']?.[0] ?? '',
+        url: fields['UR']?.[0] ?? '',
+        abstract: fields['AB']?.[0] ?? fields['N2']?.[0] ?? '',
+        source: 'bibtex'
+      });
+    }
+    return entries;
+  }
+
+  async function fetchCitationCount(ref: BiblioReference) {
+    if (!ref.doi) return;
+    citeFetchingId = ref.id;
+    try {
+      const res = await fetch(`https://api.openalex.org/works/doi:${encodeURIComponent(ref.doi)}?select=cited_by_count`);
+      if (!res.ok) throw new Error('Not found');
+      const data = await res.json();
+      const count = data.cited_by_count ?? null;
+      store.biblioRefs = store.biblioRefs.map(r => r.id === ref.id
+        ? { ...r, citationCount: count, updatedAt: Date.now() } : r);
+      store.saveBiblio();
+      showToast(count !== null ? `${count} citations (OpenAlex)` : 'Count unavailable');
+    } catch { showToast('Could not fetch citation count'); }
+    finally { citeFetchingId = null; }
+  }
+
+  function toggleCollectionOnRef(ref: BiblioReference, collId: string) {
+    const has = ref.collectionIds.includes(collId);
+    store.biblioRefs = store.biblioRefs.map(r => r.id === ref.id
+      ? { ...r, collectionIds: has ? r.collectionIds.filter(c => c !== collId) : [...r.collectionIds, collId], updatedAt: Date.now() }
+      : r);
+    store.saveBiblio();
+  }
+
+  function toggleSelectRef(id: string) {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    selectedIds = next;
+  }
+
+  function bulkDelete() {
+    if (!selectedIds.size) return;
+    store.biblioRefs = store.biblioRefs.filter(r => !selectedIds.has(r.id));
+    store.saveBiblio();
+    if (selectedId && selectedIds.has(selectedId)) { selectedId = null; showDetail = false; }
+    selectedIds = new Set();
+    selectMode = false;
+    showToast('Deleted');
+  }
+
+  function bulkMoveToCollection(collId: string) {
+    store.biblioRefs = store.biblioRefs.map(r =>
+      selectedIds.has(r.id) && !r.collectionIds.includes(collId)
+        ? { ...r, collectionIds: [...r.collectionIds, collId], updatedAt: Date.now() }
+        : r
+    );
+    store.saveBiblio();
+    selectedIds = new Set();
+    selectMode = false;
+    showToast('Moved to collection');
+  }
+
   // ── Citation formatters ───────────────────────────────────────────────────
   function fmtAuthorsVancouver(authors: BiblioAuthor[], max = 6): string {
     const parts = authors.map(a => `${a.family} ${a.given.split(' ').map(i => i[0]).join('')}`);
@@ -536,8 +643,9 @@
       else if (importMode === 'pmid') importPreview = await fetchByPMID(importQuery);
       else if (importMode === 'arxiv') importPreview = await fetchByArxiv(importQuery);
       else if (importMode === 'bibtex') {
-        const parsed = parseBibTeX(bibtexRaw);
-        if (!parsed.length) throw new Error('No entries found');
+        const isRIS = bibtexRaw.trimStart().startsWith('TY  -') || bibtexRaw.includes('\nER  -');
+        const parsed = isRIS ? parseRIS(bibtexRaw) : parseBibTeX(bibtexRaw);
+        if (!parsed.length) throw new Error('No entries found — check format');
         const added = confirmBulkImport(parsed);
         showToast(`Imported ${added} reference${added !== 1 ? 's' : ''}`);
         showImport = false;
@@ -829,12 +937,32 @@
         </select>
         <input class="year-input" bind:value={yearFrom} placeholder="From" type="number" min="1900" max="2099" />
         <input class="year-input" bind:value={yearTo} placeholder="To" type="number" min="1900" max="2099" />
+        <select class="filter-sel" bind:value={sortBy} title="Sort by">
+          <option value="added">Newest added</option>
+          <option value="year-desc">Year ↓</option>
+          <option value="year-asc">Year ↑</option>
+          <option value="author">Author A–Z</option>
+          <option value="title">Title A–Z</option>
+          <option value="rating">Rating ↓</option>
+        </select>
+        <button class="select-btn" class:active={selectMode} onclick={() => { selectMode = !selectMode; if (!selectMode) selectedIds = new Set(); }} title="Select multiple">
+          {selectMode ? `✓ ${selectedIds.size} sel.` : 'Select'}
+        </button>
         {#if search || typeFilter || statusFilter || collectionFilter || tagFilter || yearFrom || yearTo}
           <button class="clear-btn" onclick={() => { search=''; typeFilter=''; statusFilter=''; collectionFilter=''; tagFilter=''; yearFrom=''; yearTo=''; }}>
             Clear
           </button>
         {/if}
       </div>
+      {#if selectMode && selectedIds.size > 0}
+      <div class="bulk-bar">
+        <span class="bulk-label">{selectedIds.size} selected</span>
+        {#each store.biblioCollections as c}
+          <button class="bulk-coll-btn" onclick={() => bulkMoveToCollection(c.id)}>→ {c.name}</button>
+        {/each}
+        <button class="bulk-del-btn" onclick={bulkDelete}>Delete all</button>
+      </div>
+      {/if}
 
       <!-- Export bar -->
       {#if store.biblioRefs.length > 0}
@@ -862,9 +990,15 @@
           </div>
         {:else}
           {#each filteredRefs as ref (ref.id)}
-            <div class="ref-card" class:selected={selectedId === ref.id} onclick={() => selectRef(ref.id)} role="button" tabindex="0" onkeydown={e => e.key === 'Enter' && selectRef(ref.id)}>
+            <div class="ref-card" class:selected={selectedId === ref.id} class:batch-selected={selectedIds.has(ref.id)}
+              onclick={() => selectMode ? toggleSelectRef(ref.id) : selectRef(ref.id)}
+              role="button" tabindex="0" onkeydown={e => e.key === 'Enter' && (selectMode ? toggleSelectRef(ref.id) : selectRef(ref.id))}>
               <div class="ref-card-header">
-                <span class="ref-type-icon" title={ref.type}>{TYPE_ICONS[ref.type]}</span>
+                {#if selectMode}
+                  <input type="checkbox" class="ref-check" checked={selectedIds.has(ref.id)} onclick={(e) => { e.stopPropagation(); toggleSelectRef(ref.id); }} />
+                {:else}
+                  <span class="ref-type-icon" title={ref.type}>{TYPE_ICONS[ref.type]}</span>
+                {/if}
                 <div class="ref-title">{ref.title}</div>
                 <span class="ref-status-dot" style="background:{STATUS_COLOR[ref.readStatus]}" title={ref.readStatus}></span>
               </div>
@@ -1032,6 +1166,38 @@
               Copy Citation
             </button>
           </div>
+
+          <!-- Citation count -->
+          <div class="detail-cite-count">
+            {#if selectedRef.citationCount !== null}
+              <span class="cite-count-badge">{selectedRef.citationCount} citations</span>
+            {/if}
+            {#if selectedRef.doi}
+              <button class="export-btn-sm" disabled={citeFetchingId === selectedRef.id}
+                onclick={() => fetchCitationCount(selectedRef!)}>
+                {citeFetchingId === selectedRef.id ? 'Fetching…' : 'Get citation count'}
+              </button>
+            {/if}
+          </div>
+
+          <!-- Collections assignment -->
+          {#if store.biblioCollections.length > 0}
+          <div class="detail-collections">
+            <div class="detail-section-label">Collections</div>
+            <div class="detail-coll-list">
+              {#each store.biblioCollections as coll}
+                <button class="detail-coll-chip"
+                  class:in-coll={selectedRef.collectionIds.includes(coll.id)}
+                  style="--coll-color:{coll.color}"
+                  onclick={() => toggleCollectionOnRef(selectedRef!, coll.id)}>
+                  <span class="coll-dot"></span>
+                  {coll.name}
+                  {#if selectedRef.collectionIds.includes(coll.id)}<span class="coll-check">✓</span>{/if}
+                </button>
+              {/each}
+            </div>
+          </div>
+          {/if}
 
           <!-- Export single -->
           <div class="detail-export-row">
@@ -1647,6 +1813,33 @@
   z-index: 2000;
   pointer-events: none;
 }
+
+/* Sort / select / bulk */
+.select-btn { background: #1e293b; border: 1px solid #334155; color: #94a3b8; padding: 0.3rem 0.6rem; border-radius: 6px; cursor: pointer; font-size: 0.78rem; white-space: nowrap; }
+.select-btn.active { border-color: #6366f1; color: #c7d2fe; background: #1e1b4b; }
+.ref-check { width: 16px; height: 16px; cursor: pointer; accent-color: #6366f1; flex-shrink: 0; margin-top: 0.15rem; }
+.ref-card.batch-selected { border-color: #818cf8; background: #1e1b4b; }
+.bulk-bar { display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.75rem; background: #1e1b4b; border-bottom: 1px solid #334155; flex-shrink: 0; flex-wrap: wrap; }
+.bulk-label { font-size: 0.78rem; color: #c7d2fe; margin-right: 0.25rem; }
+.bulk-coll-btn { background: #1e293b; border: 1px solid #334155; color: #94a3b8; padding: 0.2rem 0.5rem; border-radius: 4px; cursor: pointer; font-size: 0.72rem; }
+.bulk-coll-btn:hover { color: #e2e8f0; }
+.bulk-del-btn { margin-left: auto; background: #7f1d1d; border: none; color: #fca5a5; padding: 0.2rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 0.72rem; }
+
+/* Citation count */
+.detail-cite-count { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.cite-count-badge { background: #164e63; color: #67e8f9; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.72rem; font-weight: 600; }
+
+/* Collection assignment */
+.detail-collections { display: flex; flex-direction: column; gap: 0.3rem; }
+.detail-coll-list { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.detail-coll-chip {
+  display: flex; align-items: center; gap: 0.25rem;
+  background: #0f172a; border: 1px solid #334155; color: #64748b;
+  padding: 0.2rem 0.5rem; border-radius: 999px; cursor: pointer; font-size: 0.72rem;
+}
+.detail-coll-chip:hover { border-color: var(--coll-color, #6366f1); color: #e2e8f0; }
+.detail-coll-chip.in-coll { background: #1e1b4b; border-color: var(--coll-color, #6366f1); color: #c7d2fe; }
+.coll-check { font-size: 0.7rem; color: #86efac; }
 
 @media (max-width: 768px) {
   .lib-layout { grid-template-columns: 1fr; }

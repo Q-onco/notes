@@ -1561,3 +1561,119 @@ Tailor everything to cancer research / oncology context. Be specific to both the
   ];
   await streamGroq(MODELS.enzo, messages, onChunk, signal);
 }
+
+// ── Biblio: paper summary ─────────────────────────────────────────────────────
+export async function biblioPaperSummary(
+  title: string,
+  abstract: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    { role: 'system' as const, content: 'You are Enzo, an expert oncology researcher. Produce concise, structured paper summaries.' },
+    { role: 'user' as const, content: `Summarise this paper in structured format:\n\n**Title:** ${title}\n\n**Abstract:** ${abstract}\n\nUse exactly these headings on separate lines:\n**Population/Model:** [1 sentence]\n**Intervention/Method:** [1 sentence]\n**Key Findings:** [2-3 bullet points]\n**Limitations:** [1-2 bullet points]\n**Relevance:** [1 sentence on translational or clinical relevance]` }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
+// ── Biblio: extract key quotes ────────────────────────────────────────────────
+export async function biblioKeyQuotes(
+  title: string,
+  abstract: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    { role: 'system' as const, content: 'You are Enzo, an expert oncology researcher.' },
+    { role: 'user' as const, content: `From the abstract of this paper, extract 3 sentences that are most worth citing verbatim in a manuscript. Number them 1-3. For each, add a one-line explanation of when/why to use it.\n\n**Title:** ${title}\n\n**Abstract:** ${abstract}` }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
+// ── Biblio: gap finder ────────────────────────────────────────────────────────
+export async function biblioGapFinder(
+  title: string,
+  abstract: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    { role: 'system' as const, content: 'You are Enzo, an expert oncology researcher and critical reviewer.' },
+    { role: 'user' as const, content: `Based on this paper's abstract, identify 3-4 specific research gaps or unanswered questions it leaves open. Be precise and actionable — these should be things a researcher could write a grant or study around.\n\n**Title:** ${title}\n\n**Abstract:** ${abstract}` }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
+// ── Biblio: PICO extract ──────────────────────────────────────────────────────
+export async function biblioPICO(
+  title: string,
+  abstract: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    { role: 'system' as const, content: 'You are Enzo, an expert in evidence-based oncology research.' },
+    { role: 'user' as const, content: `Extract PICO elements from this paper. If any element cannot be determined from the abstract, say "Not specified".\n\n**Title:** ${title}\n\n**Abstract:** ${abstract}\n\nFormat:\n**P (Population):** ...\n**I (Intervention):** ...\n**C (Comparison):** ...\n**O (Outcome):** ...\n**Study Design:** ...\n**Sample Size:** ...` }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
+// ── Biblio: auto-tag ──────────────────────────────────────────────────────────
+export async function biblioAutoTag(
+  title: string,
+  abstract: string,
+  signal?: AbortSignal
+): Promise<string[]> {
+  const messages = [
+    { role: 'system' as const, content: 'You are a biomedical research librarian. Return only a JSON array of strings, no markdown, no explanation.' },
+    { role: 'user' as const, content: `Suggest 5 concise keyword tags for this paper. Return ONLY a JSON array like ["tag1","tag2","tag3","tag4","tag5"].\n\nTitle: ${title}\nAbstract: ${abstract.slice(0, 400)}` }
+  ];
+  let full = '';
+  await streamGroq(MODELS.quick, messages, c => { full += c; }, signal);
+  try {
+    const match = full.match(/\[.*?\]/s);
+    return match ? JSON.parse(match[0]) : [];
+  } catch { return []; }
+}
+
+// ── Biblio: multi-paper compare ────────────────────────────────────────────────
+export async function biblioCompare(
+  papers: { title: string; abstract: string }[],
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const list = papers.map((p, i) => `**Paper ${i + 1}:** ${p.title}\n${p.abstract}`).join('\n\n');
+  const messages = [
+    { role: 'system' as const, content: 'You are Enzo, an expert oncology researcher and systematic reviewer.' },
+    { role: 'user' as const, content: `Compare these ${papers.length} papers across key dimensions. Use a structured format with clear headers.\n\n${list}\n\nCompare on: Study design, Population/Model, Sample size, Key findings, Methodological strengths, Limitations, and Relevance to translational oncology. End with a one-paragraph synthesis.` }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
+// ── Biblio: synthesis across papers ───────────────────────────────────────────
+export async function biblioSynthesis(
+  papers: { title: string; abstract: string }[],
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const list = papers.map((p, i) => `[${i + 1}] ${p.title}: ${p.abstract.slice(0, 300)}`).join('\n\n');
+  const messages = [
+    { role: 'system' as const, content: 'You are Enzo, an expert oncology researcher writing a narrative synthesis for a systematic review.' },
+    { role: 'user' as const, content: `Write a 200–300 word narrative synthesis of these ${papers.length} papers. Identify common themes, points of agreement, contradictions, and the overall state of evidence. Use numbered citations [1], [2], etc.\n\n${list}` }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
+
+// ── Biblio: gap analysis across papers ────────────────────────────────────────
+export async function biblioMultiGap(
+  papers: { title: string; abstract: string }[],
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const list = papers.map((p, i) => `[${i + 1}] ${p.title}: ${p.abstract.slice(0, 250)}`).join('\n\n');
+  const messages = [
+    { role: 'system' as const, content: 'You are Enzo, a critical oncology researcher identifying grant-worthy research opportunities.' },
+    { role: 'user' as const, content: `Across these ${papers.length} papers collectively, identify 4-5 specific research gaps that NONE of them address. These gaps should be concrete enough to form the basis of a grant proposal or study design.\n\n${list}` }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
