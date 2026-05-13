@@ -811,6 +811,7 @@ export interface BiblioReference {
   notes: string;
   citationCount: number | null;
   annotations: BiblioAnnotation[];
+  lastPage?: number;
   addedAt: number;
   updatedAt: number;
   source: 'doi' | 'pmid' | 'arxiv' | 'bibtex' | 'manual' | 'curated';
