@@ -28,6 +28,8 @@
 
   // Citation picker
   let citeOpen = $state(false);
+  let citeSearch = $state('');
+  let citeStyle = $state<'vancouver' | 'apa' | 'nature' | 'chicago'>('vancouver');
 
   // Section add
   let addSecOpen = $state(false);
@@ -187,6 +189,31 @@
       if (e?.name !== 'AbortError') enzoText += '\n\n[Error]';
     }
     enzoLoading = false;
+  }
+
+  function formatBiblioVancouver(r: { authors: {given:string;family:string}[]; title: string; journal: string; year: number | null; doi: string }): string {
+    const au = r.authors.slice(0, 6).map(a => `${a.family} ${a.given.split(' ').map((i: string) => i[0] ?? '').join('')}`).join(', ') + (r.authors.length > 6 ? ' et al.' : '');
+    const yr = r.year ?? 'n.d.';
+    const doi = r.doi ? ` doi:${r.doi}` : '';
+    return `${au}. ${r.title}. ${r.journal}. ${yr}${doi}`;
+  }
+
+  function formatBiblioAPA(r: { authors: {given:string;family:string}[]; title: string; journal: string; year: number | null; doi: string }): string {
+    const au = r.authors.map(a => `${a.family}, ${a.given.split(' ').map((i: string) => i[0] ? i[0] + '.' : '').join(' ')}`);
+    const auStr = au.length <= 7 ? au.slice(0,-1).join(', ') + (au.length > 1 ? ', & ' : '') + au[au.length-1] : au.slice(0,6).join(', ') + ', … ' + au[au.length-1];
+    const yr = r.year ?? 'n.d.';
+    const doi = r.doi ? ` https://doi.org/${r.doi}` : '';
+    return `${auStr} (${yr}). ${r.title}. *${r.journal}*.${doi}`;
+  }
+
+  function insertBiblioRef(ref: import('../lib/types').BiblioReference) {
+    let cite: string;
+    if (citeStyle === 'apa') cite = `(${formatBiblioAPA(ref)})`;
+    else cite = `[${formatBiblioVancouver(ref)}]`;
+    updateSec({ content: sec!.content + `<p>${cite}</p>` });
+    citeOpen = false;
+    citeSearch = '';
+    showToast('Citation inserted');
   }
 
   function insertCitation(paper: { authors: string[]; title: string; journal: string; year: number; doi: string }) {
@@ -483,16 +510,41 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="ms-backdrop" onclick={() => citeOpen = false}></div>
   <div class="cite-modal" role="dialog" aria-label="Insert citation">
-    <h3 class="modal-title">Insert Citation</h3>
+    <div class="cite-modal-header">
+      <h3 class="modal-title">Insert Citation</h3>
+      <div class="cite-style-selector">
+        {#each (['vancouver','apa'] as const) as s}
+          <button class="cite-sty-btn" class:active={citeStyle === s} onclick={() => citeStyle = s}>{s}</button>
+        {/each}
+      </div>
+    </div>
+    <input class="cite-search-input" bind:value={citeSearch} placeholder="Search Biblio library…" />
     <div class="cite-list">
-      {#each store.readingList as item (item.id)}
-        <button class="cite-item" onclick={() => insertCitation(item.paper)}>
-          <span class="cite-title">{item.paper.title}</span>
-          <span class="cite-meta">{item.paper.authors[0] ? item.paper.authors[0] + ' et al.' : ''} · {item.paper.journal} {item.paper.year}</span>
+      {#each store.biblioRefs.filter(r => !citeSearch.trim() || r.title.toLowerCase().includes(citeSearch.toLowerCase()) || r.authors.some(a => a.family.toLowerCase().includes(citeSearch.toLowerCase()))) as ref (ref.id)}
+        <button class="cite-item" onclick={() => insertBiblioRef(ref)}>
+          <span class="cite-title">{ref.title}</span>
+          <span class="cite-meta">
+            {#if ref.authors[0]}{ref.authors[0].family}{ref.authors.length > 1 ? ' et al.' : ''}{/if}
+            {ref.year ? ` · ${ref.year}` : ''}
+            {ref.journal ? ` · ${ref.journal}` : ''}
+          </span>
         </button>
       {:else}
-        <p class="empty-hint">No papers in reading list yet.</p>
+        {#if store.biblioRefs.length === 0}
+          <p class="empty-hint">Your Biblio library is empty.<br/>Import references in the Bibliography tab.</p>
+        {:else}
+          <p class="empty-hint">No matches for "{citeSearch}".</p>
+        {/if}
       {/each}
+      {#if store.readingList.length > 0}
+        <div class="cite-divider">From Reading List</div>
+        {#each store.readingList.filter(i => !citeSearch || i.paper.title.toLowerCase().includes(citeSearch.toLowerCase())) as item (item.id)}
+          <button class="cite-item cite-item-rl" onclick={() => insertCitation(item.paper)}>
+            <span class="cite-title">{item.paper.title}</span>
+            <span class="cite-meta">{item.paper.authors[0] ?? ''}{item.paper.authors.length > 1 ? ' et al.' : ''} · {item.paper.journal} {item.paper.year}</span>
+          </button>
+        {/each}
+      {/if}
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick={() => citeOpen = false}>Close</button>
@@ -1306,10 +1358,18 @@
     box-shadow: 0 20px 60px rgba(0,0,0,0.3);
   }
 
+  .cite-modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .cite-style-selector { display: flex; gap: 4px; }
+  .cite-sty-btn { background: var(--sf2, #1e293b); border: 1px solid var(--bd); color: var(--mu); padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 0.72rem; font-family: var(--mono); }
+  .cite-sty-btn.active { background: #312e81; border-color: #6366f1; color: #c7d2fe; }
+  .cite-search-input { width: 100%; background: var(--sf2, #1e293b); border: 1px solid var(--bd); color: var(--tx); border-radius: 6px; padding: 6px 10px; font-size: 0.82rem; margin-bottom: 8px; box-sizing: border-box; }
+  .cite-divider { font-size: 0.68rem; color: var(--mu); text-transform: uppercase; letter-spacing: 0.06em; padding: 6px 0 4px; border-top: 1px solid var(--bd); margin-top: 6px; }
+  .cite-item-rl { opacity: 0.75; }
+
   .modal-title {
     font-size: 1rem;
     font-weight: 700;
-    margin: 0 0 16px;
+    margin: 0;
     color: var(--tx);
   }
 
