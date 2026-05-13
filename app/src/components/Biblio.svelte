@@ -1,7 +1,9 @@
 <script lang="ts">
   import { store } from '../lib/store.svelte';
   import { nanoid } from 'nanoid';
-  import type { BiblioReference, BiblioCollection, BiblioAuthor, BiblioRefType, BiblioReadStatus } from '../lib/types';
+  import type { BiblioReference, BiblioCollection, BiblioAuthor, BiblioRefType, BiblioReadStatus, BiblioAnnotation } from '../lib/types';
+  import * as pdfjsLib from 'pdfjs-dist';
+  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).href;
 
   // ── Types ────────────────────────────────────────────────────────────────
   type CiteStyle = 'vancouver' | 'apa' | 'nature' | 'chicago';
@@ -175,6 +177,22 @@
   // Tag input
   let tagInput = $state('');
 
+  // ── PDF Viewer (L3) ──────────────────────────────────────────────────────
+  let pdfOpen = $state(false);
+  let pdfRefId = $state<string | null>(null);
+  let pdfDoc = $state<any>(null);
+  let pdfPage = $state(1);
+  let pdfTotal = $state(0);
+  let pdfScale = $state(1.4);
+  let pdfLoading = $state(false);
+  let pdfError = $state('');
+  let pdfHighlight = $state(false);
+  let pendingAnnotText = $state('');
+  let pendingAnnotPage = $state(0);
+  let showAnnotInput = $state(false);
+  let newAnnotNote = $state('');
+  let pdfRenderPending = $state(false);
+
   function showToast(msg: string) {
     toastMsg = msg;
     clearTimeout(toastTimer);
@@ -237,6 +255,129 @@
   let addedDois = $derived(new Set(store.biblioRefs.map(r => r.doi).filter(Boolean)));
 
   let selectedRef = $derived(selectedId ? store.biblioRefs.find(r => r.id === selectedId) ?? null : null);
+  let pdfRef = $derived(pdfRefId ? store.biblioRefs.find(r => r.id === pdfRefId) ?? null : null);
+
+  // ── PDF Viewer functions (L3) ─────────────────────────────────────────────
+  async function openPDFViewer(ref: BiblioReference) {
+    if (!ref.pdfUrl) return;
+    pdfRefId = ref.id;
+    pdfPage = 1; pdfTotal = 0; pdfError = ''; pdfLoading = true; pdfOpen = true;
+    pdfHighlight = false; showAnnotInput = false;
+    try {
+      const task = pdfjsLib.getDocument({ url: ref.pdfUrl, withCredentials: false });
+      const doc = await task.promise;
+      pdfDoc = doc;
+      pdfTotal = doc.numPages;
+      pdfLoading = false;
+      pdfRenderPending = true;
+    } catch(e: any) {
+      pdfLoading = false;
+      pdfError = 'Could not load PDF. The URL may require authentication or have CORS restrictions. Try opening it externally.';
+    }
+  }
+
+  $effect(() => {
+    if (pdfRenderPending && !pdfLoading && pdfDoc) {
+      pdfRenderPending = false;
+      requestAnimationFrame(() => renderCurrentPage());
+    }
+  });
+
+  async function renderCurrentPage() {
+    if (!pdfDoc) return;
+    const canvas = document.getElementById('biblio-pdf-canvas') as HTMLCanvasElement | null;
+    if (!canvas) { setTimeout(renderCurrentPage, 50); return; }
+    try {
+      const page = await pdfDoc.getPage(pdfPage);
+      const viewport = page.getViewport({ scale: pdfScale });
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d')!;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: ctx, viewport }).promise;
+    } catch(e) { /* page render error, ignore */ }
+  }
+
+  function closePDFViewer() {
+    pdfOpen = false;
+    if (pdfDoc) { try { pdfDoc.destroy(); } catch {} pdfDoc = null; }
+    pdfRefId = null;
+    showAnnotInput = false;
+  }
+
+  function pdfNextPage() {
+    if (pdfPage < pdfTotal) { pdfPage++; renderCurrentPage(); }
+  }
+
+  function pdfPrevPage() {
+    if (pdfPage > 1) { pdfPage--; renderCurrentPage(); }
+  }
+
+  function pdfZoomIn() {
+    pdfScale = Math.min(3, Math.round((pdfScale + 0.25) * 100) / 100);
+    renderCurrentPage();
+  }
+
+  function pdfZoomOut() {
+    pdfScale = Math.max(0.5, Math.round((pdfScale - 0.25) * 100) / 100);
+    renderCurrentPage();
+  }
+
+  function capturePDFSelection() {
+    if (!pdfHighlight) return;
+    const sel = window.getSelection();
+    const txt = sel?.toString().trim() ?? '';
+    if (!txt) return;
+    pendingAnnotText = txt.slice(0, 600);
+    pendingAnnotPage = pdfPage;
+    newAnnotNote = '';
+    showAnnotInput = true;
+    sel?.removeAllRanges();
+  }
+
+  function saveAnnotation() {
+    if (!pdfRef || !pendingAnnotText) return;
+    const ann: BiblioAnnotation = {
+      id: nanoid(), page: pendingAnnotPage,
+      text: pendingAnnotText, note: newAnnotNote,
+      color: '#fde68a', createdAt: Date.now()
+    };
+    const idx = store.biblioRefs.findIndex(r => r.id === pdfRef!.id);
+    if (idx >= 0) {
+      store.biblioRefs[idx] = { ...store.biblioRefs[idx], annotations: [...store.biblioRefs[idx].annotations, ann] };
+      store.biblioRefs = [...store.biblioRefs];
+      store.saveBiblio();
+    }
+    showAnnotInput = false; pendingAnnotText = ''; newAnnotNote = '';
+    showToast('Annotation saved');
+  }
+
+  function deletePDFAnnotation(annId: string) {
+    if (!pdfRef) return;
+    const idx = store.biblioRefs.findIndex(r => r.id === pdfRef!.id);
+    if (idx >= 0) {
+      store.biblioRefs[idx] = { ...store.biblioRefs[idx], annotations: store.biblioRefs[idx].annotations.filter(a => a.id !== annId) };
+      store.biblioRefs = [...store.biblioRefs];
+      store.saveBiblio();
+    }
+  }
+
+  function exportAnnotationsToNotes(ref: BiblioReference) {
+    if (!ref.annotations.length) return;
+    const sorted = [...ref.annotations].sort((a, b) => a.page - b.page);
+    const body = `# Annotations: ${ref.title}\n\n` + sorted.map(a =>
+      `## Page ${a.page}\n\n> ${a.text}\n${a.note ? `\n*Note: ${a.note}*` : ''}`
+    ).join('\n\n---\n\n');
+    const note = {
+      id: nanoid(), title: `Annotations: ${ref.title}`, body,
+      tags: ['biblio', 'annotations'],
+      createdAt: Date.now(), updatedAt: Date.now(),
+      pinned: false, archived: false, audioIds: [],
+    };
+    store.notes = [note, ...store.notes];
+    store.saveNotes().catch(() => {});
+    showToast('Annotations exported to Notes');
+  }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   function makeRef(partial: Partial<BiblioReference>): BiblioReference {
@@ -1100,7 +1241,8 @@
               <a class="id-chip arxiv-chip" href="https://arxiv.org/abs/{selectedRef.arxivId}" target="_blank" rel="noopener">arXiv ↗</a>
             {/if}
             {#if selectedRef.pdfUrl}
-              <a class="id-chip pdf-chip" href={selectedRef.pdfUrl} target="_blank" rel="noopener">PDF (OA) ↗</a>
+              <a class="id-chip pdf-chip" href={selectedRef.pdfUrl} target="_blank" rel="noopener">PDF ↗</a>
+              <button class="id-chip pdf-view-btn" onclick={() => openPDFViewer(selectedRef!)}>View in-app</button>
             {/if}
           </div>
 
@@ -1196,6 +1338,14 @@
                 </button>
               {/each}
             </div>
+          </div>
+          {/if}
+
+          <!-- Annotations count -->
+          {#if selectedRef.annotations.length > 0}
+          <div class="detail-annot-row">
+            <span class="detail-section-label">Annotations: {selectedRef.annotations.length}</span>
+            <button class="export-btn-sm" onclick={() => exportAnnotationsToNotes(selectedRef!)}>Export to Notes</button>
           </div>
           {/if}
 
@@ -1361,6 +1511,104 @@
   <!-- Toast -->
   {#if toastMsg}
     <div class="toast">{toastMsg}</div>
+  {/if}
+
+  <!-- ── PDF VIEWER MODAL (L3) ──────────────────────────────────────────── -->
+  {#if pdfOpen}
+  <div class="pdf-overlay" role="dialog" aria-modal="true"
+    onkeydown={(e) => { if (e.key === 'Escape') closePDFViewer(); }}
+    tabindex="-1">
+    <div class="pdf-viewer">
+      <!-- Header -->
+      <div class="pdf-header">
+        <span class="pdf-title" title={pdfRef?.title ?? ''}>{pdfRef?.title ?? 'PDF Viewer'}</span>
+        <div class="pdf-controls">
+          <button class="pdf-ctrl-btn" onclick={pdfPrevPage} disabled={pdfPage <= 1}>‹</button>
+          <span class="pdf-page-info">{pdfPage} / {pdfTotal || '?'}</span>
+          <button class="pdf-ctrl-btn" onclick={pdfNextPage} disabled={pdfPage >= pdfTotal}>›</button>
+          <button class="pdf-ctrl-btn" onclick={pdfZoomOut} title="Zoom out">−</button>
+          <span class="pdf-zoom-info">{Math.round(pdfScale * 100)}%</span>
+          <button class="pdf-ctrl-btn" onclick={pdfZoomIn} title="Zoom in">+</button>
+          <button class="pdf-ctrl-btn" class:highlight-active={pdfHighlight}
+            onclick={() => pdfHighlight = !pdfHighlight}
+            title={pdfHighlight ? 'Highlight mode ON — select text to annotate' : 'Enable highlight mode'}>
+            ✏ {pdfHighlight ? 'ON' : 'Highlight'}
+          </button>
+          <button class="pdf-ctrl-btn pdf-close-btn" onclick={closePDFViewer}>✕ Close</button>
+        </div>
+      </div>
+
+      <!-- Body -->
+      <div class="pdf-body">
+        <!-- Canvas area -->
+        <div class="pdf-canvas-area" onmouseup={capturePDFSelection}>
+          {#if pdfLoading}
+            <div class="pdf-loading">
+              <div class="pdf-spinner"></div>
+              Loading PDF…
+            </div>
+          {:else if pdfError}
+            <div class="pdf-error">
+              <div>{pdfError}</div>
+              {#if pdfRef?.pdfUrl}
+                <a href={pdfRef.pdfUrl} target="_blank" rel="noopener" class="pdf-ext-link">Open in new tab ↗</a>
+              {/if}
+            </div>
+          {:else}
+            <div class="pdf-canvas-wrap">
+              <canvas id="biblio-pdf-canvas"></canvas>
+            </div>
+          {/if}
+        </div>
+
+        <!-- Annotations panel -->
+        <div class="pdf-annot-panel">
+          <div class="pdf-annot-header">
+            <span>Annotations</span>
+            <span class="annot-count">{pdfRef?.annotations.length ?? 0}</span>
+            {#if (pdfRef?.annotations.length ?? 0) > 0}
+              <button class="annot-export-btn"
+                onclick={() => pdfRef && exportAnnotationsToNotes(pdfRef)}
+                title="Export all annotations to Notes">↑ Notes</button>
+            {/if}
+          </div>
+
+          {#if showAnnotInput}
+          <div class="annot-input-box">
+            <div class="annot-quote-preview">"{pendingAnnotText.slice(0, 140)}{pendingAnnotText.length > 140 ? '…' : ''}"</div>
+            <textarea class="annot-note-ta" bind:value={newAnnotNote} rows="2"
+              placeholder="Add a note to this highlight (optional)…"></textarea>
+            <div class="annot-input-btns">
+              <button class="annot-save-btn" onclick={saveAnnotation}>Save</button>
+              <button class="annot-cancel-btn" onclick={() => { showAnnotInput = false; pendingAnnotText = ''; }}>Cancel</button>
+            </div>
+          </div>
+          {/if}
+
+          {#if pdfHighlight && !showAnnotInput}
+          <div class="annot-hint">Select text on the PDF to create a highlight annotation.</div>
+          {/if}
+
+          <div class="annot-list">
+            {#each (pdfRef?.annotations ?? []).slice().sort((a,b) => a.page - b.page) as ann (ann.id)}
+              <div class="annot-item">
+                <div class="annot-item-header">
+                  <span class="annot-page-badge">p.{ann.page}</span>
+                  <button class="annot-del-btn" onclick={() => deletePDFAnnotation(ann.id)} title="Delete">×</button>
+                </div>
+                <div class="annot-text">"{ann.text.slice(0, 120)}{ann.text.length > 120 ? '…' : ''}"</div>
+                {#if ann.note}<div class="annot-note">{ann.note}</div>{/if}
+              </div>
+            {/each}
+          </div>
+
+          {#if !(pdfRef?.annotations.length)}
+          <div class="annot-empty">No annotations yet.<br>Enable highlight mode and select text.</div>
+          {/if}
+        </div>
+      </div>
+    </div>
+  </div>
   {/if}
 </div>
 
@@ -1860,11 +2108,144 @@
 .detail-coll-chip:hover { border-color: var(--coll-color, #6366f1); color: #e2e8f0; }
 .detail-coll-chip.in-coll { background: #1e1b4b; border-color: var(--coll-color, #6366f1); color: #c7d2fe; }
 .coll-check { font-size: 0.7rem; color: #86efac; }
+.detail-annot-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 
 @media (max-width: 768px) {
   .lib-layout { grid-template-columns: 1fr; }
   .lib-sidebar { display: none; }
   .detail-panel { width: 100%; border-left: none; border-top: 1px solid #1e293b; max-height: 55vh; }
   .curated-grid { grid-template-columns: 1fr; }
+}
+
+/* PDF view btn (alongside external link) */
+.pdf-view-btn {
+  background: #1e1b4b; border: 1px solid #4f46e5; color: #a5b4fc;
+  cursor: pointer; padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.72rem;
+}
+.pdf-view-btn:hover { background: #312e81; color: #c7d2fe; }
+
+/* PDF Viewer modal overlay */
+.pdf-overlay {
+  position: fixed; inset: 0; z-index: 3000;
+  background: rgba(0,0,0,0.75);
+  display: flex; align-items: stretch; justify-content: center;
+  padding: 1rem;
+}
+.pdf-viewer {
+  background: #0f172a; border: 1px solid #334155; border-radius: 10px;
+  display: flex; flex-direction: column;
+  width: 100%; max-width: 1200px; max-height: 100%;
+  overflow: hidden;
+}
+.pdf-header {
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.6rem 1rem; border-bottom: 1px solid #1e293b;
+  background: #0f172a; flex-shrink: 0; flex-wrap: wrap;
+}
+.pdf-title {
+  font-size: 0.82rem; color: #cbd5e1; flex: 1 1 200px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pdf-controls {
+  display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;
+}
+.pdf-ctrl-btn {
+  background: #1e293b; border: 1px solid #334155; color: #94a3b8;
+  padding: 0.25rem 0.55rem; border-radius: 5px; cursor: pointer;
+  font-size: 0.78rem; white-space: nowrap;
+}
+.pdf-ctrl-btn:hover:not(:disabled) { border-color: #6366f1; color: #c7d2fe; }
+.pdf-ctrl-btn:disabled { opacity: 0.4; cursor: default; }
+.pdf-ctrl-btn.highlight-active { background: #1e1b4b; border-color: #6366f1; color: #a5b4fc; }
+.pdf-close-btn { border-color: #475569; }
+.pdf-close-btn:hover { background: #7f1d1d; border-color: #ef4444; color: #fca5a5; }
+.pdf-page-info { font-size: 0.78rem; color: #94a3b8; min-width: 55px; text-align: center; }
+.pdf-zoom-info { font-size: 0.78rem; color: #64748b; min-width: 40px; text-align: center; }
+
+/* PDF body — canvas + annotations side by side */
+.pdf-body {
+  display: flex; flex: 1; overflow: hidden; min-height: 0;
+}
+.pdf-canvas-area {
+  flex: 1; overflow: auto; background: #1a1a2e;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 1rem;
+  user-select: text;
+}
+.pdf-canvas-wrap { display: inline-block; }
+#biblio-pdf-canvas { display: block; box-shadow: 0 4px 24px rgba(0,0,0,0.5); }
+.pdf-loading, .pdf-error {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0.75rem; color: #64748b; font-size: 0.88rem; padding: 2rem; text-align: center;
+}
+.pdf-spinner {
+  width: 28px; height: 28px; border: 3px solid #334155;
+  border-top-color: #6366f1; border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.pdf-ext-link { color: #818cf8; font-size: 0.82rem; }
+.pdf-error { color: #f87171; }
+
+/* Annotations panel */
+.pdf-annot-panel {
+  width: 280px; flex-shrink: 0; border-left: 1px solid #1e293b;
+  background: #090e1a; display: flex; flex-direction: column; overflow: hidden;
+}
+.pdf-annot-header {
+  display: flex; align-items: center; gap: 0.4rem;
+  padding: 0.6rem 0.75rem; border-bottom: 1px solid #1e293b;
+  font-size: 0.78rem; color: #94a3b8; font-weight: 600; flex-shrink: 0;
+}
+.annot-count { background: #1e293b; color: #64748b; padding: 0.1rem 0.4rem; border-radius: 999px; font-size: 0.7rem; }
+.annot-export-btn {
+  margin-left: auto; background: #1e1b4b; border: 1px solid #4f46e5; color: #a5b4fc;
+  padding: 0.15rem 0.45rem; border-radius: 4px; cursor: pointer; font-size: 0.7rem;
+}
+.annot-export-btn:hover { background: #312e81; }
+.annot-hint { padding: 0.5rem 0.75rem; font-size: 0.72rem; color: #64748b; background: #0f172a; }
+.annot-list { flex: 1; overflow-y: auto; padding: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.annot-item {
+  background: #0f172a; border: 1px solid #1e293b; border-radius: 6px;
+  padding: 0.5rem 0.6rem; display: flex; flex-direction: column; gap: 0.3rem;
+}
+.annot-item-header { display: flex; align-items: center; gap: 0.3rem; }
+.annot-page-badge {
+  background: #164e63; color: #67e8f9; padding: 0.1rem 0.4rem;
+  border-radius: 4px; font-size: 0.68rem; font-weight: 600;
+}
+.annot-del-btn {
+  margin-left: auto; background: none; border: none; color: #475569;
+  cursor: pointer; font-size: 0.9rem; line-height: 1; padding: 0;
+}
+.annot-del-btn:hover { color: #f87171; }
+.annot-text { font-size: 0.75rem; color: #94a3b8; font-style: italic; line-height: 1.4; }
+.annot-note { font-size: 0.75rem; color: #c7d2fe; border-left: 2px solid #6366f1; padding-left: 0.4rem; }
+.annot-empty { padding: 1rem 0.75rem; font-size: 0.76rem; color: #334155; text-align: center; line-height: 1.5; }
+
+/* Annotation input box */
+.annot-input-box {
+  padding: 0.6rem; border-bottom: 1px solid #1e293b; background: #0f172a;
+  display: flex; flex-direction: column; gap: 0.4rem; flex-shrink: 0;
+}
+.annot-quote-preview {
+  font-size: 0.72rem; color: #fbbf24; font-style: italic;
+  background: #1c1a0a; border: 1px solid #92400e; border-radius: 4px;
+  padding: 0.35rem 0.5rem; line-height: 1.4;
+}
+.annot-note-ta {
+  background: #1e293b; border: 1px solid #334155; color: #e2e8f0;
+  border-radius: 4px; padding: 0.35rem; font-size: 0.76rem;
+  resize: none; font-family: inherit;
+}
+.annot-input-btns { display: flex; gap: 0.4rem; }
+.annot-save-btn {
+  background: #6366f1; border: none; color: #fff;
+  padding: 0.25rem 0.7rem; border-radius: 4px; cursor: pointer; font-size: 0.76rem;
+}
+.annot-save-btn:hover { background: #818cf8; }
+.annot-cancel-btn {
+  background: #1e293b; border: 1px solid #334155; color: #94a3b8;
+  padding: 0.25rem 0.7rem; border-radius: 4px; cursor: pointer; font-size: 0.76rem;
 }
 </style>
