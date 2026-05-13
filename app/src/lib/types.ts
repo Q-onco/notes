@@ -768,6 +768,59 @@ export interface ReviewArticle {
   updatedAt: number;
 }
 
+// ── Biblio ────────────────────────────────────────────────────────────────────
+
+export type BiblioRefType =
+  'article' | 'book' | 'chapter' | 'thesis' | 'preprint' | 'conference' |
+  'dataset' | 'software' | 'report' | 'patent' | 'webpage' | 'other';
+
+export type BiblioReadStatus = 'unread' | 'reading' | 'read' | 'cited';
+
+export interface BiblioAuthor {
+  given: string;
+  family: string;
+}
+
+export interface BiblioReference {
+  id: string;
+  type: BiblioRefType;
+  title: string;
+  authors: BiblioAuthor[];
+  year: number | null;
+  journal: string;
+  volume: string;
+  issue: string;
+  pages: string;
+  doi: string;
+  pmid: string;
+  pmcid: string;
+  arxivId: string;
+  url: string;
+  pdfUrl: string;       // OA link from Unpaywall
+  abstract: string;
+  keywords: string[];
+  language: string;
+  publisher: string;
+  edition: string;
+  collectionIds: string[];
+  tags: string[];
+  rating: 0 | 1 | 2 | 3 | 4 | 5;
+  readStatus: BiblioReadStatus;
+  citeKey: string;
+  notes: string;
+  citationCount: number | null;
+  addedAt: number;
+  updatedAt: number;
+  source: 'doi' | 'pmid' | 'arxiv' | 'bibtex' | 'manual' | 'curated';
+}
+
+export interface BiblioCollection {
+  id: string;
+  name: string;
+  parentId: string | null;
+  color: string;
+}
+
 export interface LaunchpadCustomResource {
   id: string;
   type: string;
