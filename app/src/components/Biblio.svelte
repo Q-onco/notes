@@ -680,11 +680,16 @@
 
   function detectDuplicate(ref: Partial<BiblioReference>): BiblioReference | null {
     if (ref.doi) {
-      const found = store.biblioRefs.find(r => r.doi === ref.doi);
+      const doiLow = ref.doi.toLowerCase();
+      const found = store.biblioRefs.find(r => r.doi.toLowerCase() === doiLow);
       if (found) return found;
     }
     if (ref.pmid) {
       const found = store.biblioRefs.find(r => r.pmid === ref.pmid);
+      if (found) return found;
+    }
+    if ((ref as any).arxivId) {
+      const found = store.biblioRefs.find(r => r.arxivId === (ref as any).arxivId);
       if (found) return found;
     }
     if (ref.title && ref.year) {
@@ -1055,8 +1060,9 @@
         const isRIS = bibtexRaw.trimStart().startsWith('TY  -') || bibtexRaw.includes('\nER  -');
         const parsed = isRIS ? parseRIS(bibtexRaw) : parseBibTeX(bibtexRaw);
         if (!parsed.length) throw new Error('No entries found — check format');
-        const added = confirmBulkImport(parsed);
-        showToast(`Imported ${added} reference${added !== 1 ? 's' : ''}`);
+        const { added, skipped } = confirmBulkImport(parsed);
+        const skipNote = skipped > 0 ? `, ${skipped} duplicate${skipped !== 1 ? 's' : ''} skipped` : '';
+        showToast(`Imported ${added} reference${added !== 1 ? 's' : ''}${skipNote}`);
         showImport = false;
         return;
       }
@@ -1070,7 +1076,12 @@
   function confirmSingleImport() {
     if (!importPreview) return;
     const dup = detectDuplicate(importPreview);
-    if (dup) { showToast(`Already in library: "${dup.title.slice(0, 40)}..."`); return; }
+    if (dup) {
+      showImport = false; importQuery = ''; importPreview = null;
+      activeTab = 'library'; selectedId = dup.id; showDetail = true;
+      showToast(`Already in library — opened existing entry`);
+      return;
+    }
     const ref = makeRef({ ...importPreview, citeKey: generateCiteKey(importPreview) });
     store.biblioRefs = [...store.biblioRefs, ref];
     store.saveBiblio();
@@ -1082,22 +1093,27 @@
     showDetail = true;
   }
 
-  function confirmBulkImport(partials: Partial<BiblioReference>[]): number {
-    let added = 0;
+  function confirmBulkImport(partials: Partial<BiblioReference>[]): { added: number; skipped: number } {
+    let added = 0; let skipped = 0;
     const newRefs = [...store.biblioRefs];
     for (const p of partials) {
-      if (detectDuplicate(p)) continue;
+      if (detectDuplicate(p)) { skipped++; continue; }
       newRefs.push(makeRef({ ...p, citeKey: generateCiteKey(p) }));
       added++;
     }
     store.biblioRefs = newRefs;
     store.saveBiblio();
-    return added;
+    return { added, skipped };
   }
 
   function addManualRef() {
     const dup = detectDuplicate(manualForm);
-    if (dup) { showToast('Duplicate found'); return; }
+    if (dup) {
+      showImport = false;
+      activeTab = 'library'; selectedId = dup.id; showDetail = true;
+      showToast('Already in library — opened existing entry');
+      return;
+    }
     const ref = makeRef({ ...manualForm, citeKey: generateCiteKey(manualForm) });
     store.biblioRefs = [...store.biblioRefs, ref];
     store.saveBiblio();
