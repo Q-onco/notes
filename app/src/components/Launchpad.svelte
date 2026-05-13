@@ -470,34 +470,19 @@
 
   async function fetchNews() {
     if (newsLoading) return;
-    newsLoading = true;
-    newsError = '';
-    try {
-      const results = await Promise.allSettled(
-        NEWS_FEEDS.map(async feed => {
-          const r = await fetch(
-            `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.url)}&count=6`,
-            { signal: AbortSignal.timeout(8000) }
-          );
-          const data = await r.json();
-          return (data.items || []).map((item: any) => ({
-            title: item.title?.replace(/&amp;/g,'&').replace(/&#039;/g,"'"),
-            url: item.link,
-            desc: (item.description || item.content || '').replace(/<[^>]+>/g,'').slice(0, 200).trim(),
-            pubDate: item.pubDate,
-            source: feed.name,
-            sourceColor: feed.color,
-          }));
-        })
-      );
-      const all: NewsItem[] = results
-        .filter(r => r.status === 'fulfilled')
-        .flatMap(r => (r as PromiseFulfilledResult<NewsItem[]>).value);
-      all.sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime());
-      newsItems = all;
-    } catch {
-      newsError = 'Could not load news feeds. Check your connection.';
-    }
+    newsLoading = true; newsError = '';
+    const results = await Promise.allSettled(
+      NEWS_FEEDS.map(feed => loadFeed(feed.url, 6).then(items => items.map(x => ({
+        title: x.title, url: x.link, desc: x.desc,
+        pubDate: x.pubDate, source: feed.name, sourceColor: feed.color,
+      }))))
+    );
+    const all: NewsItem[] = results
+      .filter(r => r.status === 'fulfilled')
+      .flatMap(r => (r as PromiseFulfilledResult<NewsItem[]>).value);
+    all.sort((a,b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime());
+    newsItems = all;
+    if (newsItems.length === 0) newsError = 'Could not reach any news feeds right now.';
     newsLoading = false;
   }
 
@@ -513,22 +498,18 @@
   async function fetchFundingNews() {
     if (fundingNewsLoading) return;
     fundingNewsLoading = true; fundingNewsError = '';
-    try {
-      const results = await Promise.allSettled(
-        FUNDING_FEEDS.map(async feed => {
-          const r = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.url)}&count=8`, { signal: AbortSignal.timeout(8000) });
-          const data = await r.json();
-          return (data.items || []).map((item: any) => ({
-            title: item.title?.replace(/&amp;/g,'&').replace(/&#039;/g,"'"),
-            url: item.link, desc: (item.description || item.content || '').replace(/<[^>]+>/g,'').slice(0,300).trim(),
-            pubDate: item.pubDate, source: feed.name, sourceColor: feed.color,
-          }));
-        })
-      );
-      const all: NewsItem[] = results.filter(r => r.status === 'fulfilled').flatMap(r => (r as PromiseFulfilledResult<NewsItem[]>).value);
-      all.sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime());
-      fundingNews = all;
-    } catch { fundingNewsError = 'Could not load funding news.'; }
+    const results = await Promise.allSettled(
+      FUNDING_FEEDS.map(feed => loadFeed(feed.url, 8).then(items => items.map(x => ({
+        title: x.title, url: x.link, desc: x.desc,
+        pubDate: x.pubDate, source: feed.name, sourceColor: feed.color,
+      }))))
+    );
+    const all: NewsItem[] = results
+      .filter(r => r.status === 'fulfilled')
+      .flatMap(r => (r as PromiseFulfilledResult<NewsItem[]>).value);
+    all.sort((a,b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime());
+    fundingNews = all;
+    if (fundingNews.length === 0) fundingNewsError = 'Could not reach any funding news feeds right now.';
     fundingNewsLoading = false;
   }
 
@@ -558,6 +539,45 @@
     return `# Enzo Funding Advisor Session\n\n${fundAdvisorMsgs.map(m => m.role === 'user' ? `**You:** ${m.text}` : `**Enzo:** ${m.text}`).join('\n\n---\n\n')}`;
   }
 
+  // ── RSS feed helper (corsproxy.io + native DOMParser, no rss2json) ───────────
+  function htmlDecode(s: string): string {
+    return s.replace(/&amp;/g,'&').replace(/&#039;/g,"'").replace(/&quot;/g,'"')
+            .replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&#(\d+);/g,(_,n)=>String.fromCharCode(+n));
+  }
+  function elText(parent: Element, localName: string): string {
+    for (const c of Array.from(parent.children))
+      if (c.localName === localName) return c.textContent?.trim() || '';
+    return '';
+  }
+  function getLink(item: Element): string {
+    for (const c of Array.from(item.children)) {
+      if (c.localName !== 'link') continue;
+      return c.getAttribute('href') || c.textContent?.trim() || '';
+    }
+    return '';
+  }
+  interface FeedItem { title:string; link:string; desc:string; pubDate:string; enclosure:string; duration:string; }
+  async function loadFeed(feedUrl: string, count = 15): Promise<FeedItem[]> {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 12000);
+    try {
+      const resp = await fetch(`https://corsproxy.io/?${encodeURIComponent(feedUrl)}`, { signal: ac.signal });
+      clearTimeout(timer);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const xml = await resp.text();
+      const doc = new DOMParser().parseFromString(xml, 'text/xml');
+      if (doc.querySelector('parsererror')) throw new Error('parse error');
+      return Array.from(doc.querySelectorAll('item')).slice(0, count).map(item => ({
+        title: htmlDecode(elText(item, 'title')),
+        link: getLink(item),
+        desc: (elText(item,'description') || elText(item,'summary') || '').replace(/<[^>]+>/g,'').replace(/\s+/g,' ').slice(0,300).trim(),
+        pubDate: elText(item,'pubDate') || elText(item,'published') || elText(item,'updated') || '',
+        enclosure: item.querySelector('enclosure')?.getAttribute('url') || '',
+        duration: elText(item,'duration'),
+      }));
+    } catch(e) { clearTimeout(timer); throw e; }
+  }
+
   // ── Podcast panel ─────────────────────────────────────────────────────────
   function fmtDur(raw: string): string {
     if (!raw) return '';
@@ -579,15 +599,13 @@
     if (!r.feed) return;
     podcastLoading = true; podcastError = ''; podcastEps = [];
     try {
-      const resp = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(r.feed)}&count=15`, { signal: AbortSignal.timeout(10000) });
-      const data = await resp.json();
-      if (data.status !== 'ok') throw new Error('Feed error');
-      podcastEps = (data.items || []).filter((item: any) => item.enclosure?.link).map((item: any) => ({
-        title: (item.title || '').replace(/&amp;/g,'&').replace(/&#039;/g,"'").replace(/&quot;/g,'"'),
-        url: item.enclosure.link,
-        date: item.pubDate,
-        duration: fmtDur(item.itunes_duration || ''),
-        desc: (item.description || item.content || '').replace(/<[^>]+>/g,'').slice(0,140).trim(),
+      const items = await loadFeed(r.feed, 15);
+      podcastEps = items.filter(x => x.enclosure).map(x => ({
+        title: x.title,
+        url: x.enclosure,
+        date: x.pubDate,
+        duration: fmtDur(x.duration),
+        desc: x.desc.slice(0, 140),
       }));
       if (podcastEps.length === 0) podcastError = 'No playable episodes found in this feed.';
     } catch { podcastError = 'Could not load episodes — feed may be unavailable.'; }
