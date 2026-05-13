@@ -298,7 +298,8 @@
   async function openPDFViewer(ref: BiblioReference) {
     if (!ref.pdfUrl) return;
     pdfRefId = ref.id;
-    pdfPage = 1; pdfTotal = 0; pdfError = ''; pdfLoading = true; pdfOpen = true;
+    pdfPage = ref.lastPage ?? 1;
+    pdfTotal = 0; pdfError = ''; pdfLoading = true; pdfOpen = true;
     pdfHighlight = false; showAnnotInput = false;
     try {
       const task = pdfjsLib.getDocument({ url: ref.pdfUrl, withCredentials: false });
@@ -311,6 +312,21 @@
       pdfLoading = false;
       pdfError = 'Could not load PDF. The URL may require authentication or have CORS restrictions. Try opening it externally.';
     }
+  }
+
+  function closePDFViewer() {
+    if (pdfRefId && pdfPage > 1) {
+      const idx = store.biblioRefs.findIndex(r => r.id === pdfRefId);
+      if (idx >= 0) {
+        store.biblioRefs[idx] = { ...store.biblioRefs[idx], lastPage: pdfPage };
+        store.biblioRefs = [...store.biblioRefs];
+        store.saveBiblio();
+      }
+    }
+    pdfOpen = false;
+    if (pdfDoc) { try { pdfDoc.destroy(); } catch {} pdfDoc = null; }
+    pdfRefId = null;
+    pdfPage = 1; pdfTotal = 0; pdfError = ''; showAnnotInput = false;
   }
 
   $effect(() => {
@@ -333,13 +349,6 @@
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       await page.render({ canvasContext: ctx, viewport }).promise;
     } catch(e) { /* page render error, ignore */ }
-  }
-
-  function closePDFViewer() {
-    pdfOpen = false;
-    if (pdfDoc) { try { pdfDoc.destroy(); } catch {} pdfDoc = null; }
-    pdfRefId = null;
-    showAnnotInput = false;
   }
 
   function pdfNextPage() {
@@ -1337,6 +1346,29 @@
           </div>
         </div>
         {/if}
+
+        <!-- Reading Queue -->
+        {#if store.biblioRefs.some(r => r.readStatus !== 'read' && r.pdfUrl)}
+        <div class="sidebar-section">
+          <div class="sidebar-section-header">
+            <span>Reading Queue</span>
+            <span class="rq-count">{store.biblioRefs.filter(r => r.readStatus !== 'read' && r.pdfUrl).length}</span>
+          </div>
+          {#each store.biblioRefs
+            .filter(r => r.readStatus !== 'read' && r.pdfUrl)
+            .sort((a, b) => b.rating - a.rating || b.addedAt - a.addedAt)
+            .slice(0, 5) as ref (ref.id)}
+            <div class="rq-item" onclick={() => openPDFViewer(ref)} role="button" tabindex="0"
+              onkeydown={e => e.key === 'Enter' && openPDFViewer(ref)}>
+              <span class="rq-status" style="color:{STATUS_COLOR[ref.readStatus]}">●</span>
+              <span class="rq-title">{ref.title.length > 42 ? ref.title.slice(0, 42) + '…' : ref.title}</span>
+              {#if ref.lastPage && ref.lastPage > 1}
+                <span class="rq-page">p.{ref.lastPage}</span>
+              {/if}
+            </div>
+          {/each}
+        </div>
+        {/if}
       </div>
       {/if}
     </aside>
@@ -2027,6 +2059,9 @@
       <!-- Header -->
       <div class="pdf-header">
         <span class="pdf-title" title={pdfRef?.title ?? ''}>{pdfRef?.title ?? 'PDF Viewer'}</span>
+        {#if pdfRef?.lastPage && pdfRef.lastPage > 1 && pdfPage === pdfRef.lastPage}
+          <span class="pdf-resume-badge">↩ Resumed p.{pdfRef.lastPage}</span>
+        {/if}
         <div class="pdf-controls">
           <button class="pdf-ctrl-btn" onclick={pdfPrevPage} disabled={pdfPage <= 1}>‹</button>
           <span class="pdf-page-info">{pdfPage} / {pdfTotal || '?'}</span>
@@ -2911,6 +2946,20 @@
   padding: 0.75rem; font-size: 0.8rem; color: var(--tx);
   line-height: 1.6; white-space: pre-wrap;
 }
+
+/* Reading queue */
+.rq-count { font-size: 0.68rem; background: var(--ac-bg); color: var(--ac); padding: 0.05rem 0.35rem; border-radius: 999px; }
+.rq-item {
+  display: flex; align-items: center; gap: 0.3rem;
+  padding: 0.25rem 0.25rem; border-radius: 4px; cursor: pointer; font-size: 0.76rem;
+}
+.rq-item:hover { background: var(--sf2); }
+.rq-status { font-size: 0.6rem; flex-shrink: 0; }
+.rq-title { flex: 1; color: var(--tx2); line-height: 1.3; overflow: hidden; }
+.rq-page { font-size: 0.68rem; color: var(--ac); background: var(--ac-bg); padding: 0.05rem 0.3rem; border-radius: 3px; flex-shrink: 0; }
+
+/* PDF resume badge */
+.pdf-resume-badge { font-size: 0.72rem; color: var(--gn); background: var(--gn-bg); padding: 0.15rem 0.45rem; border-radius: 4px; flex-shrink: 0; }
 
 /* Example refs (empty-state preview) */
 .example-ref { opacity: 0.55; pointer-events: none; }
