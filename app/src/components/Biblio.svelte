@@ -4,6 +4,10 @@
   import type { BiblioReference, BiblioCollection, BiblioAuthor, BiblioRefType, BiblioReadStatus, BiblioAnnotation } from '../lib/types';
   import * as pdfjsLib from 'pdfjs-dist';
   pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).href;
+  import cytoscape from 'cytoscape';
+  // @ts-ignore — no types for extension
+  import coseBilkent from 'cytoscape-cose-bilkent';
+  cytoscape.use(coseBilkent);
 
   // ── Types ────────────────────────────────────────────────────────────────
   type CiteStyle = 'vancouver' | 'apa' | 'nature' | 'chicago';
@@ -115,7 +119,7 @@
   const CATEGORIES = [...new Set(CURATED.map(p => p.category))];
 
   // ── State ────────────────────────────────────────────────────────────────
-  let activeTab = $state<'library' | 'curated'>('library');
+  let activeTab = $state<'library' | 'curated' | 'network'>('library');
 
   // Import modal
   let showImport = $state(false);
@@ -192,6 +196,17 @@
   let showAnnotInput = $state(false);
   let newAnnotNote = $state('');
   let pdfRenderPending = $state(false);
+
+  // ── Citation Network (L4) ─────────────────────────────────────────────────
+  interface NetworkEdge { source: string; target: string; relation: 'cites'; }
+  let netContainer: HTMLElement;
+  let cy: cytoscape.Core | null = null;
+  let netLayout = $state<'cose-bilkent' | 'circle' | 'grid' | 'breadthfirst'>('cose-bilkent');
+  let netFetching = $state(false);
+  let netFetchError = $state('');
+  let netFetchDone = $state(false);
+  let netEdges = $state<NetworkEdge[]>([]);
+  let netSelectedId = $state<string | null>(null);
 
   function showToast(msg: string) {
     toastMsg = msg;
@@ -378,6 +393,142 @@
     store.saveNotes().catch(() => {});
     showToast('Annotations exported to Notes');
   }
+
+  // ── Citation Network functions (L4) ──────────────────────────────────────
+  const NET_STYLES: cytoscape.Stylesheet[] = [
+    {
+      selector: 'node',
+      style: {
+        'background-color': '#1e293b',
+        'border-color': '#6366f1',
+        'border-width': 2,
+        'label': 'data(label)',
+        'color': '#e2e8f0',
+        'font-size': 10,
+        'text-valign': 'bottom',
+        'text-halign': 'center',
+        'text-margin-y': 4,
+        'width': 'data(size)',
+        'height': 'data(size)',
+        'text-wrap': 'ellipsis',
+        'text-max-width': 80,
+      } as any
+    },
+    {
+      selector: 'node:selected',
+      style: { 'border-color': '#f59e0b', 'border-width': 3, 'background-color': '#1e1b4b' }
+    },
+    {
+      selector: 'edge',
+      style: {
+        'width': 1.5,
+        'line-color': '#334155',
+        'target-arrow-color': '#6366f1',
+        'target-arrow-shape': 'triangle',
+        'curve-style': 'bezier',
+        'opacity': 0.7,
+      } as any
+    },
+    {
+      selector: 'edge:selected',
+      style: { 'line-color': '#818cf8', 'opacity': 1 }
+    },
+  ];
+
+  function buildNetworkGraph() {
+    if (!cy) return;
+    const refs = store.biblioRefs;
+    const nodes = refs.map(r => ({
+      data: {
+        id: r.id,
+        label: r.citeKey || r.title.slice(0, 20),
+        size: Math.max(20, Math.min(48, 20 + (r.citationCount ?? 0) * 0.3)),
+        title: r.title, authors: authorStr(r.authors), year: r.year,
+      }
+    }));
+    const edges = netEdges.map((e, i) => ({
+      data: { id: `e${i}`, source: e.source, target: e.target }
+    }));
+    cy.elements().remove();
+    cy.add([...nodes, ...edges]);
+    runNetLayout();
+  }
+
+  function runNetLayout(name?: string) {
+    if (!cy) return;
+    const layout = name ?? netLayout;
+    const opts: any = layout === 'cose-bilkent'
+      ? { name: 'cose-bilkent', animate: false, nodeRepulsion: 4500, idealEdgeLength: 80, gravity: 0.25 }
+      : { name: layout, animate: false, padding: 40 };
+    cy.layout(opts).run();
+  }
+
+  function initNetwork() {
+    if (!netContainer || cy) return;
+    cy = cytoscape({
+      container: netContainer,
+      style: NET_STYLES,
+      minZoom: 0.2, maxZoom: 5,
+      wheelSensitivity: 0.3,
+    });
+    cy.on('tap', 'node', (evt: any) => {
+      netSelectedId = evt.target.id();
+    });
+    cy.on('tap', (evt: any) => {
+      if (evt.target === cy) netSelectedId = null;
+    });
+    buildNetworkGraph();
+  }
+
+  $effect(() => {
+    if (activeTab === 'network') {
+      requestAnimationFrame(() => {
+        initNetwork();
+        if (cy) buildNetworkGraph();
+      });
+    }
+  });
+
+  async function fetchOpenCitations() {
+    const refs = store.biblioRefs.filter(r => r.doi);
+    if (!refs.length) { netFetchError = 'No refs with DOIs to look up.'; return; }
+    netFetching = true; netFetchError = ''; netFetchDone = false;
+    const newEdges: NetworkEdge[] = [...netEdges];
+    const doiToId = new Map(store.biblioRefs.filter(r => r.doi).map(r => [r.doi.toLowerCase(), r.id]));
+    let fetched = 0;
+    for (const ref of refs) {
+      try {
+        const url = `https://opencitations.net/index/coci/api/v1/references/${encodeURIComponent(ref.doi)}`;
+        const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        if (resp.ok) {
+          const data = await resp.json() as { cited: string }[];
+          for (const item of data) {
+            const citedDoi = item.cited?.replace('coci>', '').toLowerCase().trim();
+            const targetId = citedDoi ? doiToId.get(citedDoi) : undefined;
+            if (targetId && targetId !== ref.id) {
+              const exists = newEdges.some(e => e.source === ref.id && e.target === targetId);
+              if (!exists) newEdges.push({ source: ref.id, target: targetId, relation: 'cites' });
+            }
+          }
+        }
+        fetched++;
+      } catch { /* skip */ }
+      await new Promise(r => setTimeout(r, 120));
+    }
+    netEdges = newEdges;
+    netFetching = false;
+    netFetchDone = true;
+    if (cy) buildNetworkGraph();
+  }
+
+  function exportNetworkAsPNG() {
+    if (!cy) return;
+    const url = cy.png({ output: 'base64uri', bg: '#090e1a', scale: 2 });
+    const a = document.createElement('a');
+    a.href = url; a.download = 'citation-network.png'; a.click();
+  }
+
+  let netSelectedRef = $derived(netSelectedId ? store.biblioRefs.find(r => r.id === netSelectedId) ?? null : null);
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   function makeRef(partial: Partial<BiblioReference>): BiblioReference {
@@ -950,6 +1101,9 @@
       Curated Library
       <span class="tab-count">{CURATED.length}</span>
     </button>
+    <button class="btab" class:active={activeTab === 'network'} onclick={() => activeTab = 'network'}>
+      Network
+    </button>
     <div class="tab-spacer"></div>
     {#if activeTab === 'library'}
       <button class="btn-import-tab" onclick={() => { showImport = true; importMode = 'doi'; importQuery = ''; importPreview = null; importError = ''; }}>
@@ -1408,6 +1562,92 @@
           </div>
         </div>
       {/each}
+    </div>
+  </div>
+  {/if}
+
+  <!-- ── CITATION NETWORK (L4) ────────────────────────────────────────────── -->
+  {#if activeTab === 'network'}
+  <div class="net-root">
+    <!-- Toolbar -->
+    <div class="net-toolbar">
+      <div class="net-layout-btns">
+        {#each (['cose-bilkent', 'circle', 'grid', 'breadthfirst'] as const) as ln}
+          <button class="net-layout-btn" class:active={netLayout === ln}
+            onclick={() => { netLayout = ln; if (cy) runNetLayout(ln); }}>
+            {ln === 'cose-bilkent' ? 'Force' : ln.charAt(0).toUpperCase() + ln.slice(1)}
+          </button>
+        {/each}
+      </div>
+      <div class="net-actions">
+        <button class="net-action-btn" disabled={netFetching || store.biblioRefs.filter(r => r.doi).length === 0}
+          onclick={fetchOpenCitations}
+          title="Fetch citation links from OpenCitations (free API, no key required)">
+          {netFetching ? 'Fetching…' : '🔗 Fetch citation links'}
+        </button>
+        {#if netFetchDone}
+          <span class="net-fetch-badge">{netEdges.length} links found</span>
+        {/if}
+        <button class="net-action-btn" onclick={exportNetworkAsPNG} title="Export graph as PNG">
+          ⬇ PNG
+        </button>
+      </div>
+      {#if netFetchError}
+        <span class="net-fetch-error">{netFetchError}</span>
+      {/if}
+    </div>
+
+    <div class="net-body">
+      <!-- Cytoscape container — keep in DOM (bind:this needs persistent element) -->
+      <div class="net-cy-wrap">
+        <div class="net-cy-container" bind:this={netContainer}></div>
+        {#if store.biblioRefs.length === 0}
+          <div class="net-empty">Add references to My Library to build the citation network.</div>
+        {/if}
+        {#if netFetching}
+          <div class="net-fetching-overlay">
+            <div class="net-spinner"></div>
+            Fetching citation links from OpenCitations…
+          </div>
+        {/if}
+      </div>
+
+      <!-- Selected node info panel -->
+      {#if netSelectedRef}
+      <div class="net-info-panel">
+        <div class="net-info-header">
+          <span class="net-info-type">{netSelectedRef.type}</span>
+          <button class="net-info-close" onclick={() => netSelectedId = null}>×</button>
+        </div>
+        <div class="net-info-title">{netSelectedRef.title}</div>
+        <div class="net-info-meta">
+          {#if netSelectedRef.authors.length > 0}
+            <div>{authorStr(netSelectedRef.authors)}</div>
+          {/if}
+          {#if netSelectedRef.year}<div>{netSelectedRef.year} · {netSelectedRef.journal}</div>{/if}
+        </div>
+        {#if netSelectedRef.citationCount !== null}
+          <div class="net-cite-count">{netSelectedRef.citationCount} citations</div>
+        {/if}
+        <div class="net-info-links">
+          <span class="net-edge-count">
+            {netEdges.filter(e => e.source === netSelectedId || e.target === netSelectedId).length} connections
+          </span>
+        </div>
+        <button class="net-open-btn"
+          onclick={() => { selectedId = netSelectedRef!.id; showDetail = true; activeTab = 'library'; }}>
+          Open in Library →
+        </button>
+      </div>
+      {/if}
+    </div>
+
+    <div class="net-legend">
+      <span>Node size = citation count</span>
+      <span>·</span>
+      <span>Edge = cites relationship</span>
+      <span>·</span>
+      <span>Click node for details</span>
     </div>
   </div>
   {/if}
@@ -2247,5 +2487,81 @@
 .annot-cancel-btn {
   background: #1e293b; border: 1px solid #334155; color: #94a3b8;
   padding: 0.25rem 0.7rem; border-radius: 4px; cursor: pointer; font-size: 0.76rem;
+}
+
+/* Citation Network (L4) */
+.net-root {
+  display: flex; flex-direction: column; flex: 1; overflow: hidden; min-height: 0;
+}
+.net-toolbar {
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  padding: 0.5rem 1rem; border-bottom: 1px solid #1e293b; flex-shrink: 0;
+}
+.net-layout-btns { display: flex; gap: 0.3rem; }
+.net-layout-btn {
+  background: #1e293b; border: 1px solid #334155; color: #64748b;
+  padding: 0.25rem 0.55rem; border-radius: 5px; cursor: pointer; font-size: 0.76rem;
+}
+.net-layout-btn:hover { color: #94a3b8; }
+.net-layout-btn.active { background: #1e1b4b; border-color: #6366f1; color: #a5b4fc; }
+.net-actions { display: flex; align-items: center; gap: 0.4rem; margin-left: auto; }
+.net-action-btn {
+  background: #1e293b; border: 1px solid #334155; color: #94a3b8;
+  padding: 0.28rem 0.65rem; border-radius: 5px; cursor: pointer; font-size: 0.78rem;
+}
+.net-action-btn:hover:not(:disabled) { border-color: #6366f1; color: #c7d2fe; }
+.net-action-btn:disabled { opacity: 0.4; cursor: default; }
+.net-fetch-badge { font-size: 0.73rem; color: #4ade80; background: #052e16; padding: 0.15rem 0.45rem; border-radius: 4px; }
+.net-fetch-error { font-size: 0.73rem; color: #f87171; }
+.net-body {
+  display: flex; flex: 1; overflow: hidden; min-height: 0;
+}
+.net-cy-wrap {
+  flex: 1; position: relative; background: #090e1a;
+}
+.net-cy-container {
+  position: absolute; inset: 0;
+}
+.net-empty {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: #334155; font-size: 0.88rem; pointer-events: none;
+}
+.net-fetching-overlay {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0.75rem; background: rgba(9,14,26,0.8); color: #94a3b8; font-size: 0.85rem; z-index: 10;
+}
+.net-spinner {
+  width: 24px; height: 24px; border: 3px solid #334155;
+  border-top-color: #6366f1; border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.net-info-panel {
+  width: 260px; flex-shrink: 0; border-left: 1px solid #1e293b;
+  background: #090e1a; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;
+  overflow-y: auto;
+}
+.net-info-header { display: flex; align-items: center; gap: 0.4rem; }
+.net-info-type {
+  background: #1e293b; color: #64748b; padding: 0.1rem 0.4rem;
+  border-radius: 4px; font-size: 0.7rem; text-transform: capitalize;
+}
+.net-info-close {
+  margin-left: auto; background: none; border: none; color: #475569;
+  cursor: pointer; font-size: 1rem; line-height: 1; padding: 0;
+}
+.net-info-close:hover { color: #e2e8f0; }
+.net-info-title { font-size: 0.82rem; color: #e2e8f0; line-height: 1.4; font-weight: 500; }
+.net-info-meta { font-size: 0.74rem; color: #64748b; display: flex; flex-direction: column; gap: 0.15rem; }
+.net-cite-count { font-size: 0.73rem; background: #164e63; color: #67e8f9; padding: 0.15rem 0.45rem; border-radius: 4px; width: fit-content; }
+.net-info-links { font-size: 0.73rem; }
+.net-edge-count { color: #818cf8; }
+.net-open-btn {
+  background: #1e1b4b; border: 1px solid #4f46e5; color: #a5b4fc;
+  padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 0.76rem; margin-top: auto;
+}
+.net-open-btn:hover { background: #312e81; }
+.net-legend {
+  display: flex; gap: 0.75rem; align-items: center;
+  padding: 0.3rem 1rem; font-size: 0.68rem; color: #334155; border-top: 1px solid #1e293b; flex-shrink: 0;
 }
 </style>
