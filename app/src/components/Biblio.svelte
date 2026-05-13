@@ -560,17 +560,20 @@
     aiStreaming = true;
     aiAbort = new AbortController();
     const { title, abstract } = selectedRef;
+    const highlights = selectedRef.annotations.length > 0
+      ? selectedRef.annotations.map(a => `[p.${a.page}] "${a.text}"${a.note ? ` — ${a.note}` : ''}`).join('\n')
+      : undefined;
     try {
       if (mode === 'summary') {
-        await biblioPaperSummary(title, abstract, c => { aiOutput += c; }, aiAbort.signal);
+        await biblioPaperSummary(title, abstract, c => { aiOutput += c; }, aiAbort.signal, highlights);
       } else if (mode === 'quotes') {
-        await biblioKeyQuotes(title, abstract, c => { aiOutput += c; }, aiAbort.signal);
+        await biblioKeyQuotes(title, abstract, c => { aiOutput += c; }, aiAbort.signal, highlights);
       } else if (mode === 'gaps') {
-        await biblioGapFinder(title, abstract, c => { aiOutput += c; }, aiAbort.signal);
+        await biblioGapFinder(title, abstract, c => { aiOutput += c; }, aiAbort.signal, highlights);
       } else if (mode === 'pico') {
-        await biblioPICO(title, abstract, c => { aiOutput += c; }, aiAbort.signal);
+        await biblioPICO(title, abstract, c => { aiOutput += c; }, aiAbort.signal, highlights);
       } else if (mode === 'tag') {
-        const tags = await biblioAutoTag(title, abstract, aiAbort.signal);
+        const tags = await biblioAutoTag(title, abstract, aiAbort.signal, highlights);
         aiOutput = `Auto-suggested tags:\n${tags.join(', ')}`;
         const idx = store.biblioRefs.findIndex(r => r.id === selectedRef!.id);
         if (idx >= 0) {
@@ -1666,6 +1669,9 @@
           {#if selectedRef.abstract || selectedRef.title}
           <details class="ai-section">
             <summary class="ai-section-summary">✨ AI Analysis</summary>
+            {#if selectedRef.annotations.length > 0}
+              <div class="ai-annot-ctx">📝 {selectedRef.annotations.length} annotation{selectedRef.annotations.length !== 1 ? 's' : ''} will be included as context</div>
+            {/if}
             <div class="ai-btn-row">
               {#each ([['summary', 'Summarise'], ['quotes', 'Key Quotes'], ['gaps', 'Gaps'], ['pico', 'PICO'], ['tag', 'Auto-tag']] as [AIMode, string][]) as [m, label]}
                 <button class="ai-btn" class:active={aiMode === m && (aiStreaming || aiOutput)}
@@ -2841,6 +2847,7 @@
 .bulk-ai-btn:hover { opacity: 0.8; }
 
 .ai-section { border-top: 1px solid var(--bd); margin-top: 0.5rem; }
+.ai-annot-ctx { font-size: 0.72rem; color: var(--gn); background: var(--gn-bg); padding: 0.2rem 0.5rem; border-radius: 4px; margin-top: 0.3rem; }
 .ai-section-summary {
   font-size: 0.78rem; color: var(--ac); cursor: pointer; padding: 0.35rem 0;
   list-style: none; user-select: none;
