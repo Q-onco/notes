@@ -293,6 +293,15 @@
 
   let selectedRef = $derived(selectedId ? store.biblioRefs.find(r => r.id === selectedId) ?? null : null);
   let pdfRef = $derived(pdfRefId ? store.biblioRefs.find(r => r.id === pdfRefId) ?? null : null);
+  let citedInNotes = $derived.by(() => {
+    if (!selectedRef) return [];
+    const doi = selectedRef.doi?.toLowerCase();
+    const key = selectedRef.citeKey?.toLowerCase();
+    return store.notes.filter(n => {
+      const body = n.body.toLowerCase();
+      return (doi && body.includes(doi)) || (key && key.length > 3 && body.includes(key));
+    });
+  });
 
   // ── PDF Viewer functions (L3) ─────────────────────────────────────────────
   async function openPDFViewer(ref: BiblioReference) {
@@ -1734,6 +1743,27 @@
           </details>
           {/if}
 
+          <!-- Cited in notes (back-references) -->
+          {#if citedInNotes.length > 0}
+          <div class="detail-cited-section">
+            <span class="detail-section-label">Cited in {citedInNotes.length} note{citedInNotes.length !== 1 ? 's' : ''}</span>
+            <div class="cited-notes-list">
+              {#each citedInNotes.slice(0, 5) as note}
+                <button class="cited-note-btn" onclick={() => {
+                  if (!store.openTabs.includes(note.id)) store.openTabs = [...store.openTabs, note.id];
+                  store.currentNoteId = note.id;
+                  store.view = 'notes';
+                }}>
+                  {note.title || 'Untitled'}
+                </button>
+              {/each}
+              {#if citedInNotes.length > 5}
+                <span class="cited-note-more">+{citedInNotes.length - 5} more</span>
+              {/if}
+            </div>
+          </div>
+          {/if}
+
           <!-- Export single -->
           <div class="detail-export-row">
             <button class="export-btn-sm" onclick={() => exportBibTeX([selectedRef!])}>Export BibTeX</button>
@@ -2489,6 +2519,15 @@
 .detail-export-row { display: flex; gap: 0.4rem; }
 .export-btn-sm { background: var(--sf); border: 1px solid var(--bd); color: var(--tx2); padding: 0.2rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 0.72rem; }
 .detail-action-row { display: flex; gap: 0.5rem; margin-top: 0.25rem; }
+.detail-cited-section { display: flex; flex-direction: column; gap: 0.4rem; }
+.cited-notes-list { display: flex; flex-direction: column; gap: 0.25rem; }
+.cited-note-btn {
+  background: var(--ac-bg); border: 1px solid var(--bd); color: var(--ac);
+  padding: 0.2rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 0.72rem;
+  text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cited-note-btn:hover { background: var(--ac); color: #fff; }
+.cited-note-more { font-size: 0.7rem; color: var(--mu); padding: 0 0.2rem; }
 
 /* Edit form */
 .edit-label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.75rem; color: var(--mu); }

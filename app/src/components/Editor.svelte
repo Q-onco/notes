@@ -729,15 +729,45 @@
           <button class="btn-icon btn-xs" onclick={() => showCitation = false}>×</button>
         </div>
         <div class="citation-search-row">
-          <input class="citation-input" bind:value={citationQuery} placeholder="Search PubMed (author, title, PMID…)"
+          <input class="citation-input" bind:value={citationQuery} placeholder="Search library or PubMed…"
             onkeydown={(e) => e.key === 'Enter' && searchCitations()} autofocus />
           <button class="btn btn-primary btn-sm" onclick={searchCitations} disabled={citationLoading}>
-            {citationLoading ? '…' : 'Search'}
+            {citationLoading ? '…' : 'PubMed'}
           </button>
         </div>
+        <!-- My Library results (local, instant) -->
+        {#if citationQuery.trim().length >= 2}
+          {@const libMatches = store.biblioRefs.filter(r => {
+            const q = citationQuery.toLowerCase();
+            return r.title.toLowerCase().includes(q) ||
+              r.authors.some(a => `${a.given} ${a.family}`.toLowerCase().includes(q)) ||
+              r.doi.toLowerCase().includes(q);
+          }).slice(0, 5)}
+          {#if libMatches.length > 0}
+            <div class="citation-lib-header">📚 My Library</div>
+            {#each libMatches as ref}
+              <button class="citation-item citation-lib-item" onclick={() => {
+                const author = ref.authors[0] ? `${ref.authors[0].family}` : 'Author';
+                const label = `${author} et al. (${ref.year ?? ''})`;
+                const url = ref.doi ? `https://doi.org/${ref.doi}` : ref.url;
+                editorRef?.getEditor()?.chain().focus()
+                  .insertContent({ type: 'text', text: label, marks: url ? [{ type: 'link', attrs: { href: url, target: '_blank' } }] : [] })
+                  .run();
+                showCitation = false; citationQuery = '';
+              }}>
+                <span class="citation-item-title">{ref.title}</span>
+                <span class="citation-item-meta">{ref.authors[0]?.family ?? ''}{ref.authors.length > 1 ? ' et al.' : ''} · {ref.year} · {ref.journal}</span>
+              </button>
+            {/each}
+            {#if citationResults.length > 0}<div class="citation-divider"></div>{/if}
+          {/if}
+        {/if}
+        <!-- PubMed results -->
         <div class="citation-results">
-          {#if citationResults.length === 0 && !citationLoading}
-            <p class="citation-empty text-mu text-xs">Search PubMed above — results appear here</p>
+          {#if citationResults.length === 0 && !citationLoading && citationQuery.trim().length < 2}
+            <p class="citation-empty text-mu text-xs">Type to search your library, or hit PubMed for external results</p>
+          {:else if citationResults.length === 0 && !citationLoading}
+            <p class="citation-empty text-mu text-xs">No PubMed results — try searching your library above</p>
           {:else}
             {#each citationResults as paper}
               <button class="citation-item" onclick={() => insertCitation(paper)}>
@@ -1348,4 +1378,12 @@
   .citation-item:hover { background: var(--ac-bg); }
   .citation-item-title { font-size: 0.82rem; font-weight: 600; color: var(--tx); line-height: 1.4; }
   .citation-item-meta { font-size: 0.72rem; color: var(--mu); }
+  .citation-lib-header {
+    padding: 6px 14px 4px; font-size: 0.7rem; font-weight: 700; color: var(--ac);
+    text-transform: uppercase; letter-spacing: 0.05em; background: var(--ac-bg);
+    border-bottom: 1px solid var(--bd);
+  }
+  .citation-lib-item { background: var(--sf2); }
+  .citation-lib-item:hover { background: var(--ac-bg); }
+  .citation-divider { height: 1px; background: var(--bd); margin: 4px 0; }
 </style>
