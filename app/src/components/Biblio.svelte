@@ -204,6 +204,11 @@
   let pendingAnnotText = $state('');
   let pendingAnnotPage = $state(0);
   let showAnnotInput = $state(false);
+  let pdfSearchQuery = $state('');
+  let pdfSearchHits = $state<number[]>([]);
+  let pdfSearchIdx = $state(0);
+  let pdfSearching = $state(false);
+  let pdfSearchDone = $state(false);
   let newAnnotNote = $state('');
   let pdfRenderPending = $state(false);
 
@@ -336,6 +341,42 @@
     if (pdfDoc) { try { pdfDoc.destroy(); } catch {} pdfDoc = null; }
     pdfRefId = null;
     pdfPage = 1; pdfTotal = 0; pdfError = ''; showAnnotInput = false;
+    pdfSearchQuery = ''; pdfSearchHits = []; pdfSearchIdx = 0; pdfSearchDone = false;
+  }
+
+  async function runPDFSearch() {
+    if (!pdfDoc || !pdfSearchQuery.trim()) { pdfSearchHits = []; return; }
+    pdfSearching = true;
+    pdfSearchHits = [];
+    const q = pdfSearchQuery.toLowerCase();
+    for (let p = 1; p <= pdfTotal; p++) {
+      const pg = await pdfDoc.getPage(p);
+      const tc = await pg.getTextContent();
+      const text = (tc.items as any[]).map((i: any) => i.str).join('').toLowerCase();
+      if (text.includes(q)) pdfSearchHits = [...pdfSearchHits, p];
+      pg.cleanup();
+    }
+    pdfSearching = false;
+    pdfSearchDone = true;
+    if (pdfSearchHits.length > 0) {
+      pdfSearchIdx = 0;
+      pdfPage = pdfSearchHits[0];
+      renderCurrentPage();
+    }
+  }
+
+  function searchJumpPrev() {
+    if (!pdfSearchHits.length) return;
+    pdfSearchIdx = (pdfSearchIdx - 1 + pdfSearchHits.length) % pdfSearchHits.length;
+    pdfPage = pdfSearchHits[pdfSearchIdx];
+    renderCurrentPage();
+  }
+
+  function searchJumpNext() {
+    if (!pdfSearchHits.length) return;
+    pdfSearchIdx = (pdfSearchIdx + 1) % pdfSearchHits.length;
+    pdfPage = pdfSearchHits[pdfSearchIdx];
+    renderCurrentPage();
   }
 
   $effect(() => {
@@ -2107,6 +2148,26 @@
           <button class="pdf-ctrl-btn pdf-close-btn" onclick={closePDFViewer}>✕ Close</button>
         </div>
       </div>
+      <!-- Search bar -->
+      <div class="pdf-search-row">
+        <input class="pdf-search-input" bind:value={pdfSearchQuery}
+          placeholder="Search text in PDF…"
+          oninput={() => { pdfSearchDone = false; pdfSearchHits = []; }}
+          onkeydown={(e) => { if (e.key === 'Enter') runPDFSearch(); }} />
+        <button class="pdf-ctrl-btn" onclick={runPDFSearch} disabled={pdfSearching || !pdfDoc || pdfLoading}>
+          {pdfSearching ? '…' : '⌕'}
+        </button>
+        {#if pdfSearchHits.length > 0}
+          <span class="pdf-search-count">{pdfSearchIdx + 1} / {pdfSearchHits.length} pg</span>
+          <button class="pdf-ctrl-btn" onclick={searchJumpPrev} title="Previous match">‹</button>
+          <button class="pdf-ctrl-btn" onclick={searchJumpNext} title="Next match">›</button>
+        {:else if pdfSearchDone && !pdfSearching && pdfSearchHits.length === 0}
+          <span class="pdf-search-none">0 results</span>
+        {/if}
+        {#if pdfSearchQuery}
+          <button class="pdf-ctrl-btn" onclick={() => { pdfSearchQuery = ''; pdfSearchHits = []; }} title="Clear search">✕</button>
+        {/if}
+      </div>
 
       <!-- Body -->
       <div class="pdf-body">
@@ -2743,6 +2804,19 @@
 .pdf-close-btn:hover { background: var(--rd-bg); border-color: var(--rd); color: var(--rd); }
 .pdf-page-info { font-size: 0.78rem; color: var(--tx2); min-width: 55px; text-align: center; }
 .pdf-zoom-info { font-size: 0.78rem; color: var(--mu); min-width: 40px; text-align: center; }
+.pdf-search-row {
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 12px; border-top: 1px solid var(--bd); background: var(--sf);
+  flex-shrink: 0;
+}
+.pdf-search-input {
+  flex: 1; font-size: 0.78rem; padding: 3px 8px; border-radius: 4px;
+  border: 1px solid var(--bd); background: var(--bg); color: var(--tx);
+  font-family: var(--font);
+}
+.pdf-search-input:focus { outline: none; border-color: var(--ac); }
+.pdf-search-count { font-size: 0.72rem; color: var(--ac); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pdf-search-none { font-size: 0.72rem; color: var(--rd); }
 
 /* PDF body */
 .pdf-body {
