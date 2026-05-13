@@ -4,6 +4,7 @@
   import type { BiblioReference, BiblioCollection, BiblioAuthor, BiblioRefType, BiblioReadStatus, BiblioAnnotation } from '../lib/types';
   import * as pdfjsLib from 'pdfjs-dist';
   pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).href;
+  import { biblioPaperSummary, biblioKeyQuotes, biblioGapFinder, biblioPICO, biblioAutoTag, biblioCompare, biblioSynthesis, biblioMultiGap } from '../lib/groq';
   import cytoscape from 'cytoscape';
   // @ts-ignore — no types for extension
   import coseBilkent from 'cytoscape-cose-bilkent';
@@ -196,6 +197,18 @@
   let showAnnotInput = $state(false);
   let newAnnotNote = $state('');
   let pdfRenderPending = $state(false);
+
+  // ── AI Features (L5) ─────────────────────────────────────────────────────
+  type AIMode = 'summary' | 'quotes' | 'gaps' | 'pico' | 'tag';
+  let aiMode = $state<AIMode | null>(null);
+  let aiOutput = $state('');
+  let aiStreaming = $state(false);
+  let aiAbort: AbortController | null = null;
+  let multiAiOpen = $state(false);
+  let multiAiMode = $state<'compare' | 'synthesis' | 'multigap'>('compare');
+  let multiAiOutput = $state('');
+  let multiAiStreaming = $state(false);
+  let multiAiAbort: AbortController | null = null;
 
   // ── Citation Network (L4) ─────────────────────────────────────────────────
   interface NetworkEdge { source: string; target: string; relation: 'cites'; }
@@ -529,6 +542,101 @@
   }
 
   let netSelectedRef = $derived(netSelectedId ? store.biblioRefs.find(r => r.id === netSelectedId) ?? null : null);
+
+  // ── AI Feature functions (L5) ─────────────────────────────────────────────
+  async function runAI(mode: AIMode) {
+    if (!selectedRef || aiStreaming) return;
+    aiMode = mode;
+    aiOutput = '';
+    aiStreaming = true;
+    aiAbort = new AbortController();
+    const { title, abstract } = selectedRef;
+    try {
+      if (mode === 'summary') {
+        await biblioPaperSummary(title, abstract, c => { aiOutput += c; }, aiAbort.signal);
+      } else if (mode === 'quotes') {
+        await biblioKeyQuotes(title, abstract, c => { aiOutput += c; }, aiAbort.signal);
+      } else if (mode === 'gaps') {
+        await biblioGapFinder(title, abstract, c => { aiOutput += c; }, aiAbort.signal);
+      } else if (mode === 'pico') {
+        await biblioPICO(title, abstract, c => { aiOutput += c; }, aiAbort.signal);
+      } else if (mode === 'tag') {
+        const tags = await biblioAutoTag(title, abstract, aiAbort.signal);
+        aiOutput = `Auto-suggested tags:\n${tags.join(', ')}`;
+        const idx = store.biblioRefs.findIndex(r => r.id === selectedRef!.id);
+        if (idx >= 0) {
+          const newTags = [...new Set([...store.biblioRefs[idx].tags, ...tags])];
+          store.biblioRefs[idx] = { ...store.biblioRefs[idx], tags: newTags };
+          store.biblioRefs = [...store.biblioRefs];
+          store.saveBiblio();
+          aiOutput += '\n\n✓ Tags applied to reference.';
+        }
+      }
+    } catch { /* aborted */ }
+    aiStreaming = false;
+  }
+
+  function stopAI() { aiAbort?.abort(); aiStreaming = false; }
+
+  function copyAIOutput() {
+    if (!aiOutput) return;
+    navigator.clipboard.writeText(aiOutput).then(() => showToast('Copied'));
+  }
+
+  function saveAIToNotes() {
+    if (!aiOutput || !selectedRef) return;
+    const modeLabel = { summary: 'Summary', quotes: 'Key Quotes', gaps: 'Research Gaps', pico: 'PICO Analysis', tag: 'Auto-tags' }[aiMode ?? 'summary'];
+    const note = {
+      id: nanoid(),
+      title: `[AI ${modeLabel}] ${selectedRef.title.slice(0, 60)}`,
+      body: `# ${modeLabel}: ${selectedRef.title}\n\n${aiOutput}`,
+      tags: ['biblio', 'ai-analysis'],
+      createdAt: Date.now(), updatedAt: Date.now(),
+      pinned: false, archived: false, audioIds: [],
+    };
+    store.notes = [note, ...store.notes];
+    store.saveNotes().catch(() => {});
+    showToast('Saved to Notes');
+  }
+
+  async function runMultiAI() {
+    if (multiAiStreaming) return;
+    const refs = store.biblioRefs.filter(r => selectedIds.has(r.id));
+    if (refs.length < 2) { showToast('Select 2–5 references for multi-paper analysis'); return; }
+    multiAiOutput = '';
+    multiAiStreaming = true;
+    multiAiAbort = new AbortController();
+    const papers = refs.map(r => ({ title: r.title, abstract: r.abstract }));
+    try {
+      if (multiAiMode === 'compare') {
+        await biblioCompare(papers, c => { multiAiOutput += c; }, multiAiAbort.signal);
+      } else if (multiAiMode === 'synthesis') {
+        await biblioSynthesis(papers, c => { multiAiOutput += c; }, multiAiAbort.signal);
+      } else {
+        await biblioMultiGap(papers, c => { multiAiOutput += c; }, multiAiAbort.signal);
+      }
+    } catch { /* aborted */ }
+    multiAiStreaming = false;
+  }
+
+  function stopMultiAI() { multiAiAbort?.abort(); multiAiStreaming = false; }
+
+  function saveMultiAIToNotes() {
+    if (!multiAiOutput) return;
+    const modeLabel = { compare: 'Comparison', synthesis: 'Synthesis', multigap: 'Gap Analysis' }[multiAiMode];
+    const titles = store.biblioRefs.filter(r => selectedIds.has(r.id)).map(r => r.title.slice(0, 40)).join('; ');
+    const note = {
+      id: nanoid(),
+      title: `[AI ${modeLabel}] ${titles.slice(0, 80)}`,
+      body: `# ${modeLabel}\n\n${multiAiOutput}`,
+      tags: ['biblio', 'ai-analysis'],
+      createdAt: Date.now(), updatedAt: Date.now(),
+      pinned: false, archived: false, audioIds: [],
+    };
+    store.notes = [note, ...store.notes];
+    store.saveNotes().catch(() => {});
+    showToast('Saved to Notes');
+  }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   function makeRef(partial: Partial<BiblioReference>): BiblioReference {
@@ -1255,6 +1363,11 @@
         {#each store.biblioCollections as c}
           <button class="bulk-coll-btn" onclick={() => bulkMoveToCollection(c.id)}>→ {c.name}</button>
         {/each}
+        {#if selectedIds.size >= 2 && selectedIds.size <= 5}
+          <button class="bulk-ai-btn" onclick={() => { multiAiOpen = true; multiAiOutput = ''; }}>
+            ✨ AI Multi ({selectedIds.size})
+          </button>
+        {/if}
         <button class="bulk-del-btn" onclick={bulkDelete}>Delete all</button>
       </div>
       {/if}
@@ -1501,6 +1614,40 @@
             <span class="detail-section-label">Annotations: {selectedRef.annotations.length}</span>
             <button class="export-btn-sm" onclick={() => exportAnnotationsToNotes(selectedRef!)}>Export to Notes</button>
           </div>
+          {/if}
+
+          <!-- AI Analysis (L5) -->
+          {#if selectedRef.abstract || selectedRef.title}
+          <details class="ai-section">
+            <summary class="ai-section-summary">✨ AI Analysis</summary>
+            <div class="ai-btn-row">
+              {#each ([['summary', 'Summarise'], ['quotes', 'Key Quotes'], ['gaps', 'Gaps'], ['pico', 'PICO'], ['tag', 'Auto-tag']] as [AIMode, string][]) as [m, label]}
+                <button class="ai-btn" class:active={aiMode === m && (aiStreaming || aiOutput)}
+                  disabled={aiStreaming}
+                  onclick={() => runAI(m)}>
+                  {label}
+                </button>
+              {/each}
+            </div>
+            {#if aiStreaming || aiOutput}
+            <div class="ai-output-wrap">
+              {#if aiStreaming}
+                <div class="ai-spinner-row">
+                  <div class="ai-spinner"></div>
+                  <span>Enzo is thinking…</span>
+                  <button class="ai-stop-btn" onclick={stopAI}>Stop</button>
+                </div>
+              {/if}
+              {#if aiOutput}
+                <div class="ai-output">{aiOutput}</div>
+                <div class="ai-actions">
+                  <button class="export-btn-sm" onclick={copyAIOutput}>Copy</button>
+                  <button class="export-btn-sm" onclick={saveAIToNotes}>Save to Notes</button>
+                </div>
+              {/if}
+            </div>
+            {/if}
+          </details>
           {/if}
 
           <!-- Export single -->
@@ -1751,6 +1898,54 @@
   <!-- Toast -->
   {#if toastMsg}
     <div class="toast">{toastMsg}</div>
+  {/if}
+
+  <!-- ── MULTI-AI MODAL (L5) ──────────────────────────────────────────────── -->
+  {#if multiAiOpen}
+  <div class="modal-overlay" role="dialog" aria-modal="true">
+    <div class="multi-ai-modal">
+      <div class="modal-header">
+        <span class="modal-title">✨ AI Multi-Paper Analysis</span>
+        <button class="modal-close" onclick={() => { multiAiOpen = false; stopMultiAI(); }}>×</button>
+      </div>
+      <div class="multi-ai-ref-chips">
+        {#each store.biblioRefs.filter(r => selectedIds.has(r.id)) as r}
+          <span class="multi-ai-chip">{r.citeKey || r.title.slice(0, 30)}</span>
+        {/each}
+      </div>
+      <div class="multi-ai-tab-row">
+        {#each ([['compare', 'Compare'], ['synthesis', 'Synthesis'], ['multigap', 'Gap Analysis']] as [typeof multiAiMode, string][]) as [m, label]}
+          <button class="multi-ai-tab" class:active={multiAiMode === m}
+            onclick={() => { multiAiMode = m; multiAiOutput = ''; }}>
+            {label}
+          </button>
+        {/each}
+      </div>
+      <div class="multi-ai-desc">
+        {#if multiAiMode === 'compare'}Structured comparison of methodology, findings, strengths and limitations.
+        {:else if multiAiMode === 'synthesis'}Narrative synthesis integrating evidence across papers with numbered citations.
+        {:else}Shared and unique research gaps across this set of papers.{/if}
+      </div>
+      <div class="multi-ai-actions">
+        <button class="multi-ai-run-btn" disabled={multiAiStreaming} onclick={runMultiAI}>
+          {multiAiStreaming ? 'Analysing…' : '▶ Run Analysis'}
+        </button>
+        {#if multiAiStreaming}
+          <button class="ai-stop-btn" onclick={stopMultiAI}>Stop</button>
+        {/if}
+        {#if multiAiOutput && !multiAiStreaming}
+          <button class="export-btn-sm" onclick={() => navigator.clipboard.writeText(multiAiOutput).then(() => showToast('Copied'))}>Copy</button>
+          <button class="export-btn-sm" onclick={saveMultiAIToNotes}>Save to Notes</button>
+        {/if}
+      </div>
+      {#if multiAiStreaming}
+        <div class="multi-ai-spinner-row"><div class="ai-spinner"></div> Enzo is analysing…</div>
+      {/if}
+      {#if multiAiOutput}
+        <div class="multi-ai-output">{multiAiOutput}</div>
+      {/if}
+    </div>
+  </div>
   {/if}
 
   <!-- ── PDF VIEWER MODAL (L3) ──────────────────────────────────────────── -->
@@ -2563,5 +2758,77 @@
 .net-legend {
   display: flex; gap: 0.75rem; align-items: center;
   padding: 0.3rem 1rem; font-size: 0.68rem; color: #334155; border-top: 1px solid #1e293b; flex-shrink: 0;
+}
+
+/* AI Features (L5) */
+.bulk-ai-btn {
+  background: #1e1b4b; border: 1px solid #6366f1; color: #a5b4fc;
+  padding: 0.2rem 0.55rem; border-radius: 4px; cursor: pointer; font-size: 0.72rem;
+}
+.bulk-ai-btn:hover { background: #312e81; }
+
+.ai-section { border-top: 1px solid #1e293b; margin-top: 0.5rem; }
+.ai-section-summary {
+  font-size: 0.78rem; color: #818cf8; cursor: pointer; padding: 0.35rem 0;
+  list-style: none; user-select: none;
+}
+.ai-section-summary::-webkit-details-marker { display: none; }
+.ai-btn-row { display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.4rem 0; }
+.ai-btn {
+  background: #1e293b; border: 1px solid #334155; color: #94a3b8;
+  padding: 0.25rem 0.55rem; border-radius: 5px; cursor: pointer; font-size: 0.74rem;
+}
+.ai-btn:hover:not(:disabled) { border-color: #6366f1; color: #c7d2fe; }
+.ai-btn:disabled { opacity: 0.45; cursor: default; }
+.ai-btn.active { background: #1e1b4b; border-color: #6366f1; color: #a5b4fc; }
+.ai-output-wrap { display: flex; flex-direction: column; gap: 0.4rem; }
+.ai-spinner-row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.76rem; color: #64748b; }
+.ai-spinner {
+  width: 14px; height: 14px; border: 2px solid #334155;
+  border-top-color: #818cf8; border-radius: 50%;
+  animation: spin 0.7s linear infinite; flex-shrink: 0;
+}
+.ai-stop-btn {
+  background: #7f1d1d; border: none; color: #fca5a5;
+  padding: 0.15rem 0.5rem; border-radius: 4px; cursor: pointer; font-size: 0.72rem;
+}
+.ai-output {
+  background: #0f172a; border: 1px solid #1e293b; border-radius: 5px;
+  padding: 0.5rem 0.6rem; font-size: 0.76rem; color: #cbd5e1;
+  line-height: 1.55; white-space: pre-wrap; max-height: 280px; overflow-y: auto;
+}
+.ai-actions { display: flex; gap: 0.4rem; }
+
+/* Multi-AI Modal */
+.multi-ai-modal {
+  background: #0f172a; border: 1px solid #334155; border-radius: 10px;
+  width: min(720px, 96vw); max-height: 90vh; overflow-y: auto;
+  display: flex; flex-direction: column; padding: 1.25rem; gap: 0.75rem;
+}
+.multi-ai-ref-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.multi-ai-chip {
+  background: #1e1b4b; border: 1px solid #4f46e5; color: #a5b4fc;
+  padding: 0.15rem 0.45rem; border-radius: 999px; font-size: 0.72rem;
+}
+.multi-ai-tab-row { display: flex; gap: 0.35rem; }
+.multi-ai-tab {
+  background: #1e293b; border: 1px solid #334155; color: #64748b;
+  padding: 0.3rem 0.7rem; border-radius: 5px; cursor: pointer; font-size: 0.78rem;
+}
+.multi-ai-tab:hover { color: #94a3b8; }
+.multi-ai-tab.active { background: #1e1b4b; border-color: #6366f1; color: #a5b4fc; }
+.multi-ai-desc { font-size: 0.76rem; color: #64748b; }
+.multi-ai-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.multi-ai-run-btn {
+  background: #6366f1; border: none; color: #fff;
+  padding: 0.35rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.82rem; font-weight: 500;
+}
+.multi-ai-run-btn:hover:not(:disabled) { background: #818cf8; }
+.multi-ai-run-btn:disabled { opacity: 0.5; cursor: default; }
+.multi-ai-spinner-row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.78rem; color: #64748b; }
+.multi-ai-output {
+  background: #090e1a; border: 1px solid #1e293b; border-radius: 6px;
+  padding: 0.75rem; font-size: 0.8rem; color: #cbd5e1;
+  line-height: 1.6; white-space: pre-wrap;
 }
 </style>
