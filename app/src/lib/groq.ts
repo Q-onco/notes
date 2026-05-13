@@ -1522,3 +1522,42 @@ Assume I am intelligent but new to startups. Tailor everything to life science /
   ];
   await streamGroq(MODELS.enzo, messages, onChunk, signal);
 }
+
+export async function streamFundingAdvisor(
+  query: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    {
+      role: 'system',
+      content: `You are Enzo, an expert advisor on life science funding, grants, and startup financing. You have deep knowledge of NIH SBIR/STTR, EU Horizon Europe (ERC, MSCA), German funding (BMBF, DFG, HTGF), UK/EU foundations (Wellcome, CRUK), Indian funding (BIRAC BIG/SEED, DBT, DST-NIDHI, ICMR, CSIR, Startup India/DPIIT, Atal Innovation Mission), Indian VCs (Aarin Capital, Chiratae, Kalaari, Peak XV/Sequoia India, Eight Roads, Villgro), VC fundraising for biotech, term sheets, dilution management, and the European and Indian biotech investment landscapes. You know the Heidelberg/Germany context and the Indian academic-to-startup path well. Be specific, opinionated, and concise — no generic advice.`,
+    },
+    {
+      role: 'user',
+      content: `I am a life science researcher / academic founder. Here is my funding question or situation:
+
+"${query}"
+
+Give me sharp, specific, actionable advice. Structure your response with these sections:
+
+## Best Funding Options for Your Stage
+Name 2–4 specific grants, instruments, or investor types that fit. Explain WHY each fits.
+
+## Key Eligibility Gotchas
+What can disqualify you — be blunt about the most common mistakes.
+
+## Sequencing Strategy
+How to stack non-dilutive grants before equity rounds — specific order with rationale.
+
+## European / Indian Angle
+Leverage Heidelberg/German/EU location AND Indian connections. What instruments are often missed by academics in each ecosystem? Are there cross-India-EU opportunities?
+
+## Next 3 Actions
+Concrete steps with real organization names, deadlines if known, and contact points.
+
+Tailor everything to cancer research / oncology context. Be specific to both the European / German and Indian academic environments.`,
+    },
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal);
+}
