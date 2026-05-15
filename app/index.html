@@ -10,8 +10,65 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="manifest" href="manifest.json" />
     <link rel="apple-touch-icon" href="icon-192.png" />
+    <link rel="icon" id="anim-favicon" type="image/png" />
     <title>Q·onco</title>
   </head>
+  <script>
+  (function(){
+    var c=document.createElement('canvas'),x=c.getContext('2d');
+    c.width=c.height=64;
+    var lnk=document.getElementById('anim-favicon');
+    var CYCLE=1600,start=null;
+
+    function dog(sc){
+      x.clearRect(0,0,64,64);
+      x.save();x.translate(32,30);x.scale(sc,sc);
+      // Floppy ears (behind head)
+      x.fillStyle='#7a5520';
+      x.beginPath();x.ellipse(-19,3,9,13,0.35,0,Math.PI*2);x.fill();
+      x.beginPath();x.ellipse(19,3,9,13,-0.35,0,Math.PI*2);x.fill();
+      // Head
+      x.beginPath();x.arc(0,0,17,0,Math.PI*2);
+      x.fillStyle='#c8a050';x.fill();
+      // Muzzle
+      x.beginPath();x.ellipse(0,7,9,7,0,0,Math.PI*2);
+      x.fillStyle='#d4b870';x.fill();
+      // Eyes
+      x.fillStyle='#111';
+      x.beginPath();x.arc(-6,-5,2.5,0,Math.PI*2);x.fill();
+      x.beginPath();x.arc(6,-5,2.5,0,Math.PI*2);x.fill();
+      x.fillStyle='#fff';
+      x.beginPath();x.arc(-5,-6,1,0,Math.PI*2);x.fill();
+      x.beginPath();x.arc(7,-6,1,0,Math.PI*2);x.fill();
+      // Nose
+      x.fillStyle='#222';
+      x.beginPath();x.ellipse(0,3,5,3.5,0,0,Math.PI*2);x.fill();
+      x.fillStyle='rgba(255,255,255,0.25)';
+      x.beginPath();x.arc(-2,2,1.5,0,Math.PI*2);x.fill();
+      // Tongue
+      x.fillStyle='#e05555';
+      x.beginPath();x.arc(-3,19,5,0,Math.PI*2);x.fill();
+      x.beginPath();x.arc(3,19,5,0,Math.PI*2);x.fill();
+      x.strokeStyle='#b03333';x.lineWidth=1;
+      x.beginPath();x.moveTo(0,14);x.lineTo(0,23);x.stroke();
+      x.restore();
+    }
+
+    function pulse(t){
+      if(t<0.1)  return 1+0.12*Math.sin(t/0.1*Math.PI);
+      if(t<0.22) return 1+0.07*Math.sin((t-0.12)/0.1*Math.PI);
+      return 1.0;
+    }
+
+    function tick(ts){
+      if(!start)start=ts;
+      dog(pulse(((ts-start)%CYCLE)/CYCLE));
+      lnk.href=c.toDataURL();
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  })();
+  </script>
   <body>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
