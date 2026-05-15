@@ -1,6 +1,51 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#3a5fc8"/>
-  <text x="256" y="356" font-family="Georgia, serif" font-size="300" font-weight="700" text-anchor="middle" fill="white">Q</text>
-  <circle cx="330" cy="330" r="36" fill="none" stroke="white" stroke-width="18"/>
-  <line x1="354" y1="354" x2="396" y2="396" stroke="white" stroke-width="18" stroke-linecap="round"/>
+  <defs>
+    <clipPath id="head"><circle cx="256" cy="200" r="150"/></clipPath>
+    <clipPath id="rnd"><rect width="512" height="512" rx="100"/></clipPath>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="100" fill="#FF8F00"/>
+  <rect width="512" height="512" rx="100" fill="#FFA000" opacity="0.5"/>
+
+  <g clip-path="url(#rnd)">
+    <!-- Floppy ears — deep chocolate -->
+    <ellipse cx="106" cy="218" rx="76" ry="112" transform="rotate(14,106,218)" fill="#3E1F00"/>
+    <ellipse cx="406" cy="218" rx="76" ry="112" transform="rotate(-14,406,218)" fill="#3E1F00"/>
+
+    <!-- Head — amber -->
+    <circle cx="256" cy="200" r="150" fill="#FFB300"/>
+
+    <!-- Head highlight (clipped) -->
+    <ellipse cx="196" cy="140" rx="90" ry="72" fill="#FFD54F" opacity="0.38" clip-path="url(#head)"/>
+
+    <!-- Muzzle — bright cream -->
+    <ellipse cx="256" cy="283" rx="88" ry="70" fill="#FFE082"/>
+
+    <!-- Eyes — jet black -->
+    <circle cx="200" cy="168" r="28" fill="#111"/>
+    <circle cx="312" cy="168" r="28" fill="#111"/>
+    <!-- Eye shine -->
+    <circle cx="212" cy="155" r="13" fill="white"/>
+    <circle cx="324" cy="155" r="13" fill="white"/>
+    <!-- Small inner shine -->
+    <circle cx="206" cy="163" r="5" fill="white" opacity="0.6"/>
+    <circle cx="318" cy="163" r="5" fill="white" opacity="0.6"/>
+
+    <!-- Nose — pure black -->
+    <ellipse cx="256" cy="248" rx="46" ry="33" fill="#111"/>
+    <!-- Nose glint -->
+    <ellipse cx="232" cy="236" rx="16" ry="10" fill="white" opacity="0.4"/>
+
+    <!-- Tongue — hot coral -->
+    <circle cx="214" cy="420" r="52" fill="#FF4081"/>
+    <circle cx="298" cy="420" r="52" fill="#FF4081"/>
+    <!-- Tongue highlight -->
+    <circle cx="210" cy="400" r="26" fill="#FF80AB" opacity="0.5"/>
+    <!-- Tongue crease -->
+    <line x1="256" y1="355" x2="256" y2="468" stroke="#CC0044" stroke-width="6" stroke-linecap="round"/>
+
+    <!-- Mouth line -->
+    <path d="M214,355 Q256,372,298,355" stroke="#CC7700" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.5"/>
+  </g>
 </svg>
