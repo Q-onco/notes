@@ -22,45 +22,43 @@
 
     function dog(sc){
       x.clearRect(0,0,64,64);
-      x.save();x.translate(32,27);x.scale(sc,sc);
-      // Ears — deep chocolate
+      x.save();x.translate(32,28);x.scale(sc,sc);
+      // Amber badge background
+      x.beginPath();x.arc(0,1,25,0,Math.PI*2);
+      x.fillStyle='#FF8F00';x.fill();
+      // Ears — deep chocolate, pushed far out so they poke past the head
       x.fillStyle='#3E1F00';
-      x.beginPath();x.ellipse(-20,3,9,13,0.3,0,Math.PI*2);x.fill();
-      x.beginPath();x.ellipse(20,3,9,13,-0.3,0,Math.PI*2);x.fill();
-      // Head — amber glow
-      x.shadowColor='rgba(255,180,0,0.5)';x.shadowBlur=8;
-      x.beginPath();x.arc(0,0,20,0,Math.PI*2);
+      x.beginPath();x.ellipse(-22,0,10,13,0.25,0,Math.PI*2);x.fill();
+      x.beginPath();x.ellipse(22,0,10,13,-0.25,0,Math.PI*2);x.fill();
+      // Head — bright amber (smaller than ears centre-distance so ears show)
+      x.beginPath();x.arc(0,0,17,0,Math.PI*2);
       x.fillStyle='#FFB300';x.fill();
-      x.shadowBlur=0;
       // Head highlight (clipped)
-      x.save();
-      x.beginPath();x.arc(0,0,20,0,Math.PI*2);x.clip();
-      x.fillStyle='rgba(255,236,100,0.4)';
-      x.beginPath();x.ellipse(-7,-7,12,10,0.4,0,Math.PI*2);x.fill();
+      x.save();x.beginPath();x.arc(0,0,17,0,Math.PI*2);x.clip();
+      x.fillStyle='rgba(255,236,100,0.35)';
+      x.beginPath();x.ellipse(-6,-6,11,9,0.4,0,Math.PI*2);x.fill();
       x.restore();
       // Muzzle — bright cream
-      x.beginPath();x.ellipse(0,9,11,8,0,0,Math.PI*2);
+      x.beginPath();x.ellipse(0,8,9,7,0,0,Math.PI*2);
       x.fillStyle='#FFE082';x.fill();
-      // Eyes — jet black + large shine
-      x.fillStyle='#000';
-      x.beginPath();x.arc(-7,-6,3.5,0,Math.PI*2);x.fill();
-      x.beginPath();x.arc(7,-6,3.5,0,Math.PI*2);x.fill();
+      // Eyes — larger so they read at 16 px
+      x.fillStyle='#111';
+      x.beginPath();x.arc(-6,-5,4,0,Math.PI*2);x.fill();
+      x.beginPath();x.arc(6,-5,4,0,Math.PI*2);x.fill();
       x.fillStyle='#FFF';
-      x.beginPath();x.arc(-5.5,-7.5,1.5,0,Math.PI*2);x.fill();
-      x.beginPath();x.arc(8.5,-7.5,1.5,0,Math.PI*2);x.fill();
-      // Nose — pure black + glint
-      x.fillStyle='#000';
-      x.beginPath();x.ellipse(0,4,6,4,0,0,Math.PI*2);x.fill();
-      x.fillStyle='rgba(255,255,255,0.45)';
-      x.beginPath();x.arc(-2.5,2.5,2,0,Math.PI*2);x.fill();
-      // Tongue — hot coral
+      x.beginPath();x.arc(-4.5,-6.5,1.8,0,Math.PI*2);x.fill();
+      x.beginPath();x.arc(7.5,-6.5,1.8,0,Math.PI*2);x.fill();
+      // Nose — solid black, larger
+      x.fillStyle='#111';
+      x.beginPath();x.ellipse(0,3,6,4,0,0,Math.PI*2);x.fill();
+      x.fillStyle='rgba(255,255,255,0.4)';
+      x.beginPath();x.arc(-2,2,2,0,Math.PI*2);x.fill();
+      // Tongue — hot pink, clearly below head
       x.fillStyle='#FF4081';
-      x.beginPath();x.arc(-4,22,6,0,Math.PI*2);x.fill();
-      x.beginPath();x.arc(4,22,6,0,Math.PI*2);x.fill();
-      x.fillStyle='rgba(255,180,200,0.5)';
-      x.beginPath();x.arc(-3,19,3.5,0,Math.PI*2);x.fill();
-      x.strokeStyle='#AA0044';x.lineWidth=1.5;
-      x.beginPath();x.moveTo(0,16);x.lineTo(0,27);x.stroke();
+      x.beginPath();x.arc(-3.5,21,5.5,0,Math.PI*2);x.fill();
+      x.beginPath();x.arc(3.5,21,5.5,0,Math.PI*2);x.fill();
+      x.strokeStyle='#CC003A';x.lineWidth=1.5;
+      x.beginPath();x.moveTo(0,16);x.lineTo(0,26);x.stroke();
       x.restore();
     }
 
