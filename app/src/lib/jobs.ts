@@ -7,9 +7,9 @@ function getWorkerUrl(): string {
   return store.settings.workerUrl || WORKER_URL;
 }
 
-export async function fetchJobFeed(): Promise<JobListing[]> {
+export async function fetchJobFeed(query = 'oncology'): Promise<JobListing[]> {
   const base = getWorkerUrl();
-  const res = await fetch(`${base}/jobs-rss`, {
+  const res = await fetch(`${base}/jobs-rss?q=${encodeURIComponent(query)}`, {
     signal: AbortSignal.timeout(12000)
   });
   if (!res.ok) throw new Error(`Job feed ${res.status}`);

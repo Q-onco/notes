@@ -209,13 +209,14 @@ export default {
     // ── GET /jobs-rss ──────────────────────────────────────────────────
     if (path === '/jobs-rss' && request.method === 'GET') {
       try {
+        const rawQ = (url.searchParams.get('q') || 'oncology').trim().slice(0, 100);
         const FEEDS: { url: string; source: string }[] = [
-          { url: 'https://www.nature.com/naturecareers/jobs/search?q=postdoc+oncology&feed=rss', source: 'Nature Careers' },
-          { url: 'https://www.nature.com/naturecareers/jobs/search?q=researcher+gynaecological+cancer&feed=rss', source: 'Nature Careers' },
-          { url: 'https://euraxess.ec.europa.eu/jobs/search?q=oncology&feed=rss', source: 'EurAxess' },
-          { url: 'https://www.jobs.ac.uk/search/?keywords=postdoc+oncology&feed=1', source: 'jobs.ac.uk' },
-          { url: 'https://www.jobs.ac.uk/search/?keywords=researcher+ovarian+cancer&feed=1', source: 'jobs.ac.uk' },
-          { url: 'https://academicpositions.eu/jobs.rss?q=oncology', source: 'Academic Positions' },
+          { url: `https://www.nature.com/naturecareers/jobs/search?q=${encodeURIComponent('postdoc ' + rawQ)}&feed=rss`, source: 'Nature Careers' },
+          { url: `https://www.nature.com/naturecareers/jobs/search?q=${encodeURIComponent('researcher ' + rawQ)}&feed=rss`, source: 'Nature Careers' },
+          { url: `https://euraxess.ec.europa.eu/jobs/search?q=${encodeURIComponent(rawQ)}&feed=rss`, source: 'EurAxess' },
+          { url: `https://www.jobs.ac.uk/search/?keywords=${encodeURIComponent('postdoc ' + rawQ)}&feed=1`, source: 'jobs.ac.uk' },
+          { url: `https://www.jobs.ac.uk/search/?keywords=${encodeURIComponent(rawQ)}&feed=1`, source: 'jobs.ac.uk' },
+          { url: `https://academicpositions.eu/jobs.rss?q=${encodeURIComponent(rawQ)}`, source: 'Academic Positions' },
         ];
 
         const batches = await Promise.all(

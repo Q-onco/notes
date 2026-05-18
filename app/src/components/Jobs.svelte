@@ -31,6 +31,7 @@
   let feedJobs = $state<JobListing[]>([]);
   let feedLoading = $state(false);
   let feedError = $state('');
+  let feedQuery = $state('oncology');
   let feedSearch = $state('');
   let regionFilter = $state<'all' | JobRegion>('all');
   let typeFilter = $state<'all' | JobType>('all');
@@ -52,7 +53,7 @@
     feedLoading = true;
     feedError = '';
     try {
-      feedJobs = await fetchJobFeed();
+      feedJobs = await fetchJobFeed(feedQuery.trim() || 'oncology');
       if (feedJobs.length === 0) feedError = 'No jobs returned from feeds — examples shown below.';
     } catch (e) {
       feedError = 'Live feed unavailable — showing curated examples. Click Refresh to retry.';
@@ -669,18 +670,29 @@
       {#if tab === 'feed'}
         <div class="feed-view">
           <div class="feed-controls">
-            <input class="search-input" type="search" bind:value={feedSearch} placeholder="Search jobs…" />
-            <select bind:value={regionFilter}>
-              <option value="all">All regions</option>
-              {#each Object.entries(REGION_LABELS) as [v, l]}<option value={v}>{l}</option>{/each}
-            </select>
-            <select bind:value={typeFilter}>
-              <option value="all">All types</option>
-              {#each Object.entries(TYPE_LABELS) as [v, l]}<option value={v}>{l}</option>{/each}
-            </select>
-            <button class="btn btn-primary btn-sm" onclick={fetchFeed} disabled={feedLoading}>
-              {feedLoading ? 'Loading…' : 'Refresh'}
-            </button>
+            <div class="feed-query-row">
+              <input
+                class="search-input feed-query-input"
+                type="search"
+                bind:value={feedQuery}
+                placeholder="Topic: oncology, molecular biology, pathology…"
+                onkeydown={(e) => { if (e.key === 'Enter' && !feedLoading) fetchFeed(); }}
+              />
+              <button class="btn btn-primary btn-sm" onclick={fetchFeed} disabled={feedLoading}>
+                {feedLoading ? 'Loading…' : 'Search'}
+              </button>
+            </div>
+            <div class="feed-filter-row">
+              <input class="search-input" type="search" bind:value={feedSearch} placeholder="Filter results…" />
+              <select bind:value={regionFilter}>
+                <option value="all">All regions</option>
+                {#each Object.entries(REGION_LABELS) as [v, l]}<option value={v}>{l}</option>{/each}
+              </select>
+              <select bind:value={typeFilter}>
+                <option value="all">All types</option>
+                {#each Object.entries(TYPE_LABELS) as [v, l]}<option value={v}>{l}</option>{/each}
+              </select>
+            </div>
           </div>
 
           {#if feedError}
@@ -1608,9 +1620,10 @@
 
   /* ── Feed ── */
   .feed-view { display: flex; flex-direction: column; gap: 14px; }
-  .feed-controls {
-    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
-  }
+  .feed-controls { display: flex; flex-direction: column; gap: 8px; }
+  .feed-query-row { display: flex; gap: 8px; align-items: center; }
+  .feed-query-input { flex: 1; }
+  .feed-filter-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .search-input { flex: 1; min-width: 160px; }
   .feed-notice { padding: 8px 12px; background: var(--sf2); border-radius: var(--radius-sm); border: 1px solid var(--bd); }
   .job-list { display: flex; flex-direction: column; gap: 12px; }
@@ -1956,7 +1969,8 @@
     .analytics-grid { grid-template-columns: 1fr 1fr; }
     .analytics-row { grid-template-columns: 1fr; }
     .company-grid { grid-template-columns: 1fr; }
-    .feed-controls { flex-direction: column; align-items: stretch; }
+    .feed-query-row { flex-direction: column; }
+    .feed-filter-row { flex-direction: column; align-items: stretch; }
     .search-input { min-width: unset; }
     .cl-view-head { flex-direction: column; }
     .cv-tabs { gap: 3px; }
