@@ -79,7 +79,17 @@ export async function ghPut(
   });
 
   if (res.status === 422 || res.status === 409) {
-    throw new Error('Save conflict — data was modified elsewhere. Please retry.');
+    // SHA mismatch — fetch the real current SHA and retry once
+    const current = await ghGet(token, path);
+    if (!current) throw new Error('Save conflict — file missing on retry.');
+    body.sha = current.sha;
+    const retry = await fetch(`${API}/repos/${REPO}/contents/${path}`, {
+      method: 'PUT',
+      headers: headers(token),
+      body: JSON.stringify(body)
+    });
+    if (!retry.ok) throw new Error('Save conflict — data was modified elsewhere. Please retry.');
+    return ((await retry.json()).content.sha) as string;
   }
   if (!res.ok) throw new Error(`GitHub ${res.status}: ${await res.text()}`);
 
@@ -101,13 +111,15 @@ export async function loadEncFile<T>(
   path: string,
   defaultValue: T
 ): Promise<{ data: T; sha: string | null }> {
+  let sha: string | null = null;
   try {
     const file = await ghGet(token, path);
     if (!file) return { data: defaultValue, sha: null };
+    sha = file.sha; // capture before decrypt so we keep it even if decrypt throws
     const data = await decryptObjWithToken<T>(file.content, token);
-    return { data, sha: file.sha };
+    return { data, sha };
   } catch {
-    return { data: defaultValue, sha: null };
+    return { data: defaultValue, sha };
   }
 }
 
