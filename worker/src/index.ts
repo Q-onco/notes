@@ -206,9 +206,178 @@ export default {
       }
     }
 
+    // ── GET /jobs-rss ──────────────────────────────────────────────────
+    if (path === '/jobs-rss' && request.method === 'GET') {
+      try {
+        const FEEDS: { url: string; source: string }[] = [
+          { url: 'https://www.nature.com/naturecareers/jobs/search?q=postdoc+oncology&feed=rss', source: 'Nature Careers' },
+          { url: 'https://www.nature.com/naturecareers/jobs/search?q=researcher+gynaecological+cancer&feed=rss', source: 'Nature Careers' },
+          { url: 'https://euraxess.ec.europa.eu/jobs/search?q=oncology&feed=rss', source: 'EurAxess' },
+          { url: 'https://www.jobs.ac.uk/search/?keywords=postdoc+oncology&feed=1', source: 'jobs.ac.uk' },
+          { url: 'https://www.jobs.ac.uk/search/?keywords=researcher+ovarian+cancer&feed=1', source: 'jobs.ac.uk' },
+          { url: 'https://academicpositions.eu/jobs.rss?q=oncology', source: 'Academic Positions' },
+        ];
+
+        const batches = await Promise.all(
+          FEEDS.map(async ({ url: feedUrl, source }) => {
+            try {
+              const res = await fetch(feedUrl, {
+                headers: {
+                  'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+                  'User-Agent': 'Mozilla/5.0 (compatible; Q-onco/1.0)'
+                },
+                signal: AbortSignal.timeout(8000),
+              });
+              if (!res.ok) return [] as JobResult[];
+              const xml = await res.text();
+              return parseJobItems(xml, source);
+            } catch {
+              return [] as JobResult[];
+            }
+          })
+        );
+
+        // Deduplicate by URL, sort newest-first, cap at 40
+        const seen = new Set<string>();
+        const jobs: JobResult[] = [];
+        for (const batch of batches) {
+          for (const job of batch) {
+            if (!seen.has(job.url)) {
+              seen.add(job.url);
+              jobs.push(job);
+            }
+          }
+        }
+        jobs.sort((a, b) => (b.postedAt ?? 0) - (a.postedAt ?? 0));
+
+        return json(jobs.slice(0, 40), 200, allowed);
+      } catch (e) {
+        return err((e as Error).message, 500, allowed);
+      }
+    }
+
     return new Response('Not found', { status: 404 });
   }
 };
+
+interface JobResult {
+  id: string;
+  title: string;
+  company: string;
+  location: string;
+  region: string;
+  type: string;
+  description: string;
+  url: string;
+  source: string;
+  postedAt: number | null;
+  deadline: null;
+  tags: string[];
+}
+
+function parseJobItems(xml: string, source: string): JobResult[] {
+  const items: JobResult[] = [];
+  const itemRe = /<item>([\s\S]*?)<\/item>/g;
+  let m;
+  while ((m = itemRe.exec(xml)) !== null && items.length < 15) {
+    const block = m[1];
+    const get = (tag: string) => {
+      const r = new RegExp(`<${tag}[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${tag}>`);
+      return (block.match(r)?.[1] ?? '').trim();
+    };
+
+    const rawTitle = get('title');
+    // <link> in RSS is often bare text; <guid> as fallback
+    const link = (get('link') || get('guid')).replace(/\s/g, '');
+    const desc = get('description').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').slice(0, 400);
+    const pubDate = get('pubDate');
+
+    if (!rawTitle || !link) continue;
+
+    // Many feeds format: "Job Title | Company | Location" or "Title – Company"
+    const parts = rawTitle.split(/\s*[|–—]\s*/);
+    const title = parts[0].trim();
+    const company = parts.length > 1 ? parts[1].trim() : source;
+    const locationHint = parts.length > 2 ? parts[2].trim() : '';
+
+    const corpus = (rawTitle + ' ' + desc + ' ' + locationHint).toLowerCase();
+
+    // Infer region from location keywords
+    let region = 'other';
+    if (/\b(uk|united kingdom|england|scotland|wales|london|cambridge|oxford|manchester|edinburgh|bristol|birmingham)\b/.test(corpus)) {
+      region = 'uk';
+    } else if (/\b(germany|france|switzerland|netherlands|belgium|denmark|sweden|norway|austria|spain|italy|ireland|finland|heidelberg|berlin|munich|hamburg|frankfurt|paris|zurich|geneva|amsterdam|brussels|copenhagen|stockholm|oslo|vienna|barcelona|madrid)\b/.test(corpus)) {
+      region = 'eu';
+    } else if (/\b(india|bengaluru|bangalore|mumbai|hyderabad|delhi|chennai|pune)\b/.test(corpus)) {
+      region = 'india';
+    } else if (/\bremote\b/.test(corpus)) {
+      region = 'remote';
+    } else if (/\b(usa|united states|boston|new york|san francisco|seattle|houston|chicago)\b/.test(corpus)) {
+      region = 'us';
+    } else if (source === 'EurAxess') {
+      region = 'eu';
+    } else if (source === 'jobs.ac.uk') {
+      region = 'uk';
+    }
+
+    // Infer job type
+    let type = 'academic';
+    if (/\bfellowship\b/.test(corpus)) {
+      type = 'fellowship';
+    } else if (/\bcontract\b/.test(corpus) && !/\b(postdoc|research\s+associate|phd)\b/.test(corpus)) {
+      type = 'contract';
+    } else if (
+      /\b(scientist|engineer|manager|director|analyst|consultant|medical\s+affairs)\b/.test(corpus) &&
+      !/\b(university|universit[aä]t|institute|hospital|centre|center|college|embl|dkfz|cnrs|inserm)\b/.test(corpus)
+    ) {
+      type = 'industry';
+    }
+
+    // Extract oncology-relevant tags
+    const TAG_MAP: [RegExp, string][] = [
+      [/\bscRNA[- ]?seq\b/i, 'scRNA-seq'],
+      [/\bspatial\b/i, 'spatial'],
+      [/\bPARP\b/i, 'PARP'],
+      [/\bovarian\b/i, 'ovarian'],
+      [/\bimmuno[- ]?oncology\b/i, 'immuno-oncology'],
+      [/\bbioinformatics\b/i, 'bioinformatics'],
+      [/\bgenomics\b/i, 'genomics'],
+      [/\btranscriptomics\b/i, 'transcriptomics'],
+      [/\bcomputational\b/i, 'computational'],
+      [/\bpostdoc\b/i, 'postdoc'],
+      [/\bclinical\b/i, 'clinical'],
+      [/\btumou?r\b/i, 'tumour'],
+      [/\bmicroenvironment\b/i, 'TME'],
+      [/\bcheckpoint\b/i, 'checkpoint'],
+    ];
+    const tags = TAG_MAP
+      .filter(([re]) => re.test(corpus))
+      .map(([, t]) => t)
+      .slice(0, 5);
+
+    // Try to extract a city for display
+    const CITIES = ['Heidelberg', 'London', 'Cambridge', 'Berlin', 'Paris', 'Basel', 'Zurich',
+      'Amsterdam', 'Copenhagen', 'Munich', 'Oxford', 'Edinburgh', 'Manchester',
+      'Frankfurt', 'Hamburg', 'Brussels', 'Vienna', 'Stockholm', 'Lausanne'];
+    const inferredCity = locationHint || (CITIES.find(c => corpus.includes(c.toLowerCase())) ?? '');
+
+    items.push({
+      id: link,
+      title,
+      company,
+      location: inferredCity,
+      region,
+      type,
+      description: desc,
+      url: link,
+      source,
+      postedAt: pubDate ? new Date(pubDate).getTime() : Date.now(),
+      deadline: null,
+      tags,
+    });
+  }
+  return items;
+}
 
 function parseRSSItems(xml: string, source: string): unknown[] {
   const items: unknown[] = [];
