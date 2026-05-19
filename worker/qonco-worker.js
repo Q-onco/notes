@@ -457,26 +457,39 @@ export default {
     // ── GET /jobs-rss ─────────────────────────────────────────────────────────
     if (path === '/jobs-rss' && request.method === 'GET') {
       try {
-        const JOB_FEEDS = {
-          'nature-careers': { url: 'https://www.nature.com/naturecareers.rss', label: 'Nature Careers', region: 'eu' },
-          'embl':           { url: 'https://www.embl.org/careers/rss/', label: 'EMBL', region: 'eu' },
-          'euraxess':       { url: 'https://euraxess.ec.europa.eu/jobs/rss', label: 'EurAxess', region: 'eu' },
-          'indeed-de':      { url: 'https://rss.indeed.com/rss?q=oncology+bioinformatics+scientist&l=Germany&sort=date', label: 'Indeed Germany', region: 'eu' },
-          'indeed-in':      { url: 'https://rss.indeed.com/rss?q=cancer+research+scientist&l=India&sort=date', label: 'Indeed India', region: 'india' },
-          'jobs-ac':        { url: 'https://www.jobs.ac.uk/search/?keywords=cancer+bioinformatics&format=rss', label: 'jobs.ac.uk', region: 'uk' },
-        };
-        const requested = (url.searchParams.get('sources') ?? 'nature-careers,embl,euraxess,indeed-de,indeed-in,jobs-ac').split(',');
-        const results = [];
-        await Promise.all(requested.map(async src => {
-          const feed = JOB_FEEDS[src.trim()];
-          if (!feed) return;
+        const rawQ = (url.searchParams.get('q') || 'oncology').trim().slice(0, 100);
+        const NC = 'https://www.nature.com/naturecareers/jobsrss/';
+        const enc = encodeURIComponent;
+        // Nature Careers /jobsrss/ is the only reliably-working free academic job RSS.
+        // Verified working 2026-05-19. countrycode pins region precisely.
+        const FEEDS = [
+          { url: `${NC}?keywords=${enc('postdoc ' + rawQ)}`,         region: '' },
+          { url: `${NC}?keywords=${enc(rawQ + ' researcher')}`,       region: '' },
+          { url: `${NC}?keywords=${enc(rawQ)}&countrycode=DE`,        region: 'eu' },
+          { url: `${NC}?keywords=${enc(rawQ)}&countrycode=GB`,        region: 'uk' },
+          { url: `${NC}?keywords=${enc(rawQ)}&countrycode=CH`,        region: 'eu' },
+          { url: `${NC}?keywords=${enc(rawQ)}&countrycode=NL`,        region: 'eu' },
+          { url: `${NC}?keywords=${enc(rawQ)}&countrycode=IN`,        region: 'india' },
+        ];
+        const batches = await Promise.all(FEEDS.map(async ({ url: feedUrl, region }) => {
           try {
-            const res = await fetch(feed.url, { headers: { Accept: 'application/rss+xml, application/xml, text/xml, */*' } });
-            if (!res.ok) return;
-            results.push(...parseJobItems(await res.text(), feed.label, feed.region));
-          } catch { /* skip */ }
+            const res = await fetch(feedUrl, {
+              headers: { Accept: 'application/rss+xml, application/xml, text/xml, */*', 'User-Agent': 'Mozilla/5.0 (compatible; Q-onco/1.0)' },
+              signal: AbortSignal.timeout(8000),
+            });
+            if (!res.ok) return [];
+            return parseJobItems(await res.text(), 'Nature Careers', region);
+          } catch { return []; }
         }));
-        return json(results, 200, allowed);
+        const seen = new Set();
+        const jobs = [];
+        for (const batch of batches) {
+          for (const job of batch) {
+            if (!seen.has(job.url)) { seen.add(job.url); jobs.push(job); }
+          }
+        }
+        jobs.sort((a, b) => (b.postedAt ?? 0) - (a.postedAt ?? 0));
+        return json(jobs.slice(0, 40), 200, allowed);
       } catch (e) { return err(e.message, 500, allowed); }
     }
 
@@ -627,24 +640,46 @@ function parseJobItems(xml, source, region) {
   const items = [];
   const itemRe = /<item>([\s\S]*?)<\/item>/g;
   let m;
-  while ((m = itemRe.exec(xml)) !== null && items.length < 12) {
+  while ((m = itemRe.exec(xml)) !== null && items.length < 20) {
     const item = m[1];
     const get = tag => { const r = new RegExp(`<${tag}[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${tag}>`); return (item.match(r)?.[1] ?? '').trim(); };
-    const rawTitle = get('title'); const link = get('link') || get('guid');
-    const desc = get('description').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').trim();
+    const rawTitle = get('title');
+    const link = (get('link') || get('guid')).replace(/\s/g, '');
+    const rawDesc = get('description').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').trim();
     if (!rawTitle || !link) continue;
-    let title = rawTitle, company = source, location = get('location') || '';
-    const dashParts = rawTitle.split(' - ');
-    if (source.startsWith('Indeed') && dashParts.length >= 2) { title = dashParts[0].trim(); company = dashParts[1]?.trim() ?? source; if (dashParts.length >= 3) location = dashParts.slice(2).join(' - ').trim(); }
-    const combined = (title + ' ' + desc).toLowerCase();
-    let type = 'industry';
-    if (/postdoc|post-doc|fellowship|phd student|graduate|group leader|professor|faculty|lecturer/i.test(combined)) type = 'academic';
-    else if (/contract|freelance|consultant/i.test(combined)) type = 'contract';
-    else if (/startup|early.stage|series [ab]/i.test(combined)) type = 'startup';
+    // Nature Careers format: "Organisation: Job Title"
+    let title, company;
+    const colonIdx = rawTitle.indexOf(':');
+    if (colonIdx > 0 && colonIdx < rawTitle.length - 1) {
+      company = rawTitle.slice(0, colonIdx).trim();
+      title = rawTitle.slice(colonIdx + 1).trim();
+    } else {
+      const parts = rawTitle.split(/\s*[|–—]\s*/);
+      title = parts[0].trim(); company = parts[1]?.trim() ?? source;
+    }
+    // Nature Careers puts "City, Country" as the last line of the description
+    const descLines = rawDesc.split(/\n+/).map(l => l.trim()).filter(Boolean);
+    const lastLine = descLines[descLines.length - 1] ?? '';
+    const location = lastLine.length < 80 ? lastLine : '';
+    const desc = (lastLine.length < 80 ? descLines.slice(0, -1).join(' ') : rawDesc).slice(0, 400);
+    const combined = (rawTitle + ' ' + desc).toLowerCase();
+    // Region: use hint from countrycode feed config; fall back to text inference
+    let inferredRegion = region || 'other';
+    if (!region) {
+      if (/\b(uk|united kingdom|england|scotland|london|cambridge|oxford|manchester|edinburgh)\b/.test(combined)) inferredRegion = 'uk';
+      else if (/\b(germany|france|switzerland|netherlands|belgium|heidelberg|berlin|munich|paris|zurich|amsterdam)\b/.test(combined)) inferredRegion = 'eu';
+      else if (/\b(india|bengaluru|bangalore|mumbai|hyderabad|delhi|chennai)\b/.test(combined)) inferredRegion = 'india';
+      else if (/\bremote\b/.test(combined)) inferredRegion = 'remote';
+      else if (/\b(usa|united states|boston|new york|san francisco|seattle|houston)\b/.test(combined)) inferredRegion = 'us';
+    }
+    let type = 'academic';
+    if (/\bfellowship\b/i.test(combined)) type = 'fellowship';
+    else if (/\b(scientist|engineer|manager|director|analyst|consultant|medical affairs)\b/i.test(combined) && !/\b(university|universit|institute|hospital|centre|center|college|embl|dkfz)\b/i.test(combined)) type = 'industry';
+    else if (/\bcontract\b/i.test(combined) && !/\b(postdoc|research associate|phd)\b/i.test(combined)) type = 'contract';
     const tags = [];
-    const tagMap = { 'scRNA-seq': /scrna.seq|single.cell rna/i, 'spatial': /spatial transcriptom|visium|xenium|merfish/i, 'bioinformatics': /bioinformatics|computational biology/i, 'PARP inhibitors': /parp inhibitor|olaparib|niraparib|rucaparib/i, 'immuno-oncology': /immuno.oncology|checkpoint|immunotherapy/i, 'ovarian cancer': /ovarian cancer|hgsoc|gynaecolog/i, 'genomics': /genomics|next.generation sequencing|ngs/i, 'proteomics': /proteomics|mass spectrometry/i };
+    const tagMap = { 'scRNA-seq': /scrna.seq|single.cell rna/i, 'spatial': /spatial transcriptom|visium|xenium|merfish/i, 'bioinformatics': /bioinformatics|computational biology/i, 'PARP': /parp inhibitor|olaparib|niraparib|rucaparib/i, 'immuno-oncology': /immuno.oncology|checkpoint|immunotherapy/i, 'ovarian cancer': /ovarian cancer|hgsoc|gynaecolog/i, 'genomics': /genomics|next.generation sequencing|ngs/i, 'TME': /microenvironment|tumor.immune/i };
     for (const [tag, re] of Object.entries(tagMap)) { if (re.test(combined)) tags.push(tag); }
-    items.push({ id: link, title, company, location: location || (region === 'eu' ? 'Europe' : region === 'india' ? 'India' : 'UK'), region, type, description: desc.slice(0, 400), url: link, source, postedAt: get('pubDate') ? new Date(get('pubDate')).getTime() : null, deadline: null, tags });
+    items.push({ id: link, title, company, location, region: inferredRegion, type, description: desc, url: link, source, postedAt: get('pubDate') ? new Date(get('pubDate')).getTime() : null, deadline: null, tags });
   }
   return items;
 }
