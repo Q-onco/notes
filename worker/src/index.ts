@@ -210,17 +210,22 @@ export default {
     if (path === '/jobs-rss' && request.method === 'GET') {
       try {
         const rawQ = (url.searchParams.get('q') || 'oncology').trim().slice(0, 100);
-        const FEEDS: { url: string; source: string }[] = [
-          { url: `https://www.nature.com/naturecareers/jobs/search?q=${encodeURIComponent('postdoc ' + rawQ)}&feed=rss`, source: 'Nature Careers' },
-          { url: `https://www.nature.com/naturecareers/jobs/search?q=${encodeURIComponent('researcher ' + rawQ)}&feed=rss`, source: 'Nature Careers' },
-          { url: `https://euraxess.ec.europa.eu/jobs/search?q=${encodeURIComponent(rawQ)}&feed=rss`, source: 'EurAxess' },
-          { url: `https://www.jobs.ac.uk/search/?keywords=${encodeURIComponent('postdoc ' + rawQ)}&feed=1`, source: 'jobs.ac.uk' },
-          { url: `https://www.jobs.ac.uk/search/?keywords=${encodeURIComponent(rawQ)}&feed=1`, source: 'jobs.ac.uk' },
-          { url: `https://academicpositions.eu/jobs.rss?q=${encodeURIComponent(rawQ)}`, source: 'Academic Positions' },
+        const NC = 'https://www.nature.com/naturecareers/jobsrss/';
+        const enc = encodeURIComponent;
+        // Nature Careers jobsrss/ is the only reliably-working free academic job RSS.
+        // countrycode pins region so we don't have to guess from title text.
+        const FEEDS: { url: string; source: string; region: string }[] = [
+          { url: `${NC}?keywords=${enc('postdoc ' + rawQ)}`,                  source: 'Nature Careers', region: '' },
+          { url: `${NC}?keywords=${enc(rawQ + ' researcher')}`,               source: 'Nature Careers', region: '' },
+          { url: `${NC}?keywords=${enc(rawQ)}&countrycode=DE`,                source: 'Nature Careers', region: 'eu' },
+          { url: `${NC}?keywords=${enc(rawQ)}&countrycode=GB`,                source: 'Nature Careers', region: 'uk' },
+          { url: `${NC}?keywords=${enc(rawQ)}&countrycode=CH`,                source: 'Nature Careers', region: 'eu' },
+          { url: `${NC}?keywords=${enc(rawQ)}&countrycode=NL`,                source: 'Nature Careers', region: 'eu' },
+          { url: `${NC}?keywords=${enc(rawQ)}&countrycode=IN`,                source: 'Nature Careers', region: 'india' },
         ];
 
         const batches = await Promise.all(
-          FEEDS.map(async ({ url: feedUrl, source }) => {
+          FEEDS.map(async ({ url: feedUrl, source, region }) => {
             try {
               const res = await fetch(feedUrl, {
                 headers: {
@@ -231,7 +236,7 @@ export default {
               });
               if (!res.ok) return [] as JobResult[];
               const xml = await res.text();
-              return parseJobItems(xml, source);
+              return parseJobItems(xml, source, region);
             } catch {
               return [] as JobResult[];
             }
@@ -276,11 +281,11 @@ interface JobResult {
   tags: string[];
 }
 
-function parseJobItems(xml: string, source: string): JobResult[] {
+function parseJobItems(xml: string, source: string, regionHint = ''): JobResult[] {
   const items: JobResult[] = [];
   const itemRe = /<item>([\s\S]*?)<\/item>/g;
   let m;
-  while ((m = itemRe.exec(xml)) !== null && items.length < 15) {
+  while ((m = itemRe.exec(xml)) !== null && items.length < 20) {
     const block = m[1];
     const get = (tag: string) => {
       const r = new RegExp(`<${tag}[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${tag}>`);
@@ -288,37 +293,49 @@ function parseJobItems(xml: string, source: string): JobResult[] {
     };
 
     const rawTitle = get('title');
-    // <link> in RSS is often bare text; <guid> as fallback
     const link = (get('link') || get('guid')).replace(/\s/g, '');
-    const desc = get('description').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').slice(0, 400);
+    const rawDesc = get('description').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
     const pubDate = get('pubDate');
 
     if (!rawTitle || !link) continue;
 
-    // Many feeds format: "Job Title | Company | Location" or "Title – Company"
-    const parts = rawTitle.split(/\s*[|–—]\s*/);
-    const title = parts[0].trim();
-    const company = parts.length > 1 ? parts[1].trim() : source;
-    const locationHint = parts.length > 2 ? parts[2].trim() : '';
+    // Nature Careers format: "Organisation: Job Title"
+    // Split only on first colon to avoid breaking titles that contain colons
+    let title: string;
+    let company: string;
+    const colonIdx = rawTitle.indexOf(':');
+    if (colonIdx > 0 && colonIdx < rawTitle.length - 1) {
+      company = rawTitle.slice(0, colonIdx).trim();
+      title = rawTitle.slice(colonIdx + 1).trim();
+    } else {
+      // Fallback: pipe/dash separator format
+      const parts = rawTitle.split(/\s*[|–—]\s*/);
+      title = parts[0].trim();
+      company = parts.length > 1 ? parts[1].trim() : source;
+    }
+
+    // Nature Careers description ends with "City, Country" on the last line
+    const descLines = rawDesc.split(/\n+/).map(l => l.trim()).filter(Boolean);
+    const lastLine = descLines[descLines.length - 1] ?? '';
+    const locationHint = lastLine.length < 80 ? lastLine : '';
+    const desc = descLines.slice(0, -1).join(' ').slice(0, 400) || rawDesc.slice(0, 400);
 
     const corpus = (rawTitle + ' ' + desc + ' ' + locationHint).toLowerCase();
 
-    // Infer region from location keywords
-    let region = 'other';
-    if (/\b(uk|united kingdom|england|scotland|wales|london|cambridge|oxford|manchester|edinburgh|bristol|birmingham)\b/.test(corpus)) {
-      region = 'uk';
-    } else if (/\b(germany|france|switzerland|netherlands|belgium|denmark|sweden|norway|austria|spain|italy|ireland|finland|heidelberg|berlin|munich|hamburg|frankfurt|paris|zurich|geneva|amsterdam|brussels|copenhagen|stockholm|oslo|vienna|barcelona|madrid)\b/.test(corpus)) {
-      region = 'eu';
-    } else if (/\b(india|bengaluru|bangalore|mumbai|hyderabad|delhi|chennai|pune)\b/.test(corpus)) {
-      region = 'india';
-    } else if (/\bremote\b/.test(corpus)) {
-      region = 'remote';
-    } else if (/\b(usa|united states|boston|new york|san francisco|seattle|houston|chicago)\b/.test(corpus)) {
-      region = 'us';
-    } else if (source === 'EurAxess') {
-      region = 'eu';
-    } else if (source === 'jobs.ac.uk') {
-      region = 'uk';
+    // Region: prefer the countrycode hint from the feed config
+    let region = regionHint || 'other';
+    if (!regionHint) {
+      if (/\b(uk|united kingdom|england|scotland|wales|london|cambridge|oxford|manchester|edinburgh|bristol|birmingham)\b/.test(corpus)) {
+        region = 'uk';
+      } else if (/\b(germany|france|switzerland|netherlands|belgium|denmark|sweden|norway|austria|spain|italy|ireland|finland|heidelberg|berlin|munich|hamburg|frankfurt|paris|zurich|geneva|amsterdam|brussels|copenhagen|stockholm|oslo|vienna|barcelona|madrid)\b/.test(corpus)) {
+        region = 'eu';
+      } else if (/\b(india|bengaluru|bangalore|mumbai|hyderabad|delhi|chennai|pune)\b/.test(corpus)) {
+        region = 'india';
+      } else if (/\bremote\b/.test(corpus)) {
+        region = 'remote';
+      } else if (/\b(usa|united states|boston|new york|san francisco|seattle|houston|chicago)\b/.test(corpus)) {
+        region = 'us';
+      }
     }
 
     // Infer job type
