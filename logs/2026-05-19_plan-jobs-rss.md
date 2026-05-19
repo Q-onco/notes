@@ -17,9 +17,9 @@ All fetched in parallel; each failure is silent (try/catch per feed).
 ## Changes
 
 ### worker/src/index.ts
-- [ ] Add `interface JobResult` (local, mirrors frontend JobListing shape)
-- [ ] Add `/jobs-rss` GET route: parallel fetch all feeds → parseJobItems → dedup by URL → sort newest-first → slice 40
-- [ ] Add `parseJobItems(xml, source): JobResult[]` — RSS `<item>` parser:
+- [x] Add `interface JobResult` (local, mirrors frontend JobListing shape)
+- [x] Add `/jobs-rss` GET route: parallel fetch all feeds → parseJobItems → dedup by URL → sort newest-first → slice 40
+- [x] Add `parseJobItems(xml, source): JobResult[]` — RSS `<item>` parser:
   - title/company split on `|` or `–` separator
   - region inferred from location keywords (eu/uk/india/remote/us/other)
   - type inferred from title keywords (academic/industry/fellowship/contract)
@@ -27,6 +27,6 @@ All fetched in parallel; each failure is silent (try/catch per feed).
   - postedAt from `<pubDate>`
 
 ## Build + deploy
-- [ ] `cd worker && npm run build` (or deploy check)
-- [ ] `cd app && npm run build`
-- [ ] Commit + push → Worker deploys via GitHub Actions
+- [x] Worker: no standalone build step — wrangler compiles on deploy
+- [x] `cd app && npm run build` — clean (58.9s)
+- [x] Commit 20058bc + push → Worker deploys via GitHub Actions

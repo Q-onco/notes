@@ -13,11 +13,11 @@ Two bugs in github.ts:
 ## Fix
 
 ### github.ts — loadEncFile
-- [ ] Capture `sha` from ghGet BEFORE decryptObjWithToken call
-- [ ] Return `{ data: defaultValue, sha }` in the catch block instead of `sha: null`
-- [ ] SHA is now preserved even when decryption fails
+- [x] Capture `sha` from ghGet BEFORE decryptObjWithToken call
+- [x] Return `{ data: defaultValue, sha }` in the catch block instead of `sha: null`
+- [x] SHA is now preserved even when decryption fails
 
 ### github.ts — ghPut
-- [ ] On 409/422: fetch current SHA via ghGet, swap it into body, retry PUT once
-- [ ] If retry also fails → throw the original conflict message
-- [ ] If file is missing on retry → throw specific message
+- [x] On 409/422: fetch current SHA via ghGet, swap it into body, retry PUT once
+- [x] If retry also fails → throw the original conflict message
+- [x] If file is missing on retry → throw specific message
