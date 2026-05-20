@@ -590,6 +590,107 @@
       </button>
     </div>
 
+    <!-- Wellness widget -->
+    <section class="card wellness-card">
+      <div class="card-head">
+        <h3>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gn)" stroke-width="2" style="margin-right:5px;vertical-align:-1px">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+          </svg>
+          Wellness
+        </h3>
+        <span class="text-xs text-mu">{new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+      </div>
+
+      <!-- Mood check-in (morning or evening only) -->
+      {#if moodSession && !todayMoodKey}
+        <div class="mood-prompt">
+          <span class="mood-q">{moodPrompt}</span>
+          <div class="mood-btns">
+            {#each MOODS as m}
+              <button class="mood-btn" style="--mc:{m.color}" onclick={() => setMood(m.key)}>{m.label}</button>
+            {/each}
+          </div>
+        </div>
+      {:else if moodSession && todayMoodKey}
+        {@const mood = MOODS.find(m => m.key === todayMoodKey)}
+        <div class="mood-logged">
+          <span class="mood-dot" style="background:{mood?.color ?? 'var(--mu)'}"></span>
+          <span class="text-xs text-mu">{moodSession === 'morning' ? 'Morning' : 'Evening'} mood: <strong style="color:{mood?.color}">{mood?.label}</strong></span>
+        </div>
+      {/if}
+
+      <!-- Habit rows -->
+      <div class="habit-rows">
+        {#each DAILY_HABITS as h}
+          {@const checked = isCheckedToday(h.id)}
+          {@const streak  = dailyStreak(h.id)}
+          {@const dots    = last7(h.id)}
+          <div class="habit-row">
+            <button class="habit-check" class:habit-checked={checked} onclick={() => toggleHabit(h.id)}>
+              {#if checked}<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>{/if}
+            </button>
+            <span class="habit-label" class:habit-done-label={checked}>{h.label}</span>
+            <div class="habit-dots">{#each dots as on}<span class="hdot" class:hdot-on={on}></span>{/each}</div>
+            {#if streak > 0}<span class="habit-streak">{streak}</span>{/if}
+          </div>
+        {/each}
+
+        <!-- Rest day nudge -->
+        {#if showRestNudge}
+          <p class="rest-nudge">You've trained {gymStreakCount} days straight — rest is part of the programme too.</p>
+        {/if}
+
+        <div class="habit-divider"><span class="habit-divider-label">Weekly</span></div>
+
+        {#each WEEKLY_HABITS as h}
+          {@const checked = isCheckedThisWeek(h.id)}
+          {@const streak  = weeklyStreak(h.id)}
+          <div class="habit-row">
+            <button class="habit-check" class:habit-checked={checked} onclick={() => toggleHabit(h.id, true)}>
+              {#if checked}<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>{/if}
+            </button>
+            <span class="habit-label" class:habit-done-label={checked}>{h.label}</span>
+            <span class="habit-week-badge" class:habit-week-done={checked}>this week</span>
+            {#if streak > 0}<span class="habit-streak">{streak}w</span>{/if}
+          </div>
+        {/each}
+      </div>
+
+      <!-- Small win -->
+      <div class="wellness-section">
+        {#if todayWin}
+          <div class="win-logged">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="var(--yw)" stroke="none"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+            <span class="text-xs text-mu">Today's win: <em style="color:var(--tx)">{todayWin}</em></span>
+          </div>
+        {:else}
+          <div class="win-row">
+            <input class="win-input" bind:value={winDraft} placeholder="One good thing today…"
+              onkeydown={(e) => { if (e.key === 'Enter') logWin(); }} />
+            <button class="btn btn-ghost btn-xs" onclick={logWin} disabled={winSaving || !winDraft.trim()}>Log</button>
+          </div>
+        {/if}
+      </div>
+
+      <!-- Currently reading -->
+      <div class="wellness-section">
+        <div class="reading-row">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ac)" stroke-width="2" style="flex-shrink:0"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          {#if bookEditing}
+            <input class="book-input" bind:value={bookDraft} placeholder="Book title…" autofocus
+              onkeydown={(e) => { if (e.key === 'Enter') saveBook(); if (e.key === 'Escape') bookEditing = false; }} />
+            <button class="btn btn-ghost btn-xs" onclick={saveBook}>Save</button>
+          {:else if store.currentBook}
+            <span class="text-xs reading-title">{store.currentBook}</span>
+            <button class="btn-link text-xs text-mu" onclick={startBookEdit}>change</button>
+          {:else}
+            <button class="btn-link text-xs text-mu" onclick={startBookEdit}>What are you reading for fun?</button>
+          {/if}
+        </div>
+      </div>
+    </section>
+
     <!-- Upcoming deadline banner -->
     {#if nextDeadline}
       <div class="deadline-banner">
@@ -1012,109 +1113,6 @@
         </div>
       </section>
     {/if}
-
-    <!-- Wellness widget -->
-    <section class="card wellness-card">
-      <div class="card-head">
-        <h3>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gn)" stroke-width="2" style="margin-right:5px;vertical-align:-1px">
-            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-          </svg>
-          Wellness
-        </h3>
-        <span class="text-xs text-mu">{new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
-      </div>
-
-      <!-- Mood check-in (morning or evening only) -->
-      {#if moodSession && !todayMoodKey}
-        <div class="mood-prompt">
-          <span class="mood-q">{moodPrompt}</span>
-          <div class="mood-btns">
-            {#each MOODS as m}
-              <button class="mood-btn" style="--mc:{m.color}" onclick={() => setMood(m.key)}>{m.label}</button>
-            {/each}
-          </div>
-        </div>
-      {:else if moodSession && todayMoodKey}
-        {@const mood = MOODS.find(m => m.key === todayMoodKey)}
-        <div class="mood-logged">
-          <span class="mood-dot" style="background:{mood?.color ?? 'var(--mu)'}"></span>
-          <span class="text-xs text-mu">{moodSession === 'morning' ? 'Morning' : 'Evening'} mood: <strong style="color:{mood?.color}">{mood?.label}</strong></span>
-        </div>
-      {/if}
-
-      <!-- Habit rows -->
-      <div class="habit-rows">
-        {#each DAILY_HABITS as h}
-          {@const checked = isCheckedToday(h.id)}
-          {@const streak  = dailyStreak(h.id)}
-          {@const dots    = last7(h.id)}
-          <div class="habit-row">
-            <button class="habit-check" class:habit-checked={checked} onclick={() => toggleHabit(h.id)}>
-              {#if checked}<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>{/if}
-            </button>
-            <span class="habit-label" class:habit-done-label={checked}>{h.label}</span>
-            <div class="habit-dots">{#each dots as on}<span class="hdot" class:hdot-on={on}></span>{/each}</div>
-            {#if streak > 0}<span class="habit-streak">{streak}</span>{/if}
-          </div>
-        {/each}
-
-        <!-- Rest day nudge -->
-        {#if showRestNudge}
-          <p class="rest-nudge">You've trained {gymStreakCount} days straight — rest is part of the programme too.</p>
-        {/if}
-
-        <div class="habit-divider"><span class="habit-divider-label">Weekly</span></div>
-
-        {#each WEEKLY_HABITS as h}
-          {@const checked = isCheckedThisWeek(h.id)}
-          {@const streak  = weeklyStreak(h.id)}
-          <div class="habit-row">
-            <button class="habit-check" class:habit-checked={checked} onclick={() => toggleHabit(h.id, true)}>
-              {#if checked}<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>{/if}
-            </button>
-            <span class="habit-label" class:habit-done-label={checked}>{h.label}</span>
-            <span class="habit-week-badge" class:habit-week-done={checked}>this week</span>
-            {#if streak > 0}<span class="habit-streak">{streak}w</span>{/if}
-          </div>
-        {/each}
-      </div>
-
-      <!-- Small win -->
-      <div class="wellness-section">
-        {#if todayWin}
-          <div class="win-logged">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="var(--yw)" stroke="none"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-            <span class="text-xs text-mu">Today's win: <em style="color:var(--tx)">{todayWin}</em></span>
-          </div>
-        {:else}
-          <div class="win-row">
-            <input class="win-input" bind:value={winDraft} placeholder="One good thing today…"
-              onkeydown={(e) => { if (e.key === 'Enter') logWin(); }} />
-            <button class="btn btn-ghost btn-xs" onclick={logWin} disabled={winSaving || !winDraft.trim()}>Log</button>
-          </div>
-        {/if}
-      </div>
-
-      <!-- Currently reading -->
-      <div class="wellness-section">
-        <div class="reading-row">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ac)" stroke-width="2" style="flex-shrink:0"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-          {#if bookEditing}
-            <input class="book-input" bind:value={bookDraft} placeholder="Book title…" autofocus
-              onkeydown={(e) => { if (e.key === 'Enter') saveBook(); if (e.key === 'Escape') bookEditing = false; }} />
-            <button class="btn btn-ghost btn-xs" onclick={saveBook}>Save</button>
-          {:else if store.currentBook}
-            <span class="text-xs reading-title">{store.currentBook}</span>
-            <button class="btn-link text-xs text-mu" onclick={startBookEdit}>change</button>
-          {:else}
-            <button class="btn-link text-xs text-mu" onclick={startBookEdit}>What are you reading for fun?</button>
-          {/if}
-        </div>
-      </div>
-
-
-    </section>
 
   </div>
 </div>

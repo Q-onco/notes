@@ -29,6 +29,10 @@
   import Help from './Help.svelte';
   import CommandPalette from './CommandPalette.svelte';
   import NotesHome from './NotesHome.svelte';
+  import WelcomePopper from './WelcomePopper.svelte';
+
+  // ── Welcome popper (once per session) ───────────────────────────
+  let showPopper = $state(!sessionStorage.getItem('_welcomed'));
 
   // ── Command palette ──────────────────────────────────────────────
   let paletteOpen = $state(false);
@@ -571,6 +575,10 @@
 </script>
 
 <svelte:window onkeydown={onWindowKey} />
+
+{#if showPopper}
+  <WelcomePopper onDismiss={() => { sessionStorage.setItem('_welcomed', '1'); showPopper = false; }} />
+{/if}
 
 {#if paletteOpen}
   <CommandPalette onClose={() => paletteOpen = false} />
