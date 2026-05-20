@@ -77,6 +77,8 @@ class Store {
   jobExtSha = $state<string | null>(null);
 
   habitLog = $state<HabitLog[]>([]);
+  currentBook = $state('');
+  lastArvinCall = $state('');
   wellnessSha = $state<string | null>(null);
 
   cvProfile = $state<CvProfile>({
@@ -245,7 +247,7 @@ class Store {
     this.reviewArticles = []; this.reviewArticlesSha = null;
     this.launchpadBookmarks = []; this.launchpadCustom = []; this.launchpadSha = null;
     this.biblioRefs = []; this.biblioCollections = []; this.biblioSha = null;
-    this.habitLog = []; this.wellnessSha = null;
+    this.habitLog = []; this.currentBook = ''; this.lastArvinCall = ''; this.wellnessSha = null;
     this.profile = { ...DEFAULT_PROFILE }; this.profileSha = null;
     this.mailContacts = []; this.mailSent = []; this.mailDrafts = []; this.mailLoaded = false;
 
@@ -366,6 +368,8 @@ class Store {
     this.biblioCollections = bl.data?.collections ?? [];
     this.biblioSha = bl.sha;
     this.habitLog = wl.data?.log ?? [];
+    this.currentBook = wl.data?.currentBook ?? '';
+    this.lastArvinCall = wl.data?.lastArvinCall ?? '';
     this.wellnessSha = wl.sha;
   }
 
@@ -407,7 +411,11 @@ class Store {
     // Keep only last 90 days to avoid file bloat
     const cutoff = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
     this.habitLog = this.habitLog.filter(e => e.date >= cutoff);
-    const sha = await saveEncFile(this.tok, PATHS.wellness, { log: this.habitLog }, this.wellnessSha, 'wellness: habit log update');
+    const sha = await saveEncFile(this.tok, PATHS.wellness, {
+      log: this.habitLog,
+      currentBook: this.currentBook,
+      lastArvinCall: this.lastArvinCall,
+    }, this.wellnessSha, 'wellness: update');
     this.wellnessSha = sha;
   }
 

@@ -847,10 +847,15 @@ export interface LaunchpadCustomResource {
 }
 
 export interface HabitLog {
-  date: string;    // YYYY-MM-DD
-  checked: string[]; // habit ids logged on this date
+  date: string;
+  checked: string[];
+  morningMood?: string;
+  eveningMood?: string;
+  smallWin?: string;
 }
 
 export interface WellnessData {
   log: HabitLog[];
+  currentBook?: string;
+  lastArvinCall?: string; // YYYY-MM-DD
 }
