@@ -367,19 +367,6 @@
     await store.saveWellness();
   }
 
-  // Arvind nudge
-  const arvinDaysAgo = $derived((() => {
-    if (!store.lastArvinCall) return null;
-    const d = Math.floor((Date.now() - new Date(store.lastArvinCall).getTime()) / 86400000);
-    return d;
-  })());
-
-  async function markedCalledArvind() {
-    store.lastArvinCall = todayStr();
-    await store.saveWellness();
-    showToast('Noted — have a great chat!');
-  }
-
   // ── Motivational greeting ──────────────────────────────────────
   const GREET_KEY = 'qonco_greeted';
   const MONDAY_MSGS = [
@@ -391,10 +378,6 @@
     "It's Friday evening — close the laptop and go find something beautiful this weekend.",
     "The weekend is yours. Pack a bag, call a friend, find a trail somewhere.",
     "Friday! Research will be here Monday. Right now, just be.",
-  ];
-  const SUNDAY_MSGS = [
-    "Sunday evening, Amritha — have you called Arvind recently? A good catch-up sets the week right.",
-    "Hope you had a slow Sunday. If you haven't rung Arvind lately, now's a nice time.",
   ];
 
   let greetingMsg = $state('');
@@ -413,8 +396,6 @@
       greetingMsg = pick(FRIDAY_MSGS);
       greetingMovie = pick(MOVIES);
       greetingVisible = true;
-    } else if (day === 0 && hour >= 17) {
-      greetingMsg = pick(SUNDAY_MSGS); greetingVisible = true;
     }
     if (greetingVisible) sessionStorage.setItem(GREET_KEY, '1');
   });
@@ -1047,26 +1028,6 @@
         </div>
       </div>
 
-      <!-- Arvind nudge -->
-      <div class="wellness-section arvind-row">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--pu)" stroke-width="2" style="flex-shrink:0"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        <span class="text-xs">Arvind —
-          {#if arvinDaysAgo === null}
-            <span class="text-mu">when did you last call him?</span>
-          {:else if arvinDaysAgo === 0}
-            <span style="color:var(--gn)">called today</span>
-          {:else if arvinDaysAgo === 1}
-            <span class="text-mu">called yesterday</span>
-          {:else if arvinDaysAgo <= 7}
-            <span class="text-mu">{arvinDaysAgo} days ago</span>
-          {:else}
-            <span style="color:var(--yw)">it's been {arvinDaysAgo} days — maybe check in?</span>
-          {/if}
-        </span>
-        {#if arvinDaysAgo === null || arvinDaysAgo > 0}
-          <button class="btn btn-ghost btn-xs" onclick={markedCalledArvind}>Called today</button>
-        {/if}
-      </div>
 
     </section>
 
@@ -1551,7 +1512,6 @@
   .book-input { flex: 1; font-size: 0.82rem; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--bd); background: var(--su); color: var(--tx); }
   .book-input:focus { outline: none; border-color: var(--ac); }
   .reading-title { color: var(--tx); font-style: italic; flex: 1; }
-  .arvind-row { display: flex; align-items: center; gap: 8px; }
 
   /* ── Day greeting overlay ── */
   .greet-backdrop {
