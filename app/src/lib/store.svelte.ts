@@ -3,6 +3,7 @@ import type {
   ChatSession, CalendarEvent, AppSettings, AiFeatureSettings, PaperResult,
   ReadingListItem, SavedSearch, SearchHistoryEntry, PipelineRun, Protocol,
   SavedJob, JobListing, ResearcherProfile, Hypothesis,
+  HabitLog, WellnessData,
   CvProfile, CoverLetter, JobContact, JobEmailTemplate, SalaryEntry, JobDeadline,
   Presentation, FileRecord, FileVersion,
   Grant, ConferenceAbstract, PeerReview, Manuscript,
@@ -74,6 +75,9 @@ class Store {
   jobDeadlines = $state<JobDeadline[]>([]);
   pinnedJobs = $state<JobListing[]>([]);
   jobExtSha = $state<string | null>(null);
+
+  habitLog = $state<HabitLog[]>([]);
+  wellnessSha = $state<string | null>(null);
 
   cvProfile = $state<CvProfile>({
     fullName: 'Dr. Amritha Sathyanarayanan',
@@ -241,6 +245,7 @@ class Store {
     this.reviewArticles = []; this.reviewArticlesSha = null;
     this.launchpadBookmarks = []; this.launchpadCustom = []; this.launchpadSha = null;
     this.biblioRefs = []; this.biblioCollections = []; this.biblioSha = null;
+    this.habitLog = []; this.wellnessSha = null;
     this.profile = { ...DEFAULT_PROFILE }; this.profileSha = null;
     this.mailContacts = []; this.mailSent = []; this.mailDrafts = []; this.mailLoaded = false;
 
@@ -282,7 +287,7 @@ class Store {
       if (cached) this.files = cached;
     }
 
-    const [n, j, t, c, a, pp, s, res, pip, jb, jbx, cv, cl, prf, pres, fi, gr, conf, pr, ms, rv, lp, bl] = await Promise.all([
+    const [n, j, t, c, a, pp, s, res, pip, jb, jbx, cv, cl, prf, pres, fi, gr, conf, pr, ms, rv, lp, bl, wl] = await Promise.all([
       loadEncFile<Note[]>(this.tok, PATHS.notes, []),
       loadEncFile<JournalEntry[]>(this.tok, PATHS.journal, []),
       loadEncFile<Task[]>(this.tok, PATHS.tasks, []),
@@ -306,6 +311,7 @@ class Store {
       loadEncFile<ReviewArticle[]>(this.tok, PATHS.reviews, []),
       loadEncFile<{bookmarks?: string[], custom?: LaunchpadCustomResource[]}>(this.tok, PATHS.launchpad, { bookmarks: [], custom: [] }),
       loadEncFile<{refs?: BiblioReference[], collections?: BiblioCollection[]}>(this.tok, PATHS.biblio, { refs: [], collections: [] }),
+      loadEncFile<WellnessData>(this.tok, PATHS.wellness, { log: [] }),
     ]);
 
     this.notes = n.data; this.notesSha = n.sha;
@@ -359,6 +365,8 @@ class Store {
     this.biblioRefs = bl.data?.refs ?? [];
     this.biblioCollections = bl.data?.collections ?? [];
     this.biblioSha = bl.sha;
+    this.habitLog = wl.data?.log ?? [];
+    this.wellnessSha = wl.sha;
   }
 
   async saveResearch(): Promise<void> {
@@ -392,6 +400,15 @@ class Store {
       'biblio: update'
     );
     this.biblioSha = sha;
+  }
+
+  async saveWellness(): Promise<void> {
+    if (!this.tok) return;
+    // Keep only last 90 days to avoid file bloat
+    const cutoff = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+    this.habitLog = this.habitLog.filter(e => e.date >= cutoff);
+    const sha = await saveEncFile(this.tok, PATHS.wellness, { log: this.habitLog }, this.wellnessSha, 'wellness: habit log update');
+    this.wellnessSha = sha;
   }
 
   async savePipelines(): Promise<void> {

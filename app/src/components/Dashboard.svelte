@@ -207,6 +207,126 @@
   $effect(() => { digestText; if (digestBodyEl) digestBodyEl.scrollTop = digestBodyEl.scrollHeight; });
   $effect(() => { piText;     if (piBodyEl)     piBodyEl.scrollTop     = piBodyEl.scrollHeight; });
 
+  // ── Wellness / habit streaks ───────────────────────────────────
+  const DAILY_HABITS = [
+    { id: 'gym',     label: 'Gym',         icon: 'dumbbell' },
+    { id: 'journal', label: 'Journaling',  icon: 'book'     },
+    { id: 'house',   label: 'Clean house', icon: 'home'     },
+  ] as const;
+  const WEEKLY_HABITS = [
+    { id: 'sketch', label: 'Sketching', icon: 'pencil' },
+  ] as const;
+
+  function todayStr(): string {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  function weekStr(offset = 0): string {
+    const d = new Date();
+    const monday = new Date(d);
+    monday.setDate(d.getDate() - ((d.getDay() + 6) % 7) + offset * 7);
+    return monday.toISOString().slice(0, 10);
+  }
+
+  function isCheckedToday(habitId: string): boolean {
+    const today = todayStr();
+    return store.habitLog.some(e => e.date === today && e.checked.includes(habitId));
+  }
+
+  function isCheckedThisWeek(habitId: string): boolean {
+    const wStart = weekStr(0);
+    const wEnd   = weekStr(1);
+    return store.habitLog.some(e => e.date >= wStart && e.date < wEnd && e.checked.includes(habitId));
+  }
+
+  async function toggleHabit(habitId: string, weekly = false) {
+    const key = weekly ? weekStr(0) : todayStr();
+    const existing = store.habitLog.find(e => e.date === key);
+    if (existing) {
+      if (existing.checked.includes(habitId)) {
+        existing.checked = existing.checked.filter(h => h !== habitId);
+      } else {
+        existing.checked = [...existing.checked, habitId];
+      }
+    } else {
+      store.habitLog = [...store.habitLog, { date: key, checked: [habitId] }];
+    }
+    await store.saveWellness();
+  }
+
+  function dailyStreak(habitId: string): number {
+    let streak = 0;
+    const today = todayStr();
+    let d = new Date();
+    if (!isCheckedToday(habitId)) d.setDate(d.getDate() - 1);
+    for (let i = 0; i < 365; i++) {
+      const ds = d.toISOString().slice(0, 10);
+      if (ds > today) { d.setDate(d.getDate() - 1); continue; }
+      if (store.habitLog.some(e => e.date === ds && e.checked.includes(habitId))) {
+        streak++;
+        d.setDate(d.getDate() - 1);
+      } else break;
+    }
+    return streak;
+  }
+
+  function weeklyStreak(habitId: string): number {
+    let streak = 0;
+    let offset = isCheckedThisWeek(habitId) ? 0 : -1;
+    for (let i = 0; i < 52; i++) {
+      const wStart = weekStr(offset);
+      const wEnd   = weekStr(offset + 1);
+      if (store.habitLog.some(e => e.date >= wStart && e.date < wEnd && e.checked.includes(habitId))) {
+        streak++;
+        offset--;
+      } else break;
+    }
+    return streak;
+  }
+
+  function last7Days(habitId: string): boolean[] {
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (6 - i));
+      const ds = d.toISOString().slice(0, 10);
+      return store.habitLog.some(e => e.date === ds && e.checked.includes(habitId));
+    });
+  }
+
+  // ── Motivational greeting ──────────────────────────────────────
+  const GREET_SESSION_KEY = 'qonco_greeted';
+  const MONDAY_MSGS = [
+    "Hope you had a wonderful weekend — here's to a brilliant week ahead!",
+    "Fresh week, fresh energy. Hope you rested well — you've got this.",
+    "Happy Monday! A good week starts with a good mindset. Make it count.",
+  ];
+  const FRIDAY_MSGS = [
+    "It's Friday evening — hope you've planned something wonderful. Hike, explore, laugh with friends. You deserve it.",
+    "The weekend is yours. Pack your bag, call your pals, and go find a trail somewhere beautiful.",
+    "Friday! Close the laptop, step outside. Research will be here Monday — the weekend won't.",
+  ];
+
+  let greetingMsg = $state('');
+  let greetingVisible = $state(false);
+
+  $effect(() => {
+    if (!store.tok) return;
+    const alreadyShown = sessionStorage.getItem(GREET_SESSION_KEY);
+    if (alreadyShown) return;
+    const now = new Date();
+    const day = now.getDay(); // 0=Sun 1=Mon ... 5=Fri 6=Sat
+    const hour = now.getHours();
+    if (day === 1) {
+      greetingMsg = MONDAY_MSGS[Math.floor(Math.random() * MONDAY_MSGS.length)];
+      greetingVisible = true;
+      sessionStorage.setItem(GREET_SESSION_KEY, '1');
+    } else if (day === 5 && hour >= 17) {
+      greetingMsg = FRIDAY_MSGS[Math.floor(Math.random() * FRIDAY_MSGS.length)];
+      greetingVisible = true;
+      sessionStorage.setItem(GREET_SESSION_KEY, '1');
+    }
+  });
+
   async function runPiReport() {
     if (piStreaming) { piAbort?.abort(); piStreaming = false; return; }
     piAbort = new AbortController();
@@ -735,8 +855,96 @@
       </section>
     {/if}
 
+    <!-- Wellness / habit streaks -->
+    <section class="card wellness-card">
+      <div class="card-head">
+        <h3>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gn)" stroke-width="2" style="margin-right:5px;vertical-align:-1px">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+          </svg>
+          Habits
+        </h3>
+        <span class="text-xs text-mu">{new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+      </div>
+
+      <div class="habit-rows">
+        {#each DAILY_HABITS as h}
+          {@const checked = isCheckedToday(h.id)}
+          {@const streak  = dailyStreak(h.id)}
+          {@const dots    = last7Days(h.id)}
+          <div class="habit-row">
+            <button class="habit-check" class:habit-checked={checked} onclick={() => toggleHabit(h.id)}
+              title={checked ? 'Mark undone' : 'Mark done'}>
+              {#if checked}
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+              {/if}
+            </button>
+            <span class="habit-label" class:habit-done-label={checked}>{h.label}</span>
+            <div class="habit-dots" title="Last 7 days">
+              {#each dots as filled}
+                <span class="hdot" class:hdot-on={filled}></span>
+              {/each}
+            </div>
+            {#if streak > 0}
+              <span class="habit-streak" title="{streak}-day streak">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="var(--oj)" stroke="none"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm-1 14H9V8l5 4-3 4z"/></svg>
+                {streak}
+              </span>
+            {/if}
+          </div>
+        {/each}
+
+        <div class="habit-divider">
+          <span class="habit-divider-label">Weekly</span>
+        </div>
+
+        {#each WEEKLY_HABITS as h}
+          {@const checked = isCheckedThisWeek(h.id)}
+          {@const streak  = weeklyStreak(h.id)}
+          <div class="habit-row">
+            <button class="habit-check" class:habit-checked={checked} onclick={() => toggleHabit(h.id, true)}
+              title={checked ? 'Mark undone' : 'Mark done this week'}>
+              {#if checked}
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+              {/if}
+            </button>
+            <span class="habit-label" class:habit-done-label={checked}>{h.label}</span>
+            <span class="habit-week-badge" class:habit-week-done={checked}>this week</span>
+            {#if streak > 0}
+              <span class="habit-streak" title="{streak}-week streak">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="var(--oj)" stroke="none"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm-1 14H9V8l5 4-3 4z"/></svg>
+                {streak}w
+              </span>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    </section>
+
   </div>
 </div>
+
+<!-- Motivational greeting overlay -->
+{#if greetingVisible}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="greet-backdrop" onclick={() => greetingVisible = false}>
+    <div class="greet-card" onclick={(e) => e.stopPropagation()}>
+      <div class="greet-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--enzo)" stroke-width="1.5">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+          <line x1="9" y1="9" x2="9.01" y2="9"/>
+          <line x1="15" y1="9" x2="15.01" y2="9"/>
+        </svg>
+      </div>
+      <p class="greet-msg">{greetingMsg}</p>
+      <button class="btn btn-primary btn-sm greet-close" onclick={() => greetingVisible = false}>
+        Thanks
+      </button>
+    </div>
+  </div>
+{/if}
 
 <style>
   .dashboard {
@@ -1136,4 +1344,96 @@
     .stat-card { padding: 10px 12px; }
     .stat-val { font-size: 1.4rem; }
   }
+
+  /* ── Wellness widget ── */
+  .wellness-card { display: flex; flex-direction: column; gap: 10px; }
+  .habit-rows { display: flex; flex-direction: column; gap: 4px; }
+  .habit-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 2px;
+    border-radius: 6px;
+    transition: background var(--transition);
+  }
+  .habit-row:hover { background: var(--su-bg); }
+  .habit-check {
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    border: 1.5px solid var(--bd);
+    background: var(--su);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: border-color var(--transition), background var(--transition), color var(--transition);
+    color: white;
+  }
+  .habit-check:hover { border-color: var(--gn); }
+  .habit-checked { background: var(--gn); border-color: var(--gn); }
+  .habit-label { font-size: 0.84rem; flex: 1; transition: color var(--transition); }
+  .habit-done-label { color: var(--mu); text-decoration: line-through; }
+  .habit-dots { display: flex; gap: 3px; }
+  .hdot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--bd);
+    transition: background var(--transition);
+  }
+  .hdot-on { background: var(--gn); }
+  .habit-streak {
+    display: flex; align-items: center; gap: 2px;
+    font-size: 0.75rem; font-weight: 600;
+    color: var(--oj);
+    flex-shrink: 0;
+  }
+  .habit-divider {
+    display: flex; align-items: center; gap: 8px;
+    margin: 4px 0 2px;
+  }
+  .habit-divider-label { font-size: 0.7rem; color: var(--mu); text-transform: uppercase; letter-spacing: 0.06em; }
+  .habit-week-badge {
+    font-size: 0.7rem;
+    padding: 1px 6px;
+    border-radius: 10px;
+    border: 1px solid var(--bd);
+    color: var(--mu);
+    flex-shrink: 0;
+  }
+  .habit-week-done { border-color: var(--gn); color: var(--gn); background: color-mix(in srgb, var(--gn) 12%, transparent); }
+
+  /* ── Greeting overlay ── */
+  .greet-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.35);
+    backdrop-filter: blur(2px);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000;
+    animation: greet-in 0.25s ease;
+  }
+  @keyframes greet-in { from { opacity: 0; } to { opacity: 1; } }
+  .greet-card {
+    background: var(--bg);
+    border: 1px solid var(--bd);
+    border-radius: 16px;
+    padding: 32px 36px;
+    max-width: 380px;
+    width: 90%;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+    animation: greet-rise 0.3s ease;
+  }
+  @keyframes greet-rise { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+  .greet-icon {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: var(--enzo-bg);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .greet-msg {
+    font-size: 0.95rem;
+    line-height: 1.6;
+    color: var(--tx);
+  }
+  .greet-close { min-width: 100px; }
 </style>

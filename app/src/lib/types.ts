@@ -845,3 +845,12 @@ export interface LaunchpadCustomResource {
   stage: string;
   addedAt: number;
 }
+
+export interface HabitLog {
+  date: string;    // YYYY-MM-DD
+  checked: string[]; // habit ids logged on this date
+}
+
+export interface WellnessData {
+  log: HabitLog[];
+}
