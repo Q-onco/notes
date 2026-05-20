@@ -3,6 +3,7 @@
   import { askEnzo, getAllTokenUsage, DAILY_TOKEN_REF } from '../lib/groq';
   import { nanoid } from 'nanoid';
   import type { ChatSession, ChatMessage, Note } from '../lib/types';
+  import { getEnzoPersonality } from '../lib/personality';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -643,6 +644,7 @@
 
     inputText = '';
 
+    const personalityPrefix = getEnzoPersonality(text);
     const session = getOrCreateSession();
     const userMsg: ChatMessage = {
       id: nanoid(),
@@ -665,7 +667,11 @@
       tokens: 0
     };
     session.messages = [...session.messages, placeholder];
-    streamBuffer = '';
+    streamBuffer = personalityPrefix ? personalityPrefix + '\n\n' : '';
+    if (streamBuffer) {
+      const idx = session.messages.findIndex(m => m.id === assistantId);
+      if (idx !== -1) session.messages[idx] = { ...session.messages[idx], content: streamBuffer };
+    }
     streaming = true;
 
     scrollToBottom();

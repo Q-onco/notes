@@ -11,6 +11,7 @@
     JobContact, JobEmailTemplate, SalaryEntry, JobDeadline
   } from '../lib/types';
   import { fetchJobFeed, PIPELINE_STAGES, REGION_LABELS, TYPE_LABELS, EU_COMPANIES, INDIA_COMPANIES } from '../lib/jobs';
+  import { getJobQuip } from '../lib/personality';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -54,7 +55,7 @@
     feedError = '';
     try {
       feedJobs = await fetchJobFeed(feedQuery.trim() || 'oncology');
-      if (feedJobs.length === 0) feedError = 'No jobs returned from feeds — examples shown below.';
+      if (feedJobs.length === 0) { feedError = getJobQuip('no-results') + ' Showing curated examples.'; }
     } catch (e) {
       feedError = 'Live feed unavailable — showing curated examples. Click Refresh to retry.';
       feedJobs = [];
@@ -110,7 +111,8 @@
     };
     store.savedJobs = [job, ...store.savedJobs];
     store.saveJobs();
-    showToast('Added to tracker');
+    const isFifth = store.savedJobs.length === 5;
+    showToast(isFifth ? getJobQuip('fifth-save') : 'Added to tracker');
   }
 
   // ── Companies state ───────────────────────────────────────────────────────────
@@ -478,7 +480,7 @@
       };
       store.coverLetters = [letter, ...store.coverLetters];
       await store.saveCoverLetters();
-      showToast('Cover letter saved');
+      showToast(getJobQuip('cover-letter'));
       clView = 'list';
     } catch (e) { showToast((e as Error).message, 'error'); }
     finally { clSaving = false; }

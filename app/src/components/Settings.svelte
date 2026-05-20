@@ -2,6 +2,7 @@
   import { store } from '../lib/store.svelte';
   import { MODELS, DAILY_TOKEN_REF, getAllTokenUsage, type ModelKey, WORKER_URL } from '../lib/groq';
   import { nanoid } from 'nanoid';
+  import { getThemeQuip } from '../lib/personality';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -306,7 +307,11 @@
             <button
               class="choice-btn"
               class:sel={store.settings.themeOverride === val}
-              onclick={() => { store.settings.themeOverride = val as 'auto'|'light'|'dark'; }}
+              onclick={() => {
+                store.settings.themeOverride = val as 'auto'|'light'|'dark';
+                const q = getThemeQuip(val as 'auto'|'light'|'dark');
+                if (q) showToast(q);
+              }}
             >{label}</button>
           {/each}
         </div>

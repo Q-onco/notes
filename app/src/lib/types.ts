@@ -857,5 +857,7 @@ export interface HabitLog {
 export interface WellnessData {
   log: HabitLog[];
   currentBook?: string;
-  lastArvinCall?: string; // YYYY-MM-DD
+  lastArvinCall?: string;
+  shownMilestones?: string[]; // e.g. ['gym-7', 'journal-30']
+  sessionDates?: string[];    // YYYY-MM-DD entries to count logins per day
 }

@@ -3,6 +3,7 @@
   import { nanoid } from 'nanoid';
   import type { Task, SubTask } from '../lib/types';
   import { exportTasks } from '../lib/export';
+  import { getTaskQuip } from '../lib/personality';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -114,6 +115,11 @@
       store.tasks = [next, ...store.tasks];
     }
     await store.saveTasks();
+    if (task.done) {
+      const openCount = store.tasks.filter(t => !t.done).length;
+      const quip = getTaskQuip(openCount, task.text);
+      if (quip) showToast(quip);
+    }
   }
 
   async function toggleSubtask(task: Task, sub: SubTask) {

@@ -79,6 +79,8 @@ class Store {
   habitLog = $state<HabitLog[]>([]);
   currentBook = $state('');
   lastArvinCall = $state('');
+  shownMilestones = $state<string[]>([]);
+  sessionDates = $state<string[]>([]);
   wellnessSha = $state<string | null>(null);
 
   cvProfile = $state<CvProfile>({
@@ -247,7 +249,8 @@ class Store {
     this.reviewArticles = []; this.reviewArticlesSha = null;
     this.launchpadBookmarks = []; this.launchpadCustom = []; this.launchpadSha = null;
     this.biblioRefs = []; this.biblioCollections = []; this.biblioSha = null;
-    this.habitLog = []; this.currentBook = ''; this.lastArvinCall = ''; this.wellnessSha = null;
+    this.habitLog = []; this.currentBook = ''; this.lastArvinCall = '';
+    this.shownMilestones = []; this.sessionDates = []; this.wellnessSha = null;
     this.profile = { ...DEFAULT_PROFILE }; this.profileSha = null;
     this.mailContacts = []; this.mailSent = []; this.mailDrafts = []; this.mailLoaded = false;
 
@@ -370,6 +373,8 @@ class Store {
     this.habitLog = wl.data?.log ?? [];
     this.currentBook = wl.data?.currentBook ?? '';
     this.lastArvinCall = wl.data?.lastArvinCall ?? '';
+    this.shownMilestones = wl.data?.shownMilestones ?? [];
+    this.sessionDates = wl.data?.sessionDates ?? [];
     this.wellnessSha = wl.sha;
   }
 
@@ -415,6 +420,8 @@ class Store {
       log: this.habitLog,
       currentBook: this.currentBook,
       lastArvinCall: this.lastArvinCall,
+      shownMilestones: this.shownMilestones,
+      sessionDates: this.sessionDates.slice(-90),
     }, this.wellnessSha, 'wellness: update');
     this.wellnessSha = sha;
   }

@@ -2,6 +2,7 @@
   import { store } from '../lib/store.svelte';
   import { nanoid } from 'nanoid';
   import type { JournalEntry } from '../lib/types';
+  import { getJournalEasterEgg } from '../lib/personality';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
   import { exportJournal, exportJournalDocx, exportJournalPdf } from '../lib/export';
@@ -150,7 +151,9 @@
         }
       }
       await store.saveJournal();
-      showToast('Journal entry saved');
+      const plain = draftBody.replace(/<[^>]*>/g, ' ');
+      const quip = getJournalEasterEgg(plain);
+      showToast(quip ?? 'Journal entry saved');
       editingId = null;
     } finally {
       saving = false;

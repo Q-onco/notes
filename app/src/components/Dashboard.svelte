@@ -4,6 +4,10 @@
   import type { Note } from '../lib/types';
   import { exportPapers } from '../lib/export';
   import { generateWeeklyDigest, generatePiReport } from '../lib/groq';
+  import {
+    getSmartHeader, getDailyMotivation, getSeasonalNote,
+    STREAK_MILESTONES, ALL_HABITS_MSG, getMoodPattern, KONAMI, KONAMI_RESPONSES,
+  } from '../lib/personality';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -262,9 +266,15 @@
     const key = weekly ? weekStr(0) : todayStr();
     let e = store.habitLog.find(x => x.date === key);
     if (!e) { e = { date: key, checked: [] }; store.habitLog = [...store.habitLog, e]; }
-    e.checked = e.checked.includes(id) ? e.checked.filter(h => h !== id) : [...e.checked, id];
+    const wasChecked = e.checked.includes(id);
+    e.checked = wasChecked ? e.checked.filter(h => h !== id) : [...e.checked, id];
     store.habitLog = [...store.habitLog];
     await store.saveWellness();
+    if (!wasChecked) {
+      const streak = weekly ? weeklyStreak(id) : dailyStreak(id);
+      await checkAndFireMilestone(id, streak, weekly);
+      await checkAllHabits();
+    }
   }
 
   function dailyStreak(id: string) {
@@ -320,7 +330,6 @@
     if (moodSession === 'morning') e.morningMood = key;
     else if (moodSession === 'evening') e.eveningMood = key;
     store.habitLog = [...store.habitLog];
-    // Log to journal
     const label = MOODS.find(m => m.key === key)?.label ?? key;
     const session = moodSession === 'morning' ? 'Morning' : 'Evening';
     const entry = {
@@ -330,6 +339,9 @@
     store.journal = [entry, ...store.journal];
     await store.saveJournal();
     await store.saveWellness();
+    const recentMoods = store.habitLog.slice(-7).flatMap(x => [x.morningMood, x.eveningMood]).filter((m): m is string => !!m);
+    const pattern = getMoodPattern(recentMoods);
+    if (pattern) showToast(pattern);
   }
 
   // Small win
@@ -367,17 +379,70 @@
     await store.saveWellness();
   }
 
-  // ── Motivational greeting ──────────────────────────────────────
+  // ── Smart header ───────────────────────────────────────────────
+  const todaysSessionCount = $derived((() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return store.sessionDates.filter(d => d === today).length;
+  })());
+
+  const smartHeader = $derived(
+    getSmartHeader(store.settings.userName || 'Amritha', {
+      hour: new Date().getHours(),
+      day: new Date().getDay(),
+      date: new Date().getDate(),
+      month: new Date().getMonth(),
+      sessionCount: todaysSessionCount,
+    })
+  );
+
+  // Record this session on load
+  $effect(() => {
+    if (!store.tok) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const key = 'qonco_session_' + today;
+    if (sessionStorage.getItem(key)) return;
+    sessionStorage.setItem(key, '1');
+    store.sessionDates = [...store.sessionDates, today];
+    store.saveWellness();
+  });
+
+  // ── Daily motivation ───────────────────────────────────────────
+  const dailyMotivation = getDailyMotivation();
+  const seasonalNote = getSeasonalNote();
+
+  // ── Streak milestones ──────────────────────────────────────────
+  async function checkAndFireMilestone(habitId: string, streak: number, weekly = false) {
+    const key = `${habitId}-${weekly ? streak + 'w' : streak}`;
+    const milestoneKey = `${habitId}-${streak}`;
+    if (store.shownMilestones.includes(key)) return;
+    const msg = STREAK_MILESTONES[milestoneKey];
+    if (!msg) return;
+    store.shownMilestones = [...store.shownMilestones, key];
+    await store.saveWellness();
+    showToast(msg);
+  }
+
+  async function checkAllHabits() {
+    const allDone = DAILY_HABITS.every(h => isCheckedToday(h.id));
+    const key = 'all-habits-' + todayStr();
+    if (allDone && !store.shownMilestones.includes(key)) {
+      store.shownMilestones = [...store.shownMilestones, key];
+      await store.saveWellness();
+      showToast(ALL_HABITS_MSG);
+    }
+  }
+
+  // ── Motivational greeting overlay ─────────────────────────────
   const GREET_KEY = 'qonco_greeted';
   const MONDAY_MSGS = [
-    "Hope you had a wonderful weekend, Amritha — here's to a brilliant week ahead!",
+    "Hope you had a wonderful weekend — here's to a brilliant week ahead.",
     "Fresh week, fresh energy. Hope you rested well — you've got this.",
-    "Happy Monday! Whatever last week felt like, this one is a clean slate.",
+    "Happy Monday. Whatever last week felt like, this one is a clean slate.",
   ];
   const FRIDAY_MSGS = [
     "It's Friday evening — close the laptop and go find something beautiful this weekend.",
     "The weekend is yours. Pack a bag, call a friend, find a trail somewhere.",
-    "Friday! Research will be here Monday. Right now, just be.",
+    "Friday. Research will be here Monday. Right now, just be.",
   ];
 
   let greetingMsg = $state('');
@@ -399,6 +464,20 @@
     }
     if (greetingVisible) sessionStorage.setItem(GREET_KEY, '1');
   });
+
+  // ── Konami code ────────────────────────────────────────────────
+  let konamiBuffer: string[] = [];
+  let konamiVisible = $state(false);
+  let konamiMsg = $state('');
+
+  function handleKonami(e: KeyboardEvent) {
+    konamiBuffer = [...konamiBuffer.slice(-9), e.key];
+    if (konamiBuffer.join(',') === KONAMI.join(',')) {
+      konamiMsg = KONAMI_RESPONSES[Math.floor(Math.random() * KONAMI_RESPONSES.length)];
+      konamiVisible = true;
+      konamiBuffer = [];
+    }
+  }
 
   async function runPiReport() {
     if (piStreaming) { piAbort?.abort(); piStreaming = false; return; }
@@ -455,10 +534,16 @@
     <!-- Header -->
     <div class="dash-header">
       <div>
-        <h1>Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}, {store.settings.userName}.</h1>
+        <h1>{smartHeader}</h1>
         <p class="text-mu text-sm">
           {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
         </p>
+        {#if dailyMotivation}
+          <p class="daily-motivation">{dailyMotivation}</p>
+        {/if}
+        {#if seasonalNote}
+          <p class="seasonal-note">{seasonalNote}</p>
+        {/if}
       </div>
       <button class="btn btn-primary" onclick={newNote}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -1034,6 +1119,8 @@
   </div>
 </div>
 
+<svelte:window onkeydown={handleKonami} />
+
 <!-- Day/time greeting overlay -->
 {#if greetingVisible}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -1062,6 +1149,23 @@
   </div>
 {/if}
 
+<!-- Konami overlay -->
+{#if konamiVisible}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="greet-backdrop" onclick={() => konamiVisible = false}>
+    <div class="greet-card" onclick={(e) => e.stopPropagation()}>
+      <div class="greet-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--enzo)" stroke-width="1.5">
+          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+        </svg>
+      </div>
+      <p class="greet-msg">{konamiMsg}</p>
+      <button class="btn btn-primary btn-sm greet-close" onclick={() => konamiVisible = false}>Nice</button>
+    </div>
+  </div>
+{/if}
+
 <style>
   .dashboard {
     height: 100%;
@@ -1083,6 +1187,8 @@
     justify-content: space-between;
   }
   .dash-header h1 { font-size: 1.4rem; }
+  .daily-motivation { font-size: 0.8rem; color: var(--ac); margin-top: 4px; font-style: italic; opacity: 0.85; }
+  .seasonal-note { font-size: 0.75rem; color: var(--mu); margin-top: 2px; }
 
   .stats-row {
     display: grid;

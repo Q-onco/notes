@@ -9,6 +9,7 @@
   import { marked } from 'marked';
   import { decryptObjWithToken } from '../lib/crypto';
   import type { Note } from '../lib/types';
+  import { getNoteEasterEgg } from '../lib/personality';
   import type { SlashRef } from './RichEditor.svelte';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
@@ -362,6 +363,8 @@
     note.title = (e.target as HTMLInputElement).value;
     note.updatedAt = Date.now();
     autoSave();
+    const quip = getNoteEasterEgg(note.title);
+    if (quip) showToast(quip);
   }
 
   function onBodyChange(html: string) {
