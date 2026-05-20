@@ -696,6 +696,45 @@
       </section>
     {/if}
 
+    <!-- Pinned jobs -->
+    {#if store.pinnedJobs.length > 0}
+      <section class="card pinned-section">
+        <div class="card-head">
+          <h3>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="color: var(--yw); margin-right: 5px; vertical-align: -1px;">
+              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+            </svg>
+            Pinned jobs
+            <span class="pin-count">{store.pinnedJobs.length}</span>
+          </h3>
+          <button class="btn btn-ghost btn-sm" onclick={() => store.view = 'jobs'}>Browse feed →</button>
+        </div>
+        <div class="pinned-list">
+          {#each store.pinnedJobs as job (job.url)}
+            <div class="pinned-row pinned-job-row">
+              <div class="pinned-main">
+                <a class="pinned-title" href={job.url} target="_blank" rel="noreferrer">{job.title}</a>
+                <div class="pinned-meta">
+                  <span class="text-xs" style="color: var(--ac)">{job.company}</span>
+                  <span class="text-xs text-mu">· {job.location}</span>
+                  {#if job.postedAt}<span class="text-xs text-mu">· {new Date(job.postedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>{/if}
+                </div>
+              </div>
+              <div class="pinned-job-actions">
+                <button class="btn btn-ghost btn-xs" onclick={() => { store.view = 'jobs'; }}>Track</button>
+                <button class="btn-icon unpin-btn" title="Unpin"
+                  onclick={async () => { store.pinnedJobs = store.pinnedJobs.filter(j => j.url !== job.url); await store.saveJobExt(); showToast('Unpinned'); }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      </section>
+    {/if}
+
   </div>
 </div>
 
@@ -971,6 +1010,8 @@
   .unpin-btn { flex-shrink: 0; opacity: 0.4; margin-top: 1px; }
   .pinned-row:hover .unpin-btn { opacity: 1; }
   .unpin-btn:hover { color: var(--rd); background: var(--rd-bg); opacity: 1; }
+  .pinned-job-row { align-items: flex-start; }
+  .pinned-job-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-top: 2px; }
 
   /* ── Analytics strip ── */
   .analytics-strip {

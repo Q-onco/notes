@@ -2,7 +2,7 @@ import type {
   Note, JournalEntry, Task, AudioRecord,
   ChatSession, CalendarEvent, AppSettings, AiFeatureSettings, PaperResult,
   ReadingListItem, SavedSearch, SearchHistoryEntry, PipelineRun, Protocol,
-  SavedJob, ResearcherProfile, Hypothesis,
+  SavedJob, JobListing, ResearcherProfile, Hypothesis,
   CvProfile, CoverLetter, JobContact, JobEmailTemplate, SalaryEntry, JobDeadline,
   Presentation, FileRecord, FileVersion,
   Grant, ConferenceAbstract, PeerReview, Manuscript,
@@ -72,6 +72,7 @@ class Store {
   emailTemplates = $state<JobEmailTemplate[]>([]);
   salaryEntries = $state<SalaryEntry[]>([]);
   jobDeadlines = $state<JobDeadline[]>([]);
+  pinnedJobs = $state<JobListing[]>([]);
   jobExtSha = $state<string | null>(null);
 
   cvProfile = $state<CvProfile>({
@@ -229,7 +230,7 @@ class Store {
     this.calEvents = [];
     this.savedJobs = []; this.jobsSha = null;
     this.jobContacts = []; this.emailTemplates = []; this.salaryEntries = [];
-    this.jobDeadlines = []; this.jobExtSha = null;
+    this.jobDeadlines = []; this.pinnedJobs = []; this.jobExtSha = null;
     this.coverLetters = []; this.coverLettersSha = null;
     this.presentations = []; this.presentationsSha = null;
     this.files = []; this.filesSha = null;
@@ -334,6 +335,7 @@ class Store {
     this.emailTemplates = jbx.data.templates ?? [];
     this.salaryEntries = jbx.data.salaries ?? [];
     this.jobDeadlines = jbx.data.deadlines ?? [];
+    this.pinnedJobs = jbx.data.pinnedJobs ?? [];
     this.jobExtSha = jbx.sha;
     this.cvProfile = { ...this.cvProfile, ...cv.data }; this.cvSha = cv.sha;
     this.coverLetters = cl.data; this.coverLettersSha = cl.sha;
@@ -452,6 +454,7 @@ class Store {
       templates: this.emailTemplates,
       salaries: this.salaryEntries,
       deadlines: this.jobDeadlines,
+      pinnedJobs: this.pinnedJobs,
     }, this.jobExtSha, 'jobs: extended data update');
     this.jobExtSha = sha;
   }

@@ -77,6 +77,21 @@
     })
   );
 
+  function isPinned(listing: JobListing) {
+    return store.pinnedJobs.some(j => j.url === listing.url);
+  }
+
+  async function togglePin(listing: JobListing) {
+    if (isPinned(listing)) {
+      store.pinnedJobs = store.pinnedJobs.filter(j => j.url !== listing.url);
+      showToast('Unpinned');
+    } else {
+      store.pinnedJobs = [listing, ...store.pinnedJobs];
+      showToast('Pinned to dashboard');
+    }
+    await store.saveJobExt();
+  }
+
   function saveJobToTracker(listing: JobListing) {
     if (store.savedJobs.some(j => j.listing.url === listing.url)) {
       showToast('Already in tracker');
@@ -724,6 +739,13 @@
                 {/if}
                 <div class="job-actions">
                   <a class="btn btn-ghost btn-sm" href={job.url} target="_blank" rel="noreferrer">View posting</a>
+                  <button class="btn btn-ghost btn-sm pin-btn" class:pinned={isPinned(job)}
+                    onclick={() => togglePin(job)} title={isPinned(job) ? 'Unpin from dashboard' : 'Pin to dashboard'}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill={isPinned(job) ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2">
+                      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                    </svg>
+                    {isPinned(job) ? 'Pinned' : 'Pin'}
+                  </button>
                   <button class="btn btn-primary btn-sm" onclick={() => saveJobToTracker(job)}
                     disabled={store.savedJobs.some(j => j.listing.url === job.url)}>
                     {store.savedJobs.some(j => j.listing.url === job.url) ? 'In tracker' : '+ Track'}
@@ -1642,7 +1664,9 @@
   .source-tag { font-style: italic; }
   .job-desc { line-height: 1.6; }
   .tag-row { display: flex; flex-wrap: wrap; gap: 4px; }
-  .job-actions { display: flex; gap: 8px; }
+  .job-actions { display: flex; gap: 8px; align-items: center; }
+  .pin-btn { display: flex; align-items: center; gap: 5px; color: var(--mu); }
+  .pin-btn.pinned { color: var(--yw); border-color: var(--yw); }
   .type-industry { background: var(--ac-bg); color: var(--ac); border: 1px solid var(--ac); }
   .type-academic { background: var(--pu-bg, rgba(188,140,255,.12)); color: var(--pu); border: 1px solid var(--pu); }
   .type-fellowship { background: var(--gn-bg); color: var(--gn); border: 1px solid var(--gn); }
