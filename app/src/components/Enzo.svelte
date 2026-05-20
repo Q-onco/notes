@@ -4,8 +4,12 @@
   import { nanoid } from 'nanoid';
   import type { ChatSession, ChatMessage, Note } from '../lib/types';
   import { getEnzoPersonality } from '../lib/personality';
+  import EnzoDog from './EnzoDog.svelte';
 
-  let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
+  let { showToast, emotion = 'content' }: {
+    showToast: (msg: string, type?: 'success' | 'error') => void;
+    emotion?: string;
+  } = $props();
 
   const IDLE_STATUSES = [
     '· oncology research AI',
@@ -886,7 +890,9 @@
   <!-- Header -->
   <div class="enzo-head">
     <div class="enzo-title">
-      <span class="enzo-avatar">E</span>
+      <span class="enzo-avatar-dog">
+        <EnzoDog {emotion} size="sm" />
+      </span>
       <div class="enzo-name-stack">
         <span class="enzo-name-label">Enzo</span>
         <span class="enzo-status text-mu" class:thinking={streaming}>{enzoStatus}</span>
@@ -1076,15 +1082,13 @@
   }
 
   .enzo-title { display: flex; align-items: center; gap: 9px; }
-  .enzo-avatar {
-    width: 28px; height: 28px;
-    background: var(--enzo);
-    color: white;
-    border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 0.8rem;
-    font-weight: 800;
+  .enzo-avatar-dog {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     flex-shrink: 0;
+    width: 24px;
+    height: 30px;
   }
   .enzo-name-stack { display: flex; flex-direction: column; gap: 1px; line-height: 1; }
   .enzo-name-label { font-weight: 700; font-size: 0.875rem; color: var(--enzo); line-height: 1.3; }

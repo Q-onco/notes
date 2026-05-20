@@ -1,7 +1,10 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { store } from '../lib/store.svelte';
   import { nanoid } from 'nanoid';
   import type { AlarmItem } from '../lib/types';
+  import EnzoDog from './EnzoDog.svelte';
+  import { buildEnzoSnapshot, getEnzoState } from '../lib/enzo-engine';
   import Sidebar from './Sidebar.svelte';
   import Dashboard from './Dashboard.svelte';
   import Editor from './Editor.svelte';
@@ -107,6 +110,47 @@
       clearTimeout(dnaFactTimer);
     };
   });
+
+  // ── Enzo virtual-pet state ────────────────────────────────────────────────
+  let enzoPetEmotion = $state('content');
+  let enzoPetPhrase  = $state('');
+  let denOpening     = $state(false);
+  let denBusy        = false;
+
+  function recalcPetState() {
+    const snap = buildEnzoSnapshot({
+      tasks:        store.tasks,
+      journal:      store.journal,
+      notes:        store.notes,
+      chatSessions: store.chatSessions,
+      sessionDates: store.sessionDates,
+    });
+    const result = getEnzoState(snap);
+    enzoPetEmotion = result.emotion;
+    enzoPetPhrase  = result.phrase;
+  }
+
+  $effect(() => {
+    untrack(recalcPetState);
+    const id = setInterval(() => untrack(recalcPetState), 180_000);
+    return () => clearInterval(id);
+  });
+
+  function handleDenClick() {
+    if (denBusy) {
+      store.enzoOpen = !store.enzoOpen;
+      store.sidebarOpen = false;
+      return;
+    }
+    denBusy    = true;
+    denOpening = true;
+    setTimeout(() => {
+      denOpening = false;
+      store.enzoOpen    = !store.enzoOpen;
+      store.sidebarOpen = false;
+      setTimeout(() => { denBusy = false; }, 120);
+    }, 450);
+  }
 
   let toastMsg = $state('');
   let toastType = $state<'success' | 'error' | ''>('');
@@ -856,11 +900,13 @@
         {store.settings.themeOverride === 'dark' ? '☀' : store.settings.themeOverride === 'light' ? '◑' : '◐'}
       </button>
       <button
-        class="btn-icon enzo-toggle"
-        onclick={() => store.enzoOpen = !store.enzoOpen}
-        title="Toggle Enzo"
+        class="btn-icon enzo-den"
+        onclick={handleDenClick}
+        title={enzoPetPhrase || 'Enzo'}
       >
-        <span class="enzo-dot"></span>
+        <span class="den-dog-wrap">
+          <EnzoDog emotion={enzoPetEmotion} size="sm" opening={denOpening} />
+        </span>
         <span class="enzo-label">Enzo</span>
       </button>
       <button class="search-trigger" onclick={() => paletteOpen = !paletteOpen} title="Search (Ctrl+K)">
@@ -986,7 +1032,7 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="panel-backdrop" onclick={() => store.enzoOpen = false}></div>
       <aside class="enzo-panel">
-        <Enzo {showToast} />
+        <Enzo {showToast} emotion={enzoPetEmotion} />
       </aside>
     {/if}
 
@@ -1020,10 +1066,13 @@
     <button
       class="bn-item bn-enzo"
       class:active={store.enzoOpen}
-      onclick={() => { store.enzoOpen = !store.enzoOpen; store.sidebarOpen = false; }}
+      onclick={handleDenClick}
       aria-label="Enzo AI"
+      title={enzoPetPhrase || 'Enzo'}
     >
-      <span class="bn-enzo-orb"></span>
+      <span class="bn-enzo-dog">
+        <EnzoDog emotion={enzoPetEmotion} size="sm" opening={denOpening} />
+      </span>
       <span class="bn-label">Enzo</span>
     </button>
   </nav>
@@ -1511,26 +1560,24 @@
     color: var(--tx2);
   }
 
-  /* ── Rest of topbar ── */
-  .enzo-toggle {
+  /* ── Enzo den button (top bar) ── */
+  .enzo-den {
     display: flex;
     align-items: center;
     gap: 5px;
     font-size: 0.78rem;
     font-weight: 600;
     color: var(--enzo);
-    padding: 5px 10px;
+    padding: 3px 8px;
     border-radius: var(--radius-sm);
     background: var(--enzo-bg);
     border: 1px solid var(--enzo-bd);
   }
-  .enzo-toggle:hover { opacity: 0.85; }
-
-  .enzo-dot {
-    width: 7px; height: 7px;
-    background: var(--gn);
-    border-radius: 50%;
-    display: inline-block;
+  .enzo-den:hover { opacity: 0.85; }
+  .den-dog-wrap {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
   }
 
   .help-btn { color: var(--mu); }
@@ -1811,20 +1858,10 @@
 
     .bn-enzo { color: var(--enzo); }
     .bn-enzo.active { color: var(--enzo); }
-    .bn-enzo-orb {
-      width: 22px; height: 22px;
-      border-radius: 50%;
-      background: var(--enzo-bg);
-      border: 1.5px solid var(--enzo-bd);
+    .bn-enzo-dog {
       display: flex;
       align-items: center;
       justify-content: center;
-    }
-    .bn-enzo-orb::after {
-      content: '';
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      background: var(--gn);
     }
   }
 
@@ -1835,7 +1872,7 @@
 
   @media (max-width: 380px) {
     .search-trigger { display: none; }
-    .enzo-toggle { display: none; }
+    .enzo-den { display: none; }
     .theme-toggle { display: none; }
   }
 </style>
