@@ -527,6 +527,31 @@
     } catch { /* aborted */ }
     digestStreaming = false;
   }
+
+  // ── Dashboard layout customisation ──────────────────────────────
+  const DEFAULT_ORDER = ['wellness','deadlines','digest','analytics','focus','grid','pinned-papers','pinned-jobs'];
+  const WIDGET_LABELS: Record<string, string> = {
+    wellness:       'Wellness',
+    deadlines:      'Deadline banner',
+    digest:         'Weekly digest & PI report',
+    analytics:      'Analytics strip',
+    focus:          'Daily focus',
+    grid:           'Quick-access grid',
+    'pinned-papers':'Pinned papers',
+    'pinned-jobs':  'Pinned jobs',
+  };
+
+  let customizing = $state(false);
+  const widgetOrder = $derived(store.settings.dashboardOrder ?? DEFAULT_ORDER);
+
+  function moveWidget(i: number, dir: -1 | 1) {
+    const order = [...widgetOrder];
+    const j = i + dir;
+    if (j < 0 || j >= order.length) return;
+    [order[i], order[j]] = [order[j], order[i]];
+    store.settings.dashboardOrder = order;
+    store.saveSettings();
+  }
 </script>
 
 <div class="dashboard">
@@ -545,12 +570,23 @@
           <p class="seasonal-note">{seasonalNote}</p>
         {/if}
       </div>
-      <button class="btn btn-primary" onclick={newNote}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-        </svg>
-        New note
-      </button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-ghost btn-sm" onclick={() => customizing = !customizing} title="Rearrange dashboard sections">
+          {#if customizing}
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            Done
+          {:else}
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            Layout
+          {/if}
+        </button>
+        <button class="btn btn-primary" onclick={newNote}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          New note
+        </button>
+      </div>
     </div>
 
     <!-- Stats row -->
@@ -590,529 +626,481 @@
       </button>
     </div>
 
-    <!-- Wellness widget -->
-    <section class="card wellness-card">
-      <div class="card-head">
-        <h3>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gn)" stroke-width="2" style="margin-right:5px;vertical-align:-1px">
-            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-          </svg>
-          Wellness
-        </h3>
-        <span class="text-xs text-mu">{new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
-      </div>
-
-      <!-- Mood check-in (morning or evening only) -->
-      {#if moodSession && !todayMoodKey}
-        <div class="mood-prompt">
-          <span class="mood-q">{moodPrompt}</span>
-          <div class="mood-btns">
-            {#each MOODS as m}
-              <button class="mood-btn" style="--mc:{m.color}" onclick={() => setMood(m.key)}>{m.label}</button>
-            {/each}
-          </div>
-        </div>
-      {:else if moodSession && todayMoodKey}
-        {@const mood = MOODS.find(m => m.key === todayMoodKey)}
-        <div class="mood-logged">
-          <span class="mood-dot" style="background:{mood?.color ?? 'var(--mu)'}"></span>
-          <span class="text-xs text-mu">{moodSession === 'morning' ? 'Morning' : 'Evening'} mood: <strong style="color:{mood?.color}">{mood?.label}</strong></span>
-        </div>
-      {/if}
-
-      <!-- Habit rows -->
-      <div class="habit-rows">
-        {#each DAILY_HABITS as h}
-          {@const checked = isCheckedToday(h.id)}
-          {@const streak  = dailyStreak(h.id)}
-          {@const dots    = last7(h.id)}
-          <div class="habit-row">
-            <button class="habit-check" class:habit-checked={checked} onclick={() => toggleHabit(h.id)}>
-              {#if checked}<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>{/if}
-            </button>
-            <span class="habit-label" class:habit-done-label={checked}>{h.label}</span>
-            <div class="habit-dots">{#each dots as on}<span class="hdot" class:hdot-on={on}></span>{/each}</div>
-            {#if streak > 0}<span class="habit-streak">{streak}</span>{/if}
-          </div>
-        {/each}
-
-        <!-- Rest day nudge -->
-        {#if showRestNudge}
-          <p class="rest-nudge">You've trained {gymStreakCount} days straight — rest is part of the programme too.</p>
-        {/if}
-
-        <div class="habit-divider"><span class="habit-divider-label">Weekly</span></div>
-
-        {#each WEEKLY_HABITS as h}
-          {@const checked = isCheckedThisWeek(h.id)}
-          {@const streak  = weeklyStreak(h.id)}
-          <div class="habit-row">
-            <button class="habit-check" class:habit-checked={checked} onclick={() => toggleHabit(h.id, true)}>
-              {#if checked}<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>{/if}
-            </button>
-            <span class="habit-label" class:habit-done-label={checked}>{h.label}</span>
-            <span class="habit-week-badge" class:habit-week-done={checked}>this week</span>
-            {#if streak > 0}<span class="habit-streak">{streak}w</span>{/if}
-          </div>
-        {/each}
-      </div>
-
-      <!-- Small win -->
-      <div class="wellness-section">
-        {#if todayWin}
-          <div class="win-logged">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="var(--yw)" stroke="none"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-            <span class="text-xs text-mu">Today's win: <em style="color:var(--tx)">{todayWin}</em></span>
-          </div>
-        {:else}
-          <div class="win-row">
-            <input class="win-input" bind:value={winDraft} placeholder="One good thing today…"
-              onkeydown={(e) => { if (e.key === 'Enter') logWin(); }} />
-            <button class="btn btn-ghost btn-xs" onclick={logWin} disabled={winSaving || !winDraft.trim()}>Log</button>
-          </div>
-        {/if}
-      </div>
-
-      <!-- Currently reading -->
-      <div class="wellness-section">
-        <div class="reading-row">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ac)" stroke-width="2" style="flex-shrink:0"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-          {#if bookEditing}
-            <input class="book-input" bind:value={bookDraft} placeholder="Book title…" autofocus
-              onkeydown={(e) => { if (e.key === 'Enter') saveBook(); if (e.key === 'Escape') bookEditing = false; }} />
-            <button class="btn btn-ghost btn-xs" onclick={saveBook}>Save</button>
-          {:else if store.currentBook}
-            <span class="text-xs reading-title">{store.currentBook}</span>
-            <button class="btn-link text-xs text-mu" onclick={startBookEdit}>change</button>
-          {:else}
-            <button class="btn-link text-xs text-mu" onclick={startBookEdit}>What are you reading for fun?</button>
-          {/if}
-        </div>
-      </div>
-    </section>
-
-    <!-- Upcoming deadline banner -->
-    {#if nextDeadline}
-      <div class="deadline-banner">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-        </svg>
-        <span>
-          <strong>{nextDeadline.listing.company}</strong> — {nextDeadline.listing.title} ·
-          {Math.ceil(((nextDeadline.listing.deadline ?? 0) - Date.now()) / 86400000)} days left
-        </span>
-        <button class="btn btn-ghost btn-sm deadline-go" onclick={() => store.view = 'jobs'}>Go →</button>
-      </div>
-    {/if}
-
-    <!-- Weekly digest -->
-    {#if store.aiSettings.weeklyDigest}
-      <div class="digest-row">
-        <button class="btn btn-ghost btn-sm" onclick={runDigest}>
-          {#if digestStreaming}
-            <span class="spinner-xs-inline"></span> Stop
-          {:else}
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-            Weekly digest<span class="model-pill">[70B]</span>
-          {/if}
-        </button>
-        {#if digestOpen}
-          <button class="btn-link" onclick={() => digestOpen = false}>Close ✕</button>
-        {/if}
-      </div>
-      {#if digestOpen && (digestText || digestStreaming)}
-        <div class="digest-panel card">
-          <div class="digest-body text-sm" bind:this={digestBodyEl}>{digestText || '…'}</div>
-        </div>
-      {/if}
-    {/if}
-
-    <!-- PI Report -->
-    <div class="digest-row" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--bd);">
-      <button class="btn btn-ghost btn-sm pi-report-btn" onclick={runPiReport}>
-        {#if piStreaming}
-          <span class="spinner-xs-inline"></span> Stop
-        {:else}
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-          Enzo's progress report<span class="model-pill">[70B]</span>
-        {/if}
-      </button>
-      {#if piOpen}
-        <button class="btn-link" onclick={() => { piOpen = false; piText = ''; }}>Close ✕</button>
-        {#if piText && !piStreaming}
-          <button class="btn-link" onclick={() => { navigator.clipboard.writeText(piText); showToast('Report copied'); }}>Copy</button>
-          <button class="btn-link" onclick={() => store.openCompose({ subject: 'Progress Report', body: piText })}>Email</button>
-        {/if}
-      {/if}
-    </div>
-    {#if piOpen && (piText || piStreaming)}
-      <div class="digest-panel card pi-report-panel">
-        <div class="digest-body text-sm" style="white-space:pre-wrap" bind:this={piBodyEl}>{piText || '…'}</div>
-      </div>
-    {/if}
-
-    <!-- Analytics strip -->
-    <div class="analytics-strip">
-
-      <!-- Activity heatmap -->
-      <div class="analytics-card">
-        <div class="ac-head">
-          <span class="ac-label">Writing activity</span>
-          <span class="ac-sub">12 weeks</span>
-        </div>
-        <svg class="heatmap-svg" viewBox="0 0 168 110" width="168" height="110">
-          {#each heatmapCells as cell}
-            <rect x={cell.x} y={cell.y} width={12} height={12} rx="2"
-              fill={cell.a === 0 ? 'var(--sf3)' : cell.a === 1 ? 'var(--gn-muted)' : cell.a >= 2 ? 'var(--gn)' : 'var(--sf3)'}
-              opacity={cell.a === 0 ? 1 : 0.85}
-            >
-              <title>{cell.label}</title>
-            </rect>
-          {/each}
-        </svg>
-        <div class="heatmap-legend">
-          <span>Less</span>
-          <div class="hm-box" style="background:var(--sf3)"></div>
-          <div class="hm-box" style="background:var(--gn-muted)"></div>
-          <div class="hm-box" style="background:var(--gn)"></div>
-          <span>More</span>
-        </div>
-      </div>
-
-      <!-- Papers read per week -->
-      <div class="analytics-card">
-        <div class="ac-head">
-          <span class="ac-label">Papers read</span>
-          <span class="ac-sub">8 weeks</span>
-        </div>
-        <div class="bar-chart">
-          {#each papersReadWeekly as count, i}
-            <div class="bar-col">
-              <div class="bar" style="height:{count > 0 ? Math.max((count / maxPW) * 72, 6) : 3}px; background:{count > 0 ? 'var(--ac)' : 'var(--sf3)'};" title="{count} papers · week {i+1}"></div>
-              {#if i === 7}<span class="bar-label">now</span>{/if}
-            </div>
-          {/each}
-        </div>
-        <div class="ac-total">
-          <span class="ac-num">{store.readingList.filter(r => r.read).length}</span>
-          <span class="ac-unit">total read</span>
-        </div>
-      </div>
-
-      <!-- Publication impact -->
-      <div class="analytics-card pub-card" onclick={fetchPubImpact}>
-        <div class="ac-head">
-          <span class="ac-label">Publication impact</span>
-          <span class="ac-sub">via OpenAlex</span>
-        </div>
-        {#if pubLoading}
-          <div class="pub-loading"><span class="spinner-xs-inline"></span> Fetching…</div>
-        {:else if pubStats}
-          <div class="pub-stats">
-            <div class="pub-stat">
-              <span class="pub-val">{pubStats.hIndex}</span>
-              <span class="pub-key">h-index</span>
-            </div>
-            <div class="pub-divider"></div>
-            <div class="pub-stat">
-              <span class="pub-val">{pubStats.citations}</span>
-              <span class="pub-key">citations</span>
-            </div>
-            <div class="pub-divider"></div>
-            <div class="pub-stat">
-              <span class="pub-val">{pubStats.works}</span>
-              <span class="pub-key">works</span>
+    {#each widgetOrder as wid, i (wid)}
+      <div class="wslot" class:customizing>
+        {#if customizing}
+          <div class="wslot-handle">
+            <span class="wslot-label">{WIDGET_LABELS[wid] ?? wid}</span>
+            <div class="wslot-arrows">
+              <button class="wslot-btn" disabled={i === 0} onclick={() => moveWidget(i, -1)} title="Move up">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>
+              </button>
+              <button class="wslot-btn" disabled={i === widgetOrder.length - 1} onclick={() => moveWidget(i, 1)} title="Move down">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
             </div>
           </div>
-        {:else if store.cvProfile.orcid}
-          <button class="fetch-pub-btn" onclick={fetchPubImpact}>Fetch from OpenAlex →</button>
-        {:else}
-          <p class="pub-no-orcid text-xs text-mu">Set your ORCID in Settings → CV Profile to see impact stats</p>
         {/if}
-      </div>
 
-    </div>
-
-    <!-- Daily focus -->
-    <div class="daily-focus">
-      <div class="df-head">
-        <div>
-          <span class="df-label">Daily focus</span>
-          <span class="df-date text-mu text-xs">{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
-        </div>
-        {#if !journalToday}
-          <button class="df-journal-btn" onclick={() => store.view = 'journal'}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
-            </svg>
-            Write today's journal
-          </button>
-        {:else}
-          <span class="df-done text-xs">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color:var(--gn)"><path d="M20 6L9 17l-5-5"/></svg>
-            Journal written
-          </span>
-        {/if}
-      </div>
-      <div class="df-body">
-        <div class="df-tasks">
-          {#if todayTopTasks.length > 0}
-            {#each todayTopTasks as task}
-              <div class="df-task">
-                <span class="df-priority df-{task.priority}"></span>
-                <span class="df-task-text">{task.text}</span>
+        {#if wid === 'wellness'}
+          <section class="card wellness-card">
+            <div class="card-head">
+              <h3>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gn)" stroke-width="2" style="margin-right:5px;vertical-align:-1px">
+                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                </svg>
+                Wellness
+              </h3>
+              <span class="text-xs text-mu">{new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+            </div>
+            {#if moodSession && !todayMoodKey}
+              <div class="mood-prompt">
+                <span class="mood-q">{moodPrompt}</span>
+                <div class="mood-btns">
+                  {#each MOODS as m}
+                    <button class="mood-btn" style="--mc:{m.color}" onclick={() => setMood(m.key)}>{m.label}</button>
+                  {/each}
+                </div>
               </div>
-            {/each}
-            {#if store.activeTasks.length > 4}
-              <button class="df-more" onclick={() => store.view = 'tasks'}>+{store.activeTasks.length - 4} more tasks →</button>
+            {:else if moodSession && todayMoodKey}
+              {@const mood = MOODS.find(m => m.key === todayMoodKey)}
+              <div class="mood-logged">
+                <span class="mood-dot" style="background:{mood?.color ?? 'var(--mu)'}"></span>
+                <span class="text-xs text-mu">{moodSession === 'morning' ? 'Morning' : 'Evening'} mood: <strong style="color:{mood?.color}">{mood?.label}</strong></span>
+              </div>
             {/if}
-          {:else}
-            <p class="text-xs text-mu" style="padding:4px 0">No open tasks — <button class="btn-link" onclick={() => store.view = 'tasks'}>add one</button></p>
-          {/if}
-        </div>
-        {#if upcomingDeadlines.length > 0}
-          <div class="df-deadlines">
-            {#each upcomingDeadlines as dl}
-              <div class="df-dl">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--yw);flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                <span class="text-xs">{dl.label}</span>
-                <span class="text-xs text-mu">{Math.ceil((dl.at - Date.now()) / 86400000)}d</span>
-              </div>
-            {/each}
-          </div>
-        {/if}
-      </div>
-    </div>
-
-    <!-- Main grid -->
-    <div class="dash-grid">
-
-      <!-- Recent notes -->
-      <section class="card dash-card">
-        <div class="card-head">
-          <h3>Recent notes</h3>
-          <button class="btn btn-ghost btn-sm" onclick={() => store.view = 'notes'}>All</button>
-        </div>
-        <div class="note-rows">
-          {#each (store.recentNotes.length > 0 ? store.recentNotes.slice(0, 5) : EX_NOTES) as note}
-            <button
-              class="note-row"
-              class:example-row={note.id.startsWith('_')}
-              onclick={() => { if (!note.id.startsWith('_')) { store.currentNoteId = note.id; store.view = 'notes'; } else store.view = 'notes'; }}
-            >
-              <span class="note-row-title">{note.title || 'Untitled'}{note.id.startsWith('_') ? '' : ''}</span>
-              <span class="note-row-time text-xs text-mu">{note.id.startsWith('_') ? '· example' : relTime(note.updatedAt)}</span>
-            </button>
-          {/each}
-        </div>
-      </section>
-
-      <!-- Tasks progress -->
-      <section class="card dash-card">
-        <div class="card-head">
-          <h3>Tasks</h3>
-          <button class="btn btn-ghost btn-sm" onclick={() => store.view = 'tasks'}>All</button>
-        </div>
-        {#if tasksTotal > 0}
-          <div class="task-progress">
-            <div class="task-progress-bar">
-              <div class="task-progress-fill" style="width: {taskPct}%"></div>
+            <div class="habit-rows">
+              {#each DAILY_HABITS as h}
+                {@const checked = isCheckedToday(h.id)}
+                {@const streak  = dailyStreak(h.id)}
+                {@const dots    = last7(h.id)}
+                <div class="habit-row">
+                  <button class="habit-check" class:habit-checked={checked} onclick={() => toggleHabit(h.id)}>
+                    {#if checked}<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>{/if}
+                  </button>
+                  <span class="habit-label" class:habit-done-label={checked}>{h.label}</span>
+                  <div class="habit-dots">{#each dots as on}<span class="hdot" class:hdot-on={on}></span>{/each}</div>
+                  {#if streak > 0}<span class="habit-streak">{streak}</span>{/if}
+                </div>
+              {/each}
+              {#if showRestNudge}
+                <p class="rest-nudge">You've trained {gymStreakCount} days straight — rest is part of the programme too.</p>
+              {/if}
+              <div class="habit-divider"><span class="habit-divider-label">Weekly</span></div>
+              {#each WEEKLY_HABITS as h}
+                {@const checked = isCheckedThisWeek(h.id)}
+                {@const streak  = weeklyStreak(h.id)}
+                <div class="habit-row">
+                  <button class="habit-check" class:habit-checked={checked} onclick={() => toggleHabit(h.id, true)}>
+                    {#if checked}<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>{/if}
+                  </button>
+                  <span class="habit-label" class:habit-done-label={checked}>{h.label}</span>
+                  <span class="habit-week-badge" class:habit-week-done={checked}>this week</span>
+                  {#if streak > 0}<span class="habit-streak">{streak}w</span>{/if}
+                </div>
+              {/each}
             </div>
-            <span class="text-xs text-mu">{tasksDone}/{tasksTotal} complete</span>
-          </div>
-        {/if}
-        <div class="task-rows">
-          {#each (store.activeTasks.length > 0 ? store.activeTasks.slice(0, 5) : EX_TASKS) as task}
-            <div class="task-row" class:example-row={task.id.startsWith('_')}>
-              <input type="checkbox" checked={task.done} disabled={task.id.startsWith('_')}
-                onchange={() => { task.done = !task.done; store.saveTasks(); }} />
-              <span class="task-row-text" class:done={task.done}>{task.text}</span>
-              {#if task.id.startsWith('_')}
-                <span class="example-mu">· example</span>
+            <div class="wellness-section">
+              {#if todayWin}
+                <div class="win-logged">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="var(--yw)" stroke="none"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                  <span class="text-xs text-mu">Today's win: <em style="color:var(--tx)">{todayWin}</em></span>
+                </div>
               {:else}
-                <span class="priority-dot priority-{task.priority}"></span>
+                <div class="win-row">
+                  <input class="win-input" bind:value={winDraft} placeholder="One good thing today…"
+                    onkeydown={(e) => { if (e.key === 'Enter') logWin(); }} />
+                  <button class="btn btn-ghost btn-xs" onclick={logWin} disabled={winSaving || !winDraft.trim()}>Log</button>
+                </div>
               {/if}
             </div>
-          {/each}
-        </div>
-      </section>
+            <div class="wellness-section">
+              <div class="reading-row">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ac)" stroke-width="2" style="flex-shrink:0"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                {#if bookEditing}
+                  <input class="book-input" bind:value={bookDraft} placeholder="Book title…" autofocus
+                    onkeydown={(e) => { if (e.key === 'Enter') saveBook(); if (e.key === 'Escape') bookEditing = false; }} />
+                  <button class="btn btn-ghost btn-xs" onclick={saveBook}>Save</button>
+                {:else if store.currentBook}
+                  <span class="text-xs reading-title">{store.currentBook}</span>
+                  <button class="btn-link text-xs text-mu" onclick={startBookEdit}>change</button>
+                {:else}
+                  <button class="btn-link text-xs text-mu" onclick={startBookEdit}>What are you reading for fun?</button>
+                {/if}
+              </div>
+            </div>
+          </section>
 
-      <!-- Journal -->
-      <section class="card dash-card">
-        <div class="card-head">
-          <h3>Journal</h3>
-          <button class="btn btn-ghost btn-sm" onclick={() => store.view = 'journal'}>All</button>
-        </div>
-        <div class="journal-rows">
-          {#each (recentJournal.length > 0 ? recentJournal : EX_JOURNAL) as entry}
-            <div class="journal-row" class:example-row={entry.id.startsWith('_')}>
-              <span class="journal-date text-xs text-mu">
-                {entry.id.startsWith('_') ? '· example' : new Date(entry.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+        {:else if wid === 'deadlines'}
+          {#if nextDeadline}
+            <div class="deadline-banner">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+              <span>
+                <strong>{nextDeadline.listing.company}</strong> — {nextDeadline.listing.title} ·
+                {Math.ceil(((nextDeadline.listing.deadline ?? 0) - Date.now()) / 86400000)} days left
               </span>
-              <span class="journal-body text-sm">{entry.body.slice(0, 80)}{entry.body.length > 80 ? '…' : ''}</span>
+              <button class="btn btn-ghost btn-sm deadline-go" onclick={() => store.view = 'jobs'}>Go →</button>
             </div>
-          {/each}
-        </div>
-      </section>
-
-      <!-- F4k Recent files -->
-      {#if recentFiles.length > 0}
-        <section class="card dash-card">
-          <div class="card-head">
-            <h3>Recent Files</h3>
-            <button class="btn btn-ghost btn-sm" onclick={() => store.view = 'files'}>All</button>
-          </div>
-          <div class="recent-files-rows">
-            {#each recentFiles as f}
-              <button class="recent-file-row" onclick={() => { store.view = 'files'; }}>
-                <span class="recent-file-icon" style="color:{f.mimeType.startsWith('image/') ? 'var(--gn)' : f.mimeType==='application/pdf' ? 'var(--rd)' : 'var(--ac)'}">
-                  {#if f.mimeType.startsWith('image/')}
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                  {:else if f.mimeType==='application/pdf'}
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                  {:else}
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/></svg>
-                  {/if}
-                </span>
-                <span class="recent-file-name">{f.name}</span>
-                <span class="recent-file-time text-xs text-mu">
-                  {new Date(f.openedAt!).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                </span>
-              </button>
-            {/each}
-          </div>
-        </section>
-      {/if}
-
-      <!-- Enzo quick prompts -->
-      <section class="card dash-card enzo-card">
-        <div class="card-head">
-          <h3 class="text-enzo">Ask Enzo</h3>
-          <button class="btn btn-enzo btn-sm" onclick={() => store.enzoOpen = true}>Open</button>
-        </div>
-        <div class="prompt-chips">
-          {#each quickPrompts as prompt}
-            <button class="prompt-chip" onclick={() => sendToEnzo(prompt)}>
-              {prompt.length > 90 ? prompt.slice(0, 90) + '…' : prompt}
-            </button>
-          {/each}
-        </div>
-      </section>
-
-      <!-- Upcoming grant deadlines -->
-      <section class="card dash-card">
-        <div class="card-head">
-          <h3>Upcoming deadlines</h3>
-          <button class="btn btn-ghost btn-sm" onclick={() => store.view = 'grants'}>All</button>
-        </div>
-        <div class="grant-rows">
-          {#if showExampleGrants}
-            {#each EX_GRANTS as g}
-              <div class="grant-row example-row">
-                <span class="grant-title">{g.title.length > 48 ? g.title.slice(0, 48) + '…' : g.title}</span>
-                <div class="grant-row-right">
-                  <span class="days-badge days-badge-{g.daysLeft <= 7 ? 'red' : g.daysLeft <= 14 ? 'yellow' : 'green'}">{g.daysLeft}d</span>
-                  <span class="example-mu">· example</span>
-                </div>
-              </div>
-            {/each}
-          {:else}
-            {#each upcomingGrants as g}
-              <div class="grant-row">
-                <span class="grant-title">{g.title.length > 52 ? g.title.slice(0, 52) + '…' : g.title}</span>
-                <span class="days-badge days-badge-{g.daysLeft <= 7 ? 'red' : g.daysLeft <= 14 ? 'yellow' : 'green'}">{g.daysLeft}d</span>
-              </div>
-            {/each}
           {/if}
-        </div>
-      </section>
 
-    </div>
-
-    <!-- Pinned research papers -->
-    {#if store.pinnedPapers.length > 0}
-      <section class="card pinned-section">
-        <div class="card-head">
-          <h3>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="color: var(--enzo); margin-right: 5px; vertical-align: -1px;">
-              <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>
-            </svg>
-            Pinned papers
-            <span class="pin-count">{store.pinnedPapers.length}</span>
-          </h3>
-          <button class="btn btn-ghost btn-sm" onclick={() => exportPapers(store.pinnedPapers)}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Export
-          </button>
-        </div>
-        <div class="pinned-list">
-          {#each store.pinnedPapers as paper (paper.id)}
-            <div class="pinned-row">
-              <div class="pinned-main">
-                <a
-                  class="pinned-title"
-                  href={paper.doi ? `https://doi.org/${paper.doi}` : paper.url}
-                  target="_blank"
-                  rel="noreferrer"
-                >{paper.title}</a>
-                <div class="pinned-meta">
-                  <span class="source-badge source-{paper.source}">{paper.source === 'pubmed' ? 'PubMed' : paper.source === 'biorxiv' ? 'bioRxiv' : paper.source === 'medrxiv' ? 'medRxiv' : paper.source.charAt(0).toUpperCase() + paper.source.slice(1)}</span>
-                  <span class="text-xs text-mu">{paper.journal}{paper.year > 0 ? ` · ${paper.year}` : ''}</span>
-                </div>
-              </div>
-              <button
-                class="btn-icon unpin-btn"
-                onclick={async () => { await store.unpinPaper(paper.id); showToast('Unpinned'); }}
-                title="Unpin"
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                </svg>
+        {:else if wid === 'digest'}
+          {#if store.aiSettings.weeklyDigest}
+            <div class="digest-row">
+              <button class="btn btn-ghost btn-sm" onclick={runDigest}>
+                {#if digestStreaming}
+                  <span class="spinner-xs-inline"></span> Stop
+                {:else}
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  Weekly digest<span class="model-pill">[70B]</span>
+                {/if}
               </button>
+              {#if digestOpen}
+                <button class="btn-link" onclick={() => digestOpen = false}>Close ✕</button>
+              {/if}
             </div>
-          {/each}
-        </div>
-      </section>
-    {/if}
-
-    <!-- Pinned jobs -->
-    {#if store.pinnedJobs.length > 0}
-      <section class="card pinned-section">
-        <div class="card-head">
-          <h3>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="color: var(--yw); margin-right: 5px; vertical-align: -1px;">
-              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-            </svg>
-            Pinned jobs
-            <span class="pin-count">{store.pinnedJobs.length}</span>
-          </h3>
-          <button class="btn btn-ghost btn-sm" onclick={() => store.view = 'jobs'}>Browse feed →</button>
-        </div>
-        <div class="pinned-list">
-          {#each store.pinnedJobs as job (job.url)}
-            <div class="pinned-row pinned-job-row">
-              <div class="pinned-main">
-                <a class="pinned-title" href={job.url} target="_blank" rel="noreferrer">{job.title}</a>
-                <div class="pinned-meta">
-                  <span class="text-xs" style="color: var(--ac)">{job.company}</span>
-                  <span class="text-xs text-mu">· {job.location}</span>
-                  {#if job.postedAt}<span class="text-xs text-mu">· {new Date(job.postedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>{/if}
-                </div>
+            {#if digestOpen && (digestText || digestStreaming)}
+              <div class="digest-panel card">
+                <div class="digest-body text-sm" bind:this={digestBodyEl}>{digestText || '…'}</div>
               </div>
-              <div class="pinned-job-actions">
-                <button class="btn btn-ghost btn-xs" onclick={() => { store.view = 'jobs'; }}>Track</button>
-                <button class="btn-icon unpin-btn" title="Unpin"
-                  onclick={async () => { store.pinnedJobs = store.pinnedJobs.filter(j => j.url !== job.url); await store.saveJobExt(); showToast('Unpinned'); }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            {/if}
+          {/if}
+          <div class="digest-row" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--bd);">
+            <button class="btn btn-ghost btn-sm pi-report-btn" onclick={runPiReport}>
+              {#if piStreaming}
+                <span class="spinner-xs-inline"></span> Stop
+              {:else}
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                Enzo's progress report<span class="model-pill">[70B]</span>
+              {/if}
+            </button>
+            {#if piOpen}
+              <button class="btn-link" onclick={() => { piOpen = false; piText = ''; }}>Close ✕</button>
+              {#if piText && !piStreaming}
+                <button class="btn-link" onclick={() => { navigator.clipboard.writeText(piText); showToast('Report copied'); }}>Copy</button>
+                <button class="btn-link" onclick={() => store.openCompose({ subject: 'Progress Report', body: piText })}>Email</button>
+              {/if}
+            {/if}
+          </div>
+          {#if piOpen && (piText || piStreaming)}
+            <div class="digest-panel card pi-report-panel">
+              <div class="digest-body text-sm" style="white-space:pre-wrap" bind:this={piBodyEl}>{piText || '…'}</div>
+            </div>
+          {/if}
+
+        {:else if wid === 'analytics'}
+          <div class="analytics-strip">
+            <div class="analytics-card">
+              <div class="ac-head">
+                <span class="ac-label">Writing activity</span>
+                <span class="ac-sub">12 weeks</span>
+              </div>
+              <svg class="heatmap-svg" viewBox="0 0 168 110" width="168" height="110">
+                {#each heatmapCells as cell}
+                  <rect x={cell.x} y={cell.y} width={12} height={12} rx="2"
+                    fill={cell.a === 0 ? 'var(--sf3)' : cell.a === 1 ? 'var(--gn-muted)' : cell.a >= 2 ? 'var(--gn)' : 'var(--sf3)'}
+                    opacity={cell.a === 0 ? 1 : 0.85}
+                  ><title>{cell.label}</title></rect>
+                {/each}
+              </svg>
+              <div class="heatmap-legend">
+                <span>Less</span>
+                <div class="hm-box" style="background:var(--sf3)"></div>
+                <div class="hm-box" style="background:var(--gn-muted)"></div>
+                <div class="hm-box" style="background:var(--gn)"></div>
+                <span>More</span>
+              </div>
+            </div>
+            <div class="analytics-card">
+              <div class="ac-head">
+                <span class="ac-label">Papers read</span>
+                <span class="ac-sub">8 weeks</span>
+              </div>
+              <div class="bar-chart">
+                {#each papersReadWeekly as count, i}
+                  <div class="bar-col">
+                    <div class="bar" style="height:{count > 0 ? Math.max((count / maxPW) * 72, 6) : 3}px; background:{count > 0 ? 'var(--ac)' : 'var(--sf3)'};" title="{count} papers · week {i+1}"></div>
+                    {#if i === 7}<span class="bar-label">now</span>{/if}
+                  </div>
+                {/each}
+              </div>
+              <div class="ac-total">
+                <span class="ac-num">{store.readingList.filter(r => r.read).length}</span>
+                <span class="ac-unit">total read</span>
+              </div>
+            </div>
+            <div class="analytics-card pub-card" onclick={fetchPubImpact}>
+              <div class="ac-head">
+                <span class="ac-label">Publication impact</span>
+                <span class="ac-sub">via OpenAlex</span>
+              </div>
+              {#if pubLoading}
+                <div class="pub-loading"><span class="spinner-xs-inline"></span> Fetching…</div>
+              {:else if pubStats}
+                <div class="pub-stats">
+                  <div class="pub-stat"><span class="pub-val">{pubStats.hIndex}</span><span class="pub-key">h-index</span></div>
+                  <div class="pub-divider"></div>
+                  <div class="pub-stat"><span class="pub-val">{pubStats.citations}</span><span class="pub-key">citations</span></div>
+                  <div class="pub-divider"></div>
+                  <div class="pub-stat"><span class="pub-val">{pubStats.works}</span><span class="pub-key">works</span></div>
+                </div>
+              {:else if store.cvProfile.orcid}
+                <button class="fetch-pub-btn" onclick={fetchPubImpact}>Fetch from OpenAlex →</button>
+              {:else}
+                <p class="pub-no-orcid text-xs text-mu">Set your ORCID in Settings → CV Profile to see impact stats</p>
+              {/if}
+            </div>
+          </div>
+
+        {:else if wid === 'focus'}
+          <div class="daily-focus">
+            <div class="df-head">
+              <div>
+                <span class="df-label">Daily focus</span>
+                <span class="df-date text-mu text-xs">{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
+              </div>
+              {#if !journalToday}
+                <button class="df-journal-btn" onclick={() => store.view = 'journal'}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
                   </svg>
+                  Write today's journal
+                </button>
+              {:else}
+                <span class="df-done text-xs">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color:var(--gn)"><path d="M20 6L9 17l-5-5"/></svg>
+                  Journal written
+                </span>
+              {/if}
+            </div>
+            <div class="df-body">
+              <div class="df-tasks">
+                {#if todayTopTasks.length > 0}
+                  {#each todayTopTasks as task}
+                    <div class="df-task">
+                      <span class="df-priority df-{task.priority}"></span>
+                      <span class="df-task-text">{task.text}</span>
+                    </div>
+                  {/each}
+                  {#if store.activeTasks.length > 4}
+                    <button class="df-more" onclick={() => store.view = 'tasks'}>+{store.activeTasks.length - 4} more tasks →</button>
+                  {/if}
+                {:else}
+                  <p class="text-xs text-mu" style="padding:4px 0">No open tasks — <button class="btn-link" onclick={() => store.view = 'tasks'}>add one</button></p>
+                {/if}
+              </div>
+              {#if upcomingDeadlines.length > 0}
+                <div class="df-deadlines">
+                  {#each upcomingDeadlines as dl}
+                    <div class="df-dl">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--yw);flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      <span class="text-xs">{dl.label}</span>
+                      <span class="text-xs text-mu">{Math.ceil((dl.at - Date.now()) / 86400000)}d</span>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          </div>
+
+        {:else if wid === 'grid'}
+          <div class="dash-grid">
+            <section class="card dash-card">
+              <div class="card-head">
+                <h3>Recent notes</h3>
+                <button class="btn btn-ghost btn-sm" onclick={() => store.view = 'notes'}>All</button>
+              </div>
+              <div class="note-rows">
+                {#each (store.recentNotes.length > 0 ? store.recentNotes.slice(0, 5) : EX_NOTES) as note}
+                  <button class="note-row" class:example-row={note.id.startsWith('_')}
+                    onclick={() => { if (!note.id.startsWith('_')) { store.currentNoteId = note.id; store.view = 'notes'; } else store.view = 'notes'; }}>
+                    <span class="note-row-title">{note.title || 'Untitled'}</span>
+                    <span class="note-row-time text-xs text-mu">{note.id.startsWith('_') ? '· example' : relTime(note.updatedAt)}</span>
+                  </button>
+                {/each}
+              </div>
+            </section>
+            <section class="card dash-card">
+              <div class="card-head">
+                <h3>Tasks</h3>
+                <button class="btn btn-ghost btn-sm" onclick={() => store.view = 'tasks'}>All</button>
+              </div>
+              {#if tasksTotal > 0}
+                <div class="task-progress">
+                  <div class="task-progress-bar"><div class="task-progress-fill" style="width: {taskPct}%"></div></div>
+                  <span class="text-xs text-mu">{tasksDone}/{tasksTotal} complete</span>
+                </div>
+              {/if}
+              <div class="task-rows">
+                {#each (store.activeTasks.length > 0 ? store.activeTasks.slice(0, 5) : EX_TASKS) as task}
+                  <div class="task-row" class:example-row={task.id.startsWith('_')}>
+                    <input type="checkbox" checked={task.done} disabled={task.id.startsWith('_')}
+                      onchange={() => { task.done = !task.done; store.saveTasks(); }} />
+                    <span class="task-row-text" class:done={task.done}>{task.text}</span>
+                    {#if task.id.startsWith('_')}<span class="example-mu">· example</span>
+                    {:else}<span class="priority-dot priority-{task.priority}"></span>{/if}
+                  </div>
+                {/each}
+              </div>
+            </section>
+            <section class="card dash-card">
+              <div class="card-head">
+                <h3>Journal</h3>
+                <button class="btn btn-ghost btn-sm" onclick={() => store.view = 'journal'}>All</button>
+              </div>
+              <div class="journal-rows">
+                {#each (recentJournal.length > 0 ? recentJournal : EX_JOURNAL) as entry}
+                  <div class="journal-row" class:example-row={entry.id.startsWith('_')}>
+                    <span class="journal-date text-xs text-mu">
+                      {entry.id.startsWith('_') ? '· example' : new Date(entry.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                    </span>
+                    <span class="journal-body text-sm">{entry.body.slice(0, 80)}{entry.body.length > 80 ? '…' : ''}</span>
+                  </div>
+                {/each}
+              </div>
+            </section>
+            {#if recentFiles.length > 0}
+              <section class="card dash-card">
+                <div class="card-head">
+                  <h3>Recent Files</h3>
+                  <button class="btn btn-ghost btn-sm" onclick={() => store.view = 'files'}>All</button>
+                </div>
+                <div class="recent-files-rows">
+                  {#each recentFiles as f}
+                    <button class="recent-file-row" onclick={() => { store.view = 'files'; }}>
+                      <span class="recent-file-icon" style="color:{f.mimeType.startsWith('image/') ? 'var(--gn)' : f.mimeType==='application/pdf' ? 'var(--rd)' : 'var(--ac)'}">
+                        {#if f.mimeType.startsWith('image/')}
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                        {:else if f.mimeType==='application/pdf'}
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        {:else}
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/></svg>
+                        {/if}
+                      </span>
+                      <span class="recent-file-name">{f.name}</span>
+                      <span class="recent-file-time text-xs text-mu">{new Date(f.openedAt!).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
+                    </button>
+                  {/each}
+                </div>
+              </section>
+            {/if}
+            <section class="card dash-card enzo-card">
+              <div class="card-head">
+                <h3 class="text-enzo">Ask Enzo</h3>
+                <button class="btn btn-enzo btn-sm" onclick={() => store.enzoOpen = true}>Open</button>
+              </div>
+              <div class="prompt-chips">
+                {#each quickPrompts as prompt}
+                  <button class="prompt-chip" onclick={() => sendToEnzo(prompt)}>
+                    {prompt.length > 90 ? prompt.slice(0, 90) + '…' : prompt}
+                  </button>
+                {/each}
+              </div>
+            </section>
+            <section class="card dash-card">
+              <div class="card-head">
+                <h3>Upcoming deadlines</h3>
+                <button class="btn btn-ghost btn-sm" onclick={() => store.view = 'grants'}>All</button>
+              </div>
+              <div class="grant-rows">
+                {#if showExampleGrants}
+                  {#each EX_GRANTS as g}
+                    <div class="grant-row example-row">
+                      <span class="grant-title">{g.title.length > 48 ? g.title.slice(0, 48) + '…' : g.title}</span>
+                      <div class="grant-row-right">
+                        <span class="days-badge days-badge-{g.daysLeft <= 7 ? 'red' : g.daysLeft <= 14 ? 'yellow' : 'green'}">{g.daysLeft}d</span>
+                        <span class="example-mu">· example</span>
+                      </div>
+                    </div>
+                  {/each}
+                {:else}
+                  {#each upcomingGrants as g}
+                    <div class="grant-row">
+                      <span class="grant-title">{g.title.length > 52 ? g.title.slice(0, 52) + '…' : g.title}</span>
+                      <span class="days-badge days-badge-{g.daysLeft <= 7 ? 'red' : g.daysLeft <= 14 ? 'yellow' : 'green'}">{g.daysLeft}d</span>
+                    </div>
+                  {/each}
+                {/if}
+              </div>
+            </section>
+          </div>
+
+        {:else if wid === 'pinned-papers'}
+          {#if store.pinnedPapers.length > 0}
+            <section class="card pinned-section">
+              <div class="card-head">
+                <h3>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="color: var(--enzo); margin-right: 5px; vertical-align: -1px;">
+                    <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>
+                  </svg>
+                  Pinned papers
+                  <span class="pin-count">{store.pinnedPapers.length}</span>
+                </h3>
+                <button class="btn btn-ghost btn-sm" onclick={() => exportPapers(store.pinnedPapers)}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Export
                 </button>
               </div>
-            </div>
-          {/each}
-        </div>
-      </section>
-    {/if}
+              <div class="pinned-list">
+                {#each store.pinnedPapers as paper (paper.id)}
+                  <div class="pinned-row">
+                    <div class="pinned-main">
+                      <a class="pinned-title" href={paper.doi ? `https://doi.org/${paper.doi}` : paper.url} target="_blank" rel="noreferrer">{paper.title}</a>
+                      <div class="pinned-meta">
+                        <span class="source-badge source-{paper.source}">{paper.source === 'pubmed' ? 'PubMed' : paper.source === 'biorxiv' ? 'bioRxiv' : paper.source === 'medrxiv' ? 'medRxiv' : paper.source.charAt(0).toUpperCase() + paper.source.slice(1)}</span>
+                        <span class="text-xs text-mu">{paper.journal}{paper.year > 0 ? ` · ${paper.year}` : ''}</span>
+                      </div>
+                    </div>
+                    <button class="btn-icon unpin-btn" onclick={async () => { await store.unpinPaper(paper.id); showToast('Unpinned'); }} title="Unpin">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                  </div>
+                {/each}
+              </div>
+            </section>
+          {/if}
+
+        {:else if wid === 'pinned-jobs'}
+          {#if store.pinnedJobs.length > 0}
+            <section class="card pinned-section">
+              <div class="card-head">
+                <h3>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="color: var(--yw); margin-right: 5px; vertical-align: -1px;">
+                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                  </svg>
+                  Pinned jobs
+                  <span class="pin-count">{store.pinnedJobs.length}</span>
+                </h3>
+                <button class="btn btn-ghost btn-sm" onclick={() => store.view = 'jobs'}>Browse feed →</button>
+              </div>
+              <div class="pinned-list">
+                {#each store.pinnedJobs as job (job.url)}
+                  <div class="pinned-row pinned-job-row">
+                    <div class="pinned-main">
+                      <a class="pinned-title" href={job.url} target="_blank" rel="noreferrer">{job.title}</a>
+                      <div class="pinned-meta">
+                        <span class="text-xs" style="color: var(--ac)">{job.company}</span>
+                        <span class="text-xs text-mu">· {job.location}</span>
+                        {#if job.postedAt}<span class="text-xs text-mu">· {new Date(job.postedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>{/if}
+                      </div>
+                    </div>
+                    <div class="pinned-job-actions">
+                      <button class="btn btn-ghost btn-xs" onclick={() => { store.view = 'jobs'; }}>Track</button>
+                      <button class="btn-icon unpin-btn" title="Unpin"
+                        onclick={async () => { store.pinnedJobs = store.pinnedJobs.filter(j => j.url !== job.url); await store.saveJobExt(); showToast('Unpinned'); }}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            </section>
+          {/if}
+        {/if}
+
+      </div>
+    {/each}
 
   </div>
 </div>
@@ -1636,4 +1624,45 @@
   .greet-msg { font-size: 1rem; line-height: 1.65; color: var(--tx); }
   .greet-movie { display: flex; align-items: center; gap: 7px; background: var(--su-bg); border: 1px solid var(--bd); border-radius: 8px; padding: 8px 12px; width: 100%; text-align: left; box-sizing: border-box; }
   .greet-close { min-width: 100px; }
+
+  /* ── Widget reorder slots ──────────────────────────────────────── */
+  .wslot { position: relative; }
+  .wslot.customizing {
+    border: 1px dashed var(--bd);
+    border-radius: var(--radius-lg);
+    padding: 36px 8px 8px;
+    margin-bottom: 4px;
+  }
+  .wslot-handle {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 10px;
+    background: var(--sf);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    border-bottom: 1px solid var(--bd);
+  }
+  .wslot-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--mu);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+  }
+  .wslot-arrows { display: flex; gap: 2px; }
+  .wslot-btn {
+    width: 24px; height: 24px;
+    display: flex; align-items: center; justify-content: center;
+    background: transparent;
+    border: 1px solid var(--bd);
+    border-radius: 4px;
+    color: var(--tx2);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .wslot-btn:hover:not(:disabled) { background: var(--sf2); color: var(--tx); }
+  .wslot-btn:disabled { opacity: 0.25; cursor: default; }
 </style>

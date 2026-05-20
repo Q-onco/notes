@@ -639,6 +639,7 @@ export interface AppSettings {
   ai?: AiFeatureSettings;
   weeklyReadingGoal?: number;
   customTemplates?: { label: string; body: string }[];
+  dashboardOrder?: string[];
 }
 
 // ── FileRecord extension ──────────────────────────────────────────────────────
