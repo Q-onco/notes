@@ -462,14 +462,18 @@ export default {
         const enc = encodeURIComponent;
         // Nature Careers /jobsrss/ is the only reliably-working free academic job RSS.
         // Verified working 2026-05-19. countrycode pins region precisely.
+        // Countrycode-specific feeds FIRST so they win dedup over global catch-alls
         const FEEDS = [
-          { url: `${NC}?keywords=${enc('postdoc ' + rawQ)}`,         region: '' },
-          { url: `${NC}?keywords=${enc(rawQ + ' researcher')}`,       region: '' },
-          { url: `${NC}?keywords=${enc(rawQ)}&countrycode=DE`,        region: 'eu' },
           { url: `${NC}?keywords=${enc(rawQ)}&countrycode=GB`,        region: 'uk' },
+          { url: `${NC}?keywords=${enc(rawQ)}&countrycode=DE`,        region: 'eu' },
           { url: `${NC}?keywords=${enc(rawQ)}&countrycode=CH`,        region: 'eu' },
           { url: `${NC}?keywords=${enc(rawQ)}&countrycode=NL`,        region: 'eu' },
+          { url: `${NC}?keywords=${enc(rawQ)}&countrycode=FR`,        region: 'eu' },
+          { url: `${NC}?keywords=${enc(rawQ)}&countrycode=BE`,        region: 'eu' },
+          { url: `${NC}?keywords=${enc(rawQ)}&countrycode=SE`,        region: 'eu' },
           { url: `${NC}?keywords=${enc(rawQ)}&countrycode=IN`,        region: 'india' },
+          { url: `${NC}?keywords=${enc('postdoc ' + rawQ)}`,          region: '' },
+          { url: `${NC}?keywords=${enc(rawQ + ' researcher')}`,        region: '' },
         ];
         const batches = await Promise.all(FEEDS.map(async ({ url: feedUrl, region }) => {
           try {
@@ -662,15 +666,16 @@ function parseJobItems(xml, source, region) {
     const lastLine = descLines[descLines.length - 1] ?? '';
     const location = lastLine.length < 80 ? lastLine : '';
     const desc = (lastLine.length < 80 ? descLines.slice(0, -1).join(' ') : rawDesc).slice(0, 400);
-    const combined = (rawTitle + ' ' + desc).toLowerCase();
-    // Region: use hint from countrycode feed config; fall back to text inference
+    const combined = (rawTitle + ' ' + desc + ' ' + location).toLowerCase();
+    // Region: use hint from countrycode feed config; fall back to location text
     let inferredRegion = region || 'other';
     if (!region) {
-      if (/\b(uk|united kingdom|england|scotland|london|cambridge|oxford|manchester|edinburgh)\b/.test(combined)) inferredRegion = 'uk';
-      else if (/\b(germany|france|switzerland|netherlands|belgium|heidelberg|berlin|munich|paris|zurich|amsterdam)\b/.test(combined)) inferredRegion = 'eu';
-      else if (/\b(india|bengaluru|bangalore|mumbai|hyderabad|delhi|chennai)\b/.test(combined)) inferredRegion = 'india';
+      const loc = location.toLowerCase();
+      if (/\b(uk|united kingdom|england|scotland|wales|london|cambridge|oxford|manchester|edinburgh|bristol)\b/.test(loc) || /\(gb\)/.test(loc)) inferredRegion = 'uk';
+      else if (/\((de|at|fr|be|se|no|dk|nl|ch|es|it|fi|ie)\)/.test(loc) || /\b(germany|france|switzerland|netherlands|belgium|denmark|sweden|norway|austria|spain|italy|finland|ireland|heidelberg|berlin|munich|hamburg|frankfurt|paris|zurich|geneva|amsterdam|brussels|copenhagen|stockholm|oslo|vienna|barcelona|madrid|utrecht|leiden)\b/.test(loc)) inferredRegion = 'eu';
+      else if (/\b(india|bengaluru|bangalore|mumbai|hyderabad|delhi|chennai|pune)\b/.test(loc)) inferredRegion = 'india';
       else if (/\bremote\b/.test(combined)) inferredRegion = 'remote';
-      else if (/\b(usa|united states|boston|new york|san francisco|seattle|houston)\b/.test(combined)) inferredRegion = 'us';
+      else if (/\b(boston|new york|san francisco|seattle|houston|chicago|los angeles|philadelphia|baltimore|cambridge,? ma)\b/.test(loc) || /\b(massachusetts|california|texas|washington|illinois|ohio|pennsylvania|maryland|new jersey|tennessee|minnesota|north carolina|connecticut)\b/.test(loc) || /\b(usa|united states?)\b/.test(loc)) inferredRegion = 'us';
     }
     let type = 'academic';
     if (/\bfellowship\b/i.test(combined)) type = 'fellowship';
