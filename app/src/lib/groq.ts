@@ -722,6 +722,47 @@ export async function scoreJobMatch(
   }
 }
 
+// ── Lab Tools: troubleshoot with Enzo ────────────────────────────────────────
+export async function streamTroubleshoot(
+  expType: string,
+  problem: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    { role: 'system' as const, content: `You are Enzo — a brilliant experimental biologist and troubleshooter. Given an experiment type and a described problem, produce a differential diagnosis: rank causes by likelihood (most likely first), explain mechanism, and give a concrete fix for each. Use concise scientific language. Format as a numbered list with **Cause**, likelihood bracket, and fix on separate indented lines.` },
+    { role: 'user' as const, content: `**Experiment:** ${expType}\n\n**Problem observed:**\n${problem}\n\nProvide a ranked differential diagnosis (top 5 causes, most likely first). For each: state the cause, estimated likelihood (High/Medium/Low), mechanism, and the fix to try first.` },
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal, 700);
+}
+
+// ── Lab Tools: stats explanation ─────────────────────────────────────────────
+export async function streamStatsExplanation(
+  testName: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    { role: 'system' as const, content: `You are Enzo — a researcher who explains statistics clearly to a molecular biologist. Explain in plain language: what the test does, its key assumptions, how to run it in R/GraphPad, and how to interpret the output. Be concrete, not theoretical. Max 350 words.` },
+    { role: 'user' as const, content: `Explain the **${testName}** — what it does, assumptions it requires, how to check those assumptions, how to run it (R code or GraphPad steps), and what the output means (p-value, effect size, what to report in a paper).` },
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal, 500);
+}
+
+// ── Lab Tools: reagent citation score ────────────────────────────────────────
+export async function streamReagentCitation(
+  compoundName: string,
+  cas: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    { role: 'system' as const, content: `You are Enzo. Based on your training data from the scientific literature, identify which vendor catalog number(s) most commonly appear in methods sections for this compound. Be specific about catalog numbers where known. Mention purity grades and any important formulation notes. Format concisely as a short table or bullet list. If uncertain, say so.` },
+    { role: 'user' as const, content: `Which vendor and catalog number is most frequently cited in peer-reviewed methods sections for **${compoundName}**${cas ? ` (CAS ${cas})` : ''}? Include: vendor, catalog #, grade, common formulation (DMSO stock, storage). Cover at least 3 vendors if possible.` },
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal, 350);
+}
+
 // ── Parse transcript for research events ─────────────────────────────────────
 export async function parseTranscriptForEvents(
   transcript: string,

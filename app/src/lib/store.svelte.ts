@@ -15,7 +15,7 @@ import { loadEncFile, saveEncFile, PATHS, validateToken } from './github';
 import { WORKER_URL } from './groq';
 import { idbGet, idbSet, idbNuke } from './idb';
 
-type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs' | 'presentations' | 'files' | 'grants' | 'manuscript' | 'review' | 'mail' | 'launchpad' | 'biblio';
+type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs' | 'labtools' | 'presentations' | 'files' | 'grants' | 'manuscript' | 'review' | 'mail' | 'launchpad' | 'biblio';
 
 const DEFAULT_PROFILE: ResearcherProfile = {
   currentRole: 'Postdoctoral Researcher',

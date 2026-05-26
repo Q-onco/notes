@@ -15,6 +15,7 @@
   import Pipeline from './Pipeline.svelte';
   import Audio from './Audio.svelte';
   import Jobs from './Jobs.svelte';
+  import LabTools from './LabTools.svelte';
   import Presentations from './Presentations.svelte';
   import Files from './Files.svelte';
   import Grants from './Grants.svelte';
@@ -1012,6 +1013,8 @@
         <Pipeline {showToast} />
       {:else if store.view === 'jobs'}
         <Jobs {showToast} />
+      {:else if store.view === 'labtools'}
+        <LabTools {showToast} />
       {:else if store.view === 'audio'}
         <Audio {showToast} />
       {:else if store.view === 'presentations'}

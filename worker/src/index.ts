@@ -271,6 +271,41 @@ export default {
       }
     }
 
+    if (path === '/reagents' && request.method === 'GET') {
+      const q = url.searchParams.get('q')?.trim();
+      if (!q) return json({ compounds: [] }, 200, allowed);
+      try {
+        const cidRes = await fetch(
+          `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(q)}/cids/JSON`,
+          { headers: { 'Accept': 'application/json' } }
+        );
+        if (!cidRes.ok) return json({ compounds: [] }, 200, allowed);
+        const cidData = await cidRes.json() as { IdentifierList?: { CID?: number[] } };
+        const cids = (cidData.IdentifierList?.CID ?? []).slice(0, 4);
+        if (!cids.length) return json({ compounds: [] }, 200, allowed);
+
+        const compounds = await Promise.all(cids.map(async (cid: number) => {
+          const [propRes, synRes] = await Promise.allSettled([
+            fetch(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/property/MolecularFormula,MolecularWeight,IUPACName/JSON`),
+            fetch(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/synonyms/JSON`),
+          ]);
+          const props = propRes.status === 'fulfilled' && propRes.value.ok
+            ? ((await propRes.value.json()) as any).PropertyTable?.Properties?.[0] ?? {}
+            : {};
+          const syns: string[] = synRes.status === 'fulfilled' && synRes.value.ok
+            ? (((await synRes.value.json()) as any).InformationList?.Information?.[0]?.Synonym ?? [])
+            : [];
+          const cas = syns.find((s: string) => /^\d{2,7}-\d{2}-\d$/.test(s)) ?? '';
+          const name = syns[0] || props.IUPACName || String(cid);
+          return { cid, name, iupacName: props.IUPACName || '', formula: props.MolecularFormula || '', mw: Number(props.MolecularWeight) || 0, cas, synonyms: syns.slice(0, 12) };
+        }));
+
+        return json({ compounds }, 200, allowed);
+      } catch {
+        return json({ compounds: [] }, 200, allowed);
+      }
+    }
+
     return new Response('Not found', { status: 404 });
   }
 };
