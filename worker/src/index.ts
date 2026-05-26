@@ -211,10 +211,11 @@ export default {
       try {
         const rawQ = (url.searchParams.get('q') || 'oncology').trim().slice(0, 100);
         const NC = 'https://www.nature.com/naturecareers/jobsrss/';
+        const JV = 'https://www.jobvector.de/suche/rss/';
+        const ER = 'https://euraxess.ec.europa.eu/jobs/rss';
         const enc = encodeURIComponent;
-        // Nature Careers jobsrss/ is the only reliably-working free academic job RSS.
-        // countrycode pins region so we don't have to guess from title text.
         const FEEDS: { url: string; source: string; region: string }[] = [
+          // Nature Careers — multi-country
           { url: `${NC}?keywords=${enc('postdoc ' + rawQ)}`,                  source: 'Nature Careers', region: '' },
           { url: `${NC}?keywords=${enc(rawQ + ' researcher')}`,               source: 'Nature Careers', region: '' },
           { url: `${NC}?keywords=${enc(rawQ)}&countrycode=DE`,                source: 'Nature Careers', region: 'eu' },
@@ -222,6 +223,14 @@ export default {
           { url: `${NC}?keywords=${enc(rawQ)}&countrycode=CH`,                source: 'Nature Careers', region: 'eu' },
           { url: `${NC}?keywords=${enc(rawQ)}&countrycode=NL`,                source: 'Nature Careers', region: 'eu' },
           { url: `${NC}?keywords=${enc(rawQ)}&countrycode=IN`,                source: 'Nature Careers', region: 'india' },
+          // JobVector.de — German science & research jobs portal
+          { url: `${JV}?q=${enc(rawQ)}&lang=en`,                             source: 'JobVector', region: 'eu' },
+          { url: `${JV}?q=${enc(rawQ + ' postdoc')}&lang=en`,                source: 'JobVector', region: 'eu' },
+          { url: `${JV}?q=${enc(rawQ + ' Heidelberg')}&lang=en`,             source: 'JobVector', region: 'eu' },
+          // Euraxess — EU academic & research mobility portal
+          { url: `${ER}?keywords=${enc(rawQ)}&country=DE`,                   source: 'Euraxess', region: 'eu' },
+          { url: `${ER}?keywords=${enc(rawQ + ' postdoc')}`,                 source: 'Euraxess', region: 'eu' },
+          { url: `${ER}?keywords=${enc(rawQ)}&country=CH`,                   source: 'Euraxess', region: 'eu' },
         ];
 
         const batches = await Promise.all(
@@ -256,7 +265,7 @@ export default {
         }
         jobs.sort((a, b) => (b.postedAt ?? 0) - (a.postedAt ?? 0));
 
-        return json(jobs.slice(0, 40), 200, allowed);
+        return json(jobs.slice(0, 60), 200, allowed);
       } catch (e) {
         return err((e as Error).message, 500, allowed);
       }

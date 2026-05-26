@@ -698,6 +698,30 @@ export async function generateInterviewQuestions(
   await streamGroq(MODELS.enzo, messages, onChunk, signal);
 }
 
+// ── Job AI match score ────────────────────────────────────────────────────────
+export async function scoreJobMatch(
+  jobTitle: string,
+  company: string,
+  jobDesc: string,
+  cvSummary: string,
+  signal?: AbortSignal
+): Promise<{ score: number; rationale: string }> {
+  let buffer = '';
+  const messages = [
+    { role: 'system' as const, content: `You are Enzo, a scientific career advisor. Score how well a candidate's profile matches a job posting. Return ONLY valid JSON — no markdown, no preamble, no explanation.` },
+    { role: 'user' as const, content: `Score this job match.\n\n**Job:** ${jobTitle} at ${company}\n**Description:** ${jobDesc.slice(0, 800)}\n\n**Candidate profile:**\n${cvSummary}\n\nReturn JSON only:\n{"score": <integer 0-100>, "rationale": "<2 sentences — what fits and what's missing>"}\n\nBe realistic. 80+ = strong match, 60-79 = good, 40-59 = partial, <40 = weak.` }
+  ];
+  await streamGroq(MODELS.quick, messages, (c) => { buffer += c; }, signal, 200);
+  try {
+    const m = buffer.match(/\{[\s\S]*\}/);
+    if (!m) return { score: 0, rationale: 'Could not parse score.' };
+    const parsed = JSON.parse(m[0]);
+    return { score: Math.min(100, Math.max(0, Number(parsed.score) || 0)), rationale: parsed.rationale ?? '' };
+  } catch {
+    return { score: 0, rationale: 'Scoring failed — try again.' };
+  }
+}
+
 // ── Parse transcript for research events ─────────────────────────────────────
 export async function parseTranscriptForEvents(
   transcript: string,

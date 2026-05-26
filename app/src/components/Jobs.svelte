@@ -1,6 +1,6 @@
 <script lang="ts">
   import { store } from '../lib/store.svelte';
-  import { generateCoverLetter, improveExpBullets, generateInterviewQuestions } from '../lib/groq';
+  import { generateCoverLetter, improveExpBullets, generateInterviewQuestions, scoreJobMatch } from '../lib/groq';
   import { exportCvHtml, exportCvPdf, exportCoverLetterDocx, exportCoverLetterPdf } from '../lib/export';
   import { nanoid } from 'nanoid';
   import RichEditor from './RichEditor.svelte';
@@ -36,6 +36,11 @@
   let feedSearch = $state('');
   let regionFilter = $state<'all' | JobRegion>('all');
   let typeFilter = $state<'all' | JobType>('all');
+  let sourceFilter = $state<'all' | string>('all');
+
+  // ── Match score state (session cache) ─────────────────────────────────────────
+  let matchScores = $state<Record<string, { score: number; rationale: string }>>({});
+  let matchScoring = $state<Record<string, boolean>>({});
 
   const EXAMPLE_FEED: JobListing[] = [
     { id: '_jf1', title: 'Senior Scientist — Oncology Biomarkers', company: 'Merck KGaA', location: 'Darmstadt, Germany', region: 'eu', type: 'industry', description: 'Lead translational biomarker strategy for immuno-oncology pipeline. Requires expertise in HGSOC, spatial transcriptomics, and TME profiling. Heidelberg-area preferred.', url: 'https://www.merckgroup.com/en/careers.html', source: 'Curated', postedAt: Date.now() - 259200000, deadline: null, tags: ['immuno-oncology', 'biomarkers', 'spatial'] },
@@ -68,6 +73,7 @@
     (feedJobs.length > 0 ? feedJobs : EXAMPLE_FEED).filter(j => {
       if (regionFilter !== 'all' && j.region !== regionFilter) return false;
       if (typeFilter !== 'all' && j.type !== typeFilter) return false;
+      if (sourceFilter !== 'all' && j.source !== sourceFilter) return false;
       if (feedSearch) {
         const s = feedSearch.toLowerCase();
         return j.title.toLowerCase().includes(s) || j.company.toLowerCase().includes(s) ||
@@ -76,6 +82,10 @@
       }
       return true;
     })
+  );
+
+  const feedSources = $derived(
+    [...new Set((feedJobs.length > 0 ? feedJobs : EXAMPLE_FEED).map(j => j.source))].sort()
   );
 
   function isPinned(listing: JobListing) {
@@ -113,6 +123,40 @@
     store.saveJobs();
     const isFifth = store.savedJobs.length === 5;
     showToast(isFifth ? getJobQuip('fifth-save') : 'Added to tracker');
+  }
+
+  async function runMatchScore(job: JobListing) {
+    if (matchScoring[job.id] || matchScores[job.id]) return;
+    matchScoring = { ...matchScoring, [job.id]: true };
+    const cvSummary = [
+      store.profile.currentRole,
+      store.profile.institution,
+      'Specializations: ' + store.profile.specializations.join(', '),
+      store.profile.cvHighlights.slice(0, 6).join('; '),
+      store.cvProfile.experience.slice(0, 3).map(e => `${e.role} at ${e.organisation}: ${e.bullets.slice(0, 2).join('; ')}`).join('\n'),
+    ].filter(Boolean).join('\n');
+    try {
+      const result = await scoreJobMatch(job.title, job.company, job.description, cvSummary);
+      matchScores = { ...matchScores, [job.id]: result };
+    } catch {
+      matchScores = { ...matchScores, [job.id]: { score: 0, rationale: 'Scoring failed — try again.' } };
+    } finally {
+      matchScoring = { ...matchScoring, [job.id]: false };
+    }
+  }
+
+  function matchScoreClass(score: number): string {
+    if (score >= 80) return 'match-high';
+    if (score >= 60) return 'match-good';
+    if (score >= 40) return 'match-partial';
+    return 'match-low';
+  }
+
+  function sourceClass(source: string): string {
+    if (source === 'JobVector') return 'src-jobvector';
+    if (source === 'Nature Careers') return 'src-nature';
+    if (source === 'Euraxess') return 'src-euraxess';
+    return 'src-other';
   }
 
   // ── Companies state ───────────────────────────────────────────────────────────
@@ -710,6 +754,14 @@
                 {#each Object.entries(TYPE_LABELS) as [v, l]}<option value={v}>{l}</option>{/each}
               </select>
             </div>
+            {#if feedSources.length > 1}
+              <div class="source-chips">
+                <button class="source-chip" class:active={sourceFilter === 'all'} onclick={() => sourceFilter = 'all'}>All</button>
+                {#each feedSources as src}
+                  <button class="source-chip {sourceClass(src)}" class:active={sourceFilter === src} onclick={() => sourceFilter = src}>{src}</button>
+                {/each}
+              </div>
+            {/if}
           </div>
 
           {#if feedError}
@@ -732,12 +784,20 @@
                     <span class="location text-mu">{job.location}</span>
                     {#if job.postedAt}<span class="separator">·</span><span class="text-mu text-xs">{relTime(job.postedAt)}</span>{/if}
                     {#if job.deadline}<span class="separator">·</span><span class="deadline-badge">Deadline: {fmtDate(job.deadline)}</span>{/if}
-                    <span class="separator">·</span><span class="source-tag text-xs text-mu">{job.source}</span>
+                    <span class="job-source-badge {sourceClass(job.source)}">{job.source}</span>
                   </div>
                 </div>
                 <p class="job-desc text-sm text-mu">{job.description.slice(0, 220)}{job.description.length > 220 ? '…' : ''}</p>
                 {#if job.tags.length > 0}
                   <div class="tag-row">{#each job.tags as t}<span class="tag">{t}</span>{/each}</div>
+                {/if}
+                {#if matchScores[job.id]}
+                  <div class="match-result">
+                    <span class="match-badge {matchScoreClass(matchScores[job.id].score)}">
+                      Match {matchScores[job.id].score}%
+                    </span>
+                    <span class="match-rationale text-xs text-mu">{matchScores[job.id].rationale}</span>
+                  </div>
                 {/if}
                 <div class="job-actions">
                   <a class="btn btn-ghost btn-sm" href={job.url} target="_blank" rel="noreferrer">View posting</a>
@@ -747,6 +807,31 @@
                       <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
                     </svg>
                     {isPinned(job) ? 'Pinned' : 'Pin'}
+                  </button>
+                  <button class="btn btn-ghost btn-sm enzo-match-btn"
+                    class:match-scored={!!matchScores[job.id]}
+                    onclick={() => runMatchScore(job)}
+                    disabled={matchScoring[job.id] || !!matchScores[job.id]}
+                    title="Enzo scores this role against your CV profile">
+                    {#if matchScoring[job.id]}
+                      <span class="spinner-xs-inline"></span> Scoring…
+                    {:else if matchScores[job.id]}
+                      <span class="enzo-dot-tiny"></span> Scored
+                    {:else}
+                      <span class="enzo-dot-tiny"></span> Match score
+                    {/if}
+                  </button>
+                  <button class="btn btn-ghost btn-sm save-cl-btn"
+                    onclick={() => {
+                      saveJobToTracker(job);
+                      clJobTitle = job.title;
+                      clCompany = job.company;
+                      clJobDesc = job.description;
+                      clView = 'compose';
+                      tab = 'coverletter';
+                    }}
+                    title="Save to tracker and draft cover letter">
+                    Save + Letter
                   </button>
                   <button class="btn btn-primary btn-sm" onclick={() => saveJobToTracker(job)}
                     disabled={store.savedJobs.some(j => j.listing.url === job.url)}>
@@ -1666,7 +1751,7 @@
   .source-tag { font-style: italic; }
   .job-desc { line-height: 1.6; }
   .tag-row { display: flex; flex-wrap: wrap; gap: 4px; }
-  .job-actions { display: flex; gap: 8px; align-items: center; }
+  .job-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .pin-btn { display: flex; align-items: center; gap: 5px; color: var(--mu); }
   .pin-btn.pinned { color: var(--yw); border-color: var(--yw); }
   .type-industry { background: var(--ac-bg); color: var(--ac); border: 1px solid var(--ac); }
@@ -1674,6 +1759,44 @@
   .type-fellowship { background: var(--gn-bg); color: var(--gn); border: 1px solid var(--gn); }
   .type-startup { background: var(--yw-bg, rgba(255,200,0,.1)); color: var(--yw); border: 1px solid var(--yw); }
   .region-tag { background: var(--sf2); border: 1px solid var(--bd); color: var(--mu); }
+
+  /* ── Source badges ── */
+  .job-source-badge {
+    display: inline-block; font-size: 0.68rem; font-weight: 600; letter-spacing: 0.03em;
+    padding: 1px 7px; border-radius: 10px; margin-left: 6px; vertical-align: middle;
+  }
+  .src-jobvector { background: rgba(61,127,255,.15); color: #3d7fff; border: 1px solid rgba(61,127,255,.35); }
+  .src-nature { background: rgba(0,200,130,.12); color: #00c882; border: 1px solid rgba(0,200,130,.3); }
+  .src-euraxess { background: rgba(188,140,255,.14); color: #bc8cff; border: 1px solid rgba(188,140,255,.3); }
+  .src-other { background: var(--sf2); color: var(--mu); border: 1px solid var(--bd); }
+
+  /* ── Source filter chips ── */
+  .source-chips { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 2px; }
+  .source-chip {
+    padding: 3px 11px; border-radius: 20px; font-size: 0.72rem; font-weight: 500;
+    background: var(--sf); border: 1px solid var(--bd); color: var(--tx2); cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .source-chip:hover { border-color: var(--bd2); }
+  .source-chip.active { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); }
+  .source-chip.src-jobvector.active { background: rgba(61,127,255,.18); color: #3d7fff; border-color: #3d7fff; }
+  .source-chip.src-nature.active { background: rgba(0,200,130,.14); color: #00c882; border-color: #00c882; }
+  .source-chip.src-euraxess.active { background: rgba(188,140,255,.16); color: #bc8cff; border-color: #bc8cff; }
+
+  /* ── AI match score ── */
+  .match-result { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .match-badge {
+    display: inline-block; font-size: 0.75rem; font-weight: 700; padding: 2px 10px;
+    border-radius: 12px; white-space: nowrap; flex-shrink: 0;
+  }
+  .match-high { background: rgba(0,200,130,.16); color: #00c882; border: 1px solid rgba(0,200,130,.35); }
+  .match-good { background: rgba(61,127,255,.14); color: #3d7fff; border: 1px solid rgba(61,127,255,.3); }
+  .match-partial { background: rgba(255,200,0,.13); color: var(--yw); border: 1px solid rgba(255,200,0,.3); }
+  .match-low { background: rgba(255,90,80,.12); color: var(--rd); border: 1px solid rgba(255,90,80,.28); }
+  .match-rationale { font-size: 0.75rem; color: var(--mu); line-height: 1.5; }
+  .enzo-match-btn { display: flex; align-items: center; gap: 5px; font-size: 0.75rem; }
+  .enzo-match-btn.match-scored { color: var(--mu); }
+  .save-cl-btn { font-size: 0.75rem; }
 
   /* ── Tracker ── */
   .tracker-view { display: flex; flex-direction: column; gap: 14px; }

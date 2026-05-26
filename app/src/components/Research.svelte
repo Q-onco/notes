@@ -522,11 +522,12 @@
   }
 
   // ── Enzo paper compare ─────────────────────────────────────────
-  let compareSet = $state<Set<string>>(new Set());
+  let compareSet    = $state<Set<string>>(new Set());
   let compareResult = $state('');
   let compareStreaming = $state(false);
   let compareAbort: AbortController | null = null;
-  let showCompare = $state(false);
+  let showCompare   = $state(false);
+  let comparePapersMeta = $state<{ title: string; journal: string; year: number }[]>([]);
 
   function toggleCompare(id: string) {
     const s = new Set(compareSet);
@@ -541,13 +542,28 @@
       return item && 'paper' in item ? item.paper : item as PaperResult | undefined;
     }).filter(Boolean) as PaperResult[];
     if (papers.length < 2) return;
+    comparePapersMeta = papers.map(p => ({ title: p.title, journal: p.journal ?? '', year: p.year ?? 0 }));
     compareAbort?.abort();
     compareAbort = new AbortController();
     compareResult = ''; compareStreaming = true; showCompare = true;
     try {
-      await comparePapers(papers.map(p => ({ title: p.title, authors: p.authors, year: p.year, journal: p.journal, abstract: p.abstract })), (c) => { compareResult += c; }, compareAbort.signal);
+      await comparePapers(
+        papers.map(p => ({ title: p.title, authors: p.authors, year: p.year, journal: p.journal, abstract: p.abstract })),
+        (c) => { compareResult += c; },
+        compareAbort.signal
+      );
     } catch {}
     finally { compareStreaming = false; }
+  }
+
+  function saveCompareAsNote() {
+    if (!compareResult) return;
+    const titles = comparePapersMeta.map(p => p.title).join(' vs ');
+    const body = `# Paper Comparison\n\n**Papers:** ${comparePapersMeta.map((p, i) => `${i + 1}. ${p.title} (${p.journal}, ${p.year})`).join('; ')}\n\n${compareResult}`;
+    const note = { id: crypto.randomUUID(), title: `Compare: ${titles.slice(0, 60)}`, body, color: 'none', tags: ['comparison', 'research'], wordTarget: 0, createdAt: Date.now(), updatedAt: Date.now() };
+    store.notes.unshift(note);
+    store.saveNotes();
+    showToast('Comparison saved as note');
   }
 
   // ── Related papers (OpenAlex) ──────────────────────────────────
@@ -1718,21 +1734,57 @@ Format your response as:
       <!-- Compare panel -->
       {#if compareSet.size >= 2}
         <div class="compare-bar">
-          <span class="text-xs text-mu">{compareSet.size} papers selected</span>
+          <span class="compare-bar-count">{compareSet.size} papers selected</span>
           <button class="btn btn-primary btn-sm" onclick={runCompare} disabled={compareStreaming}>
-            {compareStreaming ? '⠿ Comparing…' : 'Compare with Enzo'}
+            {compareStreaming ? 'Comparing…' : 'Compare with Enzo'}
           </button>
-          <button class="btn btn-ghost btn-sm" onclick={() => { compareSet = new Set(); showCompare = false; }}>Clear</button>
+          <button class="btn btn-ghost btn-sm" onclick={() => { compareSet = new Set(); showCompare = false; compareResult = ''; }}>Clear</button>
         </div>
       {/if}
       {#if showCompare}
         <div class="compare-result card">
+          <!-- Header -->
           <div class="compare-result-head">
-            <span class="text-sm font-bold" style="color:var(--enzo)">🐾 Enzo — Paper Comparison</span>
-            <button class="btn-icon btn-xs" onclick={() => { showCompare = false; compareResult = ''; }}>×</button>
+            <div class="compare-head-left">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--enzo)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+              <span class="compare-head-title">Enzo — Paper Comparison</span>
+            </div>
+            <div class="compare-head-actions">
+              {#if !compareStreaming && compareResult}
+                <button class="btn-icon btn-xs" onclick={saveCompareAsNote} title="Save as note">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                </button>
+              {/if}
+              <button class="btn-icon btn-xs" onclick={() => { showCompare = false; compareResult = ''; comparePapersMeta = []; }} title="Close">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
           </div>
+          <!-- Paper slugs -->
+          {#if comparePapersMeta.length >= 2}
+            <div class="compare-papers-strip">
+              {#each comparePapersMeta as meta, i}
+                <div class="compare-paper-pill" class:cpp-a={i===0} class:cpp-b={i===1} class:cpp-c={i===2}>
+                  <span class="cpp-label">P{i+1}</span>
+                  <span class="cpp-title">{meta.title.length > 55 ? meta.title.slice(0,55)+'…' : meta.title}</span>
+                  <span class="cpp-meta">{meta.journal ? meta.journal.split(' ').slice(0,3).join(' ') : ''}{meta.year ? ` · ${meta.year}` : ''}</span>
+                </div>
+              {/each}
+            </div>
+          {/if}
+          <!-- Body -->
           <div class="compare-body">
-            {#if compareStreaming}<span class="text-mu text-xs">Comparing…</span>{:else}{@html marked.parse(compareResult)}{/if}
+            {#if compareStreaming}
+              <div class="compare-skeleton">
+                <div class="csk-row"></div>
+                <div class="csk-row csk-short"></div>
+                <div class="csk-row"></div>
+                <div class="csk-row csk-medium"></div>
+                <div class="csk-label">Enzo is analysing the papers…</div>
+              </div>
+            {:else}
+              {@html marked.parse(compareResult)}
+            {/if}
           </div>
         </div>
       {/if}
@@ -2902,15 +2954,91 @@ Format your response as:
   /* ── Compare ─────────────────────────────────────────────────── */
   .compare-bar {
     display: flex; align-items: center; gap: 10px;
-    padding: 8px 12px; background: var(--enzo-bg); border: 1px solid var(--enzo-bd);
+    padding: 10px 14px; background: var(--enzo-bg); border: 1px solid var(--enzo-bd);
     border-radius: var(--radius); flex-wrap: wrap;
   }
-  .compare-result { display: flex; flex-direction: column; gap: 10px; border-color: var(--enzo-bd); }
-  .compare-result-head { display: flex; align-items: center; justify-content: space-between; }
-  .compare-body { font-size: 0.83rem; line-height: 1.7; color: var(--tx2); overflow-x: auto; }
-  .compare-body table { border-collapse: collapse; width: 100%; font-size: 0.8rem; }
-  .compare-body th { padding: 6px 10px; background: var(--sf2); border: 1px solid var(--bd); font-weight: 700; text-align: left; }
-  .compare-body td { padding: 6px 10px; border: 1px solid var(--bd); vertical-align: top; }
+  .compare-bar-count { font-size: 0.78rem; color: var(--mu); font-weight: 600; }
+
+  .compare-result {
+    display: flex; flex-direction: column; gap: 0;
+    border: 1px solid var(--enzo-bd); border-radius: var(--radius);
+    background: var(--sf1); overflow: hidden;
+  }
+  .compare-result-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; background: var(--enzo-bg); border-bottom: 1px solid var(--enzo-bd);
+  }
+  .compare-head-left { display: flex; align-items: center; gap: 7px; }
+  .compare-head-title { font-size: 0.82rem; font-weight: 700; color: var(--enzo); }
+  .compare-head-actions { display: flex; align-items: center; gap: 4px; }
+
+  /* paper pills */
+  .compare-papers-strip {
+    display: flex; flex-direction: column; gap: 1px;
+    border-bottom: 1px solid var(--bd);
+  }
+  .compare-paper-pill {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 7px 14px; font-size: 0.78rem; background: var(--sf2);
+  }
+  .compare-paper-pill + .compare-paper-pill { border-top: 1px solid var(--bd); }
+  .cpp-label {
+    flex-shrink: 0; font-size: 0.68rem; font-weight: 800; letter-spacing: .03em;
+    padding: 1px 5px; border-radius: 3px; line-height: 1.6;
+  }
+  .cpp-a .cpp-label { background: #1e3a5f; color: #60a5fa; }
+  .cpp-b .cpp-label { background: #2d1f47; color: #c084fc; }
+  .cpp-c .cpp-label { background: #1a3a2a; color: #4ade80; }
+  .cpp-title { color: var(--tx1); font-weight: 600; flex: 1; line-height: 1.4; }
+  .cpp-meta  { flex-shrink: 0; color: var(--mu); font-size: 0.72rem; }
+
+  /* body */
+  .compare-body {
+    padding: 16px 18px; font-size: 0.84rem; line-height: 1.8;
+    color: var(--tx2); overflow-x: auto;
+  }
+  .compare-body p { margin: 0 0 12px; }
+  .compare-body p:last-child { margin-bottom: 0; }
+  .compare-body h1,.compare-body h2,.compare-body h3,.compare-body h4 {
+    color: var(--tx1); font-size: 0.85rem; font-weight: 700;
+    margin: 18px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--bd);
+  }
+  .compare-body ul,.compare-body ol { padding-left: 18px; margin: 0 0 12px; }
+  .compare-body li { margin-bottom: 4px; }
+  .compare-body strong { color: var(--tx1); font-weight: 700; }
+  .compare-body em { color: var(--ac); font-style: normal; font-weight: 600; }
+  .compare-body table {
+    border-collapse: collapse; width: 100%; font-size: 0.8rem;
+    margin: 12px 0; border: 1px solid var(--bd); border-radius: 6px; overflow: hidden;
+  }
+  .compare-body thead th {
+    padding: 9px 13px; background: var(--sf3); border-bottom: 2px solid var(--bd);
+    font-weight: 700; text-align: left; color: var(--tx1); white-space: nowrap;
+    font-size: 0.75rem; text-transform: uppercase; letter-spacing: .04em;
+  }
+  .compare-body tbody tr:nth-child(even) { background: var(--sf2); }
+  .compare-body tbody tr:hover { background: var(--ac-bg); }
+  .compare-body td {
+    padding: 9px 13px; border-bottom: 1px solid var(--bd);
+    vertical-align: top; line-height: 1.6;
+  }
+  .compare-body tbody tr:last-child td { border-bottom: none; }
+  .compare-body td:first-child { font-weight: 600; color: var(--tx1); white-space: nowrap; width: 130px; }
+  .compare-body blockquote {
+    border-left: 3px solid var(--enzo); background: var(--enzo-bg);
+    margin: 12px 0; padding: 10px 14px; border-radius: 0 6px 6px 0;
+    font-style: italic; color: var(--tx1);
+  }
+  /* skeleton */
+  .compare-skeleton { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
+  .csk-row {
+    height: 11px; background: var(--sf3); border-radius: 4px; width: 100%;
+    animation: cskPulse 1.4s ease-in-out infinite;
+  }
+  .csk-short  { width: 45%; }
+  .csk-medium { width: 70%; }
+  .csk-label  { font-size: 0.74rem; color: var(--mu); text-align: center; margin-top: 4px; animation: cskPulse 1.4s ease-in-out infinite; }
+  @keyframes cskPulse { 0%,100%{opacity:.35} 50%{opacity:.75} }
 
   /* ── 3-state status button ───────────────────────────────────── */
   .rl-status-btn {
