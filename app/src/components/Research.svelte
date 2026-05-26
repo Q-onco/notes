@@ -3,7 +3,8 @@
   import type { PaperResult, ReadingListItem, SavedSearch, SearchHistoryEntry, Note, PaperCollection, BiblioReference, BiblioAuthor } from '../lib/types';
   import { store } from '../lib/store.svelte';
   import { exportPapers, exportPapersDocx, exportPapersBibTeX } from '../lib/export';
-  import { askResearch, deepReadPaper, generateReadingNote, critiquePaper, streamRadarSummary, streamMarkerLookup, comparePapers } from '../lib/groq';
+  import { askResearch, deepReadPaper, generateReadingNote, critiquePaper, streamRadarSummary, streamMarkerLookup, comparePapersStructured } from '../lib/groq';
+  import type { CompareStructured } from '../lib/groq';
   import { nanoid } from 'nanoid';
   import { marked } from 'marked';
 
@@ -522,12 +523,46 @@
   }
 
   // ── Enzo paper compare ─────────────────────────────────────────
-  let compareSet    = $state<Set<string>>(new Set());
-  let compareResult = $state('');
-  let compareStreaming = $state(false);
+  let compareSet         = $state<Set<string>>(new Set());
   let compareAbort: AbortController | null = null;
-  let showCompare   = $state(false);
-  let comparePapersMeta = $state<{ title: string; journal: string; year: number }[]>([]);
+  let comparePapersMeta  = $state<{ title: string; journal: string; year: number }[]>([]);
+  let compareStructured  = $state<CompareStructured | null>(null);
+  let compareModalOpen   = $state(false);
+  let compareModalLoading = $state(false);
+
+  // SVG radar helpers
+  const RADAR_CX = 260; const RADAR_CY = 200; const RADAR_MAX_R = 130;
+  const RADAR_GRIDS = [26, 52, 78, 104, 130];
+
+  function radarPts(scores: number[], cx: number, cy: number, maxR: number): string {
+    const n = scores.length;
+    return scores.map((s, i) => {
+      const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
+      const r = (s / 5) * maxR;
+      return `${(cx + r * Math.cos(angle)).toFixed(1)},${(cy + r * Math.sin(angle)).toFixed(1)}`;
+    }).join(' ');
+  }
+
+  function gridPoly(n: number, cx: number, cy: number, r: number): string {
+    return Array.from({ length: n }, (_, i) => {
+      const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
+      return `${(cx + r * Math.cos(angle)).toFixed(1)},${(cy + r * Math.sin(angle)).toFixed(1)}`;
+    }).join(' ');
+  }
+
+  function radarAxisEnd(i: number, n: number, cx: number, cy: number, r: number) {
+    const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
+    return { x: (cx + r * Math.cos(angle)).toFixed(1), y: (cy + r * Math.sin(angle)).toFixed(1) };
+  }
+
+  function radarLabelPos(i: number, n: number, cx: number, cy: number, r: number) {
+    const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
+    const x = cx + r * Math.cos(angle);
+    const y = cy + r * Math.sin(angle);
+    const anchor = Math.cos(angle) > 0.2 ? 'start' : Math.cos(angle) < -0.2 ? 'end' : 'middle';
+    const dy = Math.sin(angle) < -0.5 ? '-0.2em' : Math.sin(angle) > 0.5 ? '0.9em' : '0.35em';
+    return { x: x.toFixed(1), y: y.toFixed(1), anchor, dy };
+  }
 
   function toggleCompare(id: string) {
     const s = new Set(compareSet);
@@ -537,29 +572,37 @@
 
   async function runCompare() {
     if (compareSet.size < 2) return;
-    const papers = [...compareSet].map(id => {
+    const papersData = [...compareSet].map(id => {
       const item = store.readingList.find(r => r.paper.id === id) ?? store.pinnedPapers.find(p => p.id === id);
       return item && 'paper' in item ? item.paper : item as PaperResult | undefined;
     }).filter(Boolean) as PaperResult[];
-    if (papers.length < 2) return;
-    comparePapersMeta = papers.map(p => ({ title: p.title, journal: p.journal ?? '', year: p.year ?? 0 }));
+    if (papersData.length < 2) return;
+    comparePapersMeta = papersData.map(p => ({ title: p.title, journal: p.journal ?? '', year: p.year ?? 0 }));
     compareAbort?.abort();
     compareAbort = new AbortController();
-    compareResult = ''; compareStreaming = true; showCompare = true;
+    compareStructured = null;
+    compareModalLoading = true;
+    compareModalOpen = true;
     try {
-      await comparePapers(
-        papers.map(p => ({ title: p.title, authors: p.authors, year: p.year, journal: p.journal, abstract: p.abstract })),
-        (c) => { compareResult += c; },
+      compareStructured = await comparePapersStructured(
+        papersData.map(p => ({ title: p.title, authors: p.authors, year: p.year, journal: p.journal ?? '', abstract: p.abstract ?? '' })),
         compareAbort.signal
       );
-    } catch {}
-    finally { compareStreaming = false; }
+    } catch { /* aborted */ }
+    finally { compareModalLoading = false; }
   }
 
   function saveCompareAsNote() {
-    if (!compareResult) return;
+    if (!compareStructured) return;
     const titles = comparePapersMeta.map(p => p.title).join(' vs ');
-    const body = `# Paper Comparison\n\n**Papers:** ${comparePapersMeta.map((p, i) => `${i + 1}. ${p.title} (${p.journal}, ${p.year})`).join('; ')}\n\n${compareResult}`;
+    let body = `# Paper Comparison\n\n**Papers:**\n${comparePapersMeta.map((p, i) => `${i + 1}. ${p.title} (${p.journal}, ${p.year})`).join('\n')}\n\n## Verdict\n${compareStructured.verdict}\n\n## Radar Scores\n| Axis | ${comparePapersMeta.map((_, i) => `Paper ${i + 1}`).join(' | ')} |\n|---|${comparePapersMeta.map(() => '---').join('|')}|\n`;
+    for (let ai = 0; ai < compareStructured.axes.length; ai++) {
+      body += `| ${compareStructured.axes[ai]} | ${comparePapersMeta.map((_, pi) => `${compareStructured!.scores[`paper_${pi + 1}`]?.[ai] ?? '?'}/5`).join(' | ')} |\n`;
+    }
+    body += `\n## Detailed Comparison\n| Dimension | ${comparePapersMeta.map((_, i) => `Paper ${i + 1}`).join(' | ')} |\n|---|${comparePapersMeta.map(() => '---').join('|')}|\n`;
+    for (const row of compareStructured.table) {
+      body += `| ${row.dimension} | ${comparePapersMeta.map((_, i) => row[`paper_${i + 1}`] ?? '—').join(' | ')} |\n`;
+    }
     const note = { id: crypto.randomUUID(), title: `Compare: ${titles.slice(0, 60)}`, body, color: 'none', tags: ['comparison', 'research'], wordTarget: 0, createdAt: Date.now(), updatedAt: Date.now() };
     store.notes.unshift(note);
     store.saveNotes();
@@ -1735,57 +1778,10 @@ Format your response as:
       {#if compareSet.size >= 2}
         <div class="compare-bar">
           <span class="compare-bar-count">{compareSet.size} papers selected</span>
-          <button class="btn btn-primary btn-sm" onclick={runCompare} disabled={compareStreaming}>
-            {compareStreaming ? 'Comparing…' : 'Compare with Enzo'}
+          <button class="btn btn-primary btn-sm" onclick={runCompare} disabled={compareModalLoading}>
+            {compareModalLoading ? 'Analysing…' : 'Compare with Enzo'}
           </button>
-          <button class="btn btn-ghost btn-sm" onclick={() => { compareSet = new Set(); showCompare = false; compareResult = ''; }}>Clear</button>
-        </div>
-      {/if}
-      {#if showCompare}
-        <div class="compare-result card">
-          <!-- Header -->
-          <div class="compare-result-head">
-            <div class="compare-head-left">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--enzo)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-              <span class="compare-head-title">Enzo — Paper Comparison</span>
-            </div>
-            <div class="compare-head-actions">
-              {#if !compareStreaming && compareResult}
-                <button class="btn-icon btn-xs" onclick={saveCompareAsNote} title="Save as note">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                </button>
-              {/if}
-              <button class="btn-icon btn-xs" onclick={() => { showCompare = false; compareResult = ''; comparePapersMeta = []; }} title="Close">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
-          </div>
-          <!-- Paper slugs -->
-          {#if comparePapersMeta.length >= 2}
-            <div class="compare-papers-strip">
-              {#each comparePapersMeta as meta, i}
-                <div class="compare-paper-pill" class:cpp-a={i===0} class:cpp-b={i===1} class:cpp-c={i===2}>
-                  <span class="cpp-label">P{i+1}</span>
-                  <span class="cpp-title">{meta.title.length > 55 ? meta.title.slice(0,55)+'…' : meta.title}</span>
-                  <span class="cpp-meta">{meta.journal ? meta.journal.split(' ').slice(0,3).join(' ') : ''}{meta.year ? ` · ${meta.year}` : ''}</span>
-                </div>
-              {/each}
-            </div>
-          {/if}
-          <!-- Body -->
-          <div class="compare-body">
-            {#if compareStreaming}
-              <div class="compare-skeleton">
-                <div class="csk-row"></div>
-                <div class="csk-row csk-short"></div>
-                <div class="csk-row"></div>
-                <div class="csk-row csk-medium"></div>
-                <div class="csk-label">Enzo is analysing the papers…</div>
-              </div>
-            {:else}
-              {@html marked.parse(compareResult)}
-            {/if}
-          </div>
+          <button class="btn btn-ghost btn-sm" onclick={() => { compareSet = new Set(); compareModalOpen = false; compareStructured = null; }}>Clear</button>
         </div>
       {/if}
 
@@ -2341,6 +2337,175 @@ Format your response as:
       <button class="btn btn-primary" onclick={importBibTeX} disabled={!bibTexInput.trim() || bibTexImporting}>
         {#if bibTexImporting}Importing…{:else}Import{/if}
       </button>
+    </div>
+  </div>
+{/if}
+
+<!-- ── Visual Paper Compare Modal ──────────────────────────────────────── -->
+{#if compareModalOpen}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div class="cmp-overlay" role="dialog" aria-modal="true"
+    onclick={(e) => { if (e.target === e.currentTarget) { compareModalOpen = false; compareAbort?.abort(); } }}
+    onkeydown={(e) => { if (e.key === 'Escape') { compareModalOpen = false; compareAbort?.abort(); } }}>
+    <div class="cmp-modal card">
+
+      <!-- Modal header -->
+      <div class="cmp-head">
+        <div class="cmp-head-left">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--enzo)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <span class="cmp-head-title">Paper Compare</span>
+        </div>
+        <div class="cmp-head-actions">
+          {#if compareStructured}
+            <button class="btn-icon btn-xs" onclick={saveCompareAsNote} title="Save as note">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            </button>
+          {/if}
+          <button class="btn-icon btn-xs" onclick={() => { compareModalOpen = false; compareAbort?.abort(); }} title="Close (Esc)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Paper pills strip -->
+      {#if comparePapersMeta.length >= 2}
+        <div class="cmp-pills-strip">
+          {#each comparePapersMeta as meta, i}
+            <div class="cmp-pill" class:cmp-pill-a={i===0} class:cmp-pill-b={i===1} class:cmp-pill-c={i===2}>
+              <span class="cmp-pill-lbl">P{i+1}</span>
+              <span class="cmp-pill-title">{meta.title.length > 60 ? meta.title.slice(0, 60) + '…' : meta.title}</span>
+              <span class="cmp-pill-meta">{meta.journal ? meta.journal.split(' ').slice(0, 3).join(' ') : ''}{meta.year ? ` · ${meta.year}` : ''}</span>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+      <!-- Loading skeleton -->
+      {#if compareModalLoading}
+        <div class="cmp-loading">
+          <div class="compare-skeleton">
+            <div class="csk-row"></div>
+            <div class="csk-row csk-short"></div>
+            <div class="csk-row"></div>
+            <div class="csk-row csk-medium"></div>
+            <div class="csk-label">Enzo is analysing the papers…</div>
+          </div>
+        </div>
+
+      {:else if compareStructured}
+        <!-- Main content: radar + table -->
+        <div class="cmp-body">
+
+          <!-- SVG Radar chart -->
+          <div class="cmp-radar-col">
+            <svg class="cmp-radar-svg" viewBox="0 0 520 400" role="img" aria-label="Radar comparison chart">
+              <!-- Grid polygons -->
+              {#each RADAR_GRIDS as gr}
+                <polygon class="radar-grid" points={gridPoly(compareStructured.axes.length, RADAR_CX, RADAR_CY, gr)} />
+              {/each}
+              <!-- Axis lines -->
+              {#each compareStructured.axes as _ax, i}
+                {@const ep = radarAxisEnd(i, compareStructured.axes.length, RADAR_CX, RADAR_CY, RADAR_MAX_R)}
+                <line class="radar-axis" x1={RADAR_CX} y1={RADAR_CY} x2={ep.x} y2={ep.y} />
+              {/each}
+              <!-- Data polygons -->
+              {#each comparePapersMeta as _meta, pi}
+                {@const key = `paper_${pi + 1}`}
+                {@const sc = compareStructured.scores[key] ?? []}
+                <polygon class="radar-data radar-data-{pi + 1}" points={radarPts(sc, RADAR_CX, RADAR_CY, RADAR_MAX_R)} />
+              {/each}
+              <!-- Score dots -->
+              {#each comparePapersMeta as _meta, pi}
+                {@const key = `paper_${pi + 1}`}
+                {@const sc = compareStructured.scores[key] ?? []}
+                {#each sc as score, ai}
+                  {@const angle = (ai / compareStructured.axes.length) * 2 * Math.PI - Math.PI / 2}
+                  {@const r = (score / 5) * RADAR_MAX_R}
+                  <circle class="radar-dot radar-dot-{pi + 1}"
+                    cx={(RADAR_CX + r * Math.cos(angle)).toFixed(1)}
+                    cy={(RADAR_CY + r * Math.sin(angle)).toFixed(1)}
+                    r="3.5" />
+                {/each}
+              {/each}
+              <!-- Axis labels -->
+              {#each compareStructured.axes as ax, i}
+                {@const lp = radarLabelPos(i, compareStructured.axes.length, RADAR_CX, RADAR_CY, RADAR_MAX_R + 30)}
+                <text class="radar-label" x={lp.x} y={lp.y} text-anchor={lp.anchor} dy={lp.dy}>
+                  {ax.length > 14 ? ax.slice(0, 13) + '…' : ax}
+                </text>
+              {/each}
+              <!-- Score markers on grid -->
+              {#each [1,2,3,4,5] as tick, ti}
+                <text class="radar-tick" x={RADAR_CX + 4} y={RADAR_CY - RADAR_GRIDS[ti]}>{tick}</text>
+              {/each}
+            </svg>
+            <!-- Legend -->
+            <div class="radar-legend">
+              {#each comparePapersMeta as meta, i}
+                <div class="radar-leg-row">
+                  <span class="radar-leg-dot leg-dot-{i + 1}"></span>
+                  <span class="text-xs text-mu">P{i + 1}: {meta.title.slice(0, 36)}{meta.title.length > 36 ? '…' : ''}</span>
+                </div>
+              {/each}
+            </div>
+          </div>
+
+          <!-- Comparison table -->
+          <div class="cmp-table-col">
+            <table class="cmp-table">
+              <thead>
+                <tr>
+                  <th>Dimension</th>
+                  {#each comparePapersMeta as _meta, i}
+                    <th class:th-a={i===0} class:th-b={i===1} class:th-c={i===2}>
+                      P{i+1}
+                      <span class="th-score-row">
+                        {#each (compareStructured.scores[`paper_${i+1}`] ?? []) as s, ai}
+                          <span class="th-score-pip" title={compareStructured.axes[ai]} style="opacity: {0.3 + (s/5)*0.7}"></span>
+                        {/each}
+                      </span>
+                    </th>
+                  {/each}
+                </tr>
+              </thead>
+              <tbody>
+                {#each compareStructured.table as row, ri}
+                  <tr>
+                    <td class="cmp-dim">
+                      {row.dimension}
+                      <span class="cmp-dim-scores">
+                        {#each comparePapersMeta as _meta, pi}
+                          {@const sc = compareStructured.scores[`paper_${pi+1}`]?.[ri] ?? 0}
+                          <span class="dim-score dim-score-{pi+1}" title="Paper {pi+1}: {sc}/5">{sc}</span>
+                        {/each}
+                      </span>
+                    </td>
+                    {#each comparePapersMeta as _meta, pi}
+                      <td class="cmp-cell">{row[`paper_${pi + 1}`] ?? '—'}</td>
+                    {/each}
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+
+        <!-- Verdict strip -->
+        <div class="cmp-verdict">
+          <span class="cmp-verdict-label">Verdict</span>
+          <p class="cmp-verdict-text">{compareStructured.verdict}</p>
+        </div>
+
+      {:else}
+        <!-- Failed to parse -->
+        <div class="cmp-error">
+          <p class="text-mu text-sm">Could not generate a structured comparison. Enzo may have returned unexpected output.</p>
+          <button class="btn btn-ghost btn-sm" onclick={runCompare}>Retry</button>
+        </div>
+      {/if}
+
     </div>
   </div>
 {/if}
@@ -3144,4 +3309,139 @@ Format your response as:
   .bibtex-modal h3 { margin: 0; font-size: 1rem; }
   .bibtex-textarea { font-size: 0.8rem; font-family: var(--mono); resize: vertical; }
   .bibtex-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+  /* ── Visual Paper Compare Modal ──────────────────────────────── */
+  .cmp-overlay {
+    position: fixed; inset: 0; z-index: 9100;
+    background: rgba(8, 12, 20, 0.82);
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+  }
+  .cmp-modal {
+    width: min(920px, 96vw); max-height: 90vh;
+    display: flex; flex-direction: column; gap: 0;
+    background: var(--sf1); border: 1px solid var(--enzo-bd);
+    border-radius: var(--radius); overflow: hidden;
+  }
+  .cmp-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; background: var(--enzo-bg); border-bottom: 1px solid var(--enzo-bd);
+    flex-shrink: 0;
+  }
+  .cmp-head-left { display: flex; align-items: center; gap: 8px; }
+  .cmp-head-title { font-size: 0.84rem; font-weight: 700; color: var(--enzo); }
+  .cmp-head-actions { display: flex; align-items: center; gap: 4px; }
+
+  .cmp-pills-strip { display: flex; flex-direction: column; gap: 0; border-bottom: 1px solid var(--bd); flex-shrink: 0; }
+  .cmp-pill {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 7px 16px; font-size: 0.78rem; background: var(--sf2);
+  }
+  .cmp-pill + .cmp-pill { border-top: 1px solid var(--bd); }
+  .cmp-pill-lbl {
+    flex-shrink: 0; font-size: 0.68rem; font-weight: 800; letter-spacing: .03em;
+    padding: 1px 5px; border-radius: 3px; line-height: 1.6;
+  }
+  .cmp-pill-a .cmp-pill-lbl { background: #1e3a5f; color: #60a5fa; }
+  .cmp-pill-b .cmp-pill-lbl { background: #2d1f47; color: #c084fc; }
+  .cmp-pill-c .cmp-pill-lbl { background: #1a3a2a; color: #4ade80; }
+  .cmp-pill-title { color: var(--tx1); font-weight: 600; flex: 1; line-height: 1.4; }
+  .cmp-pill-meta  { flex-shrink: 0; color: var(--mu); font-size: 0.72rem; }
+
+  .cmp-loading { padding: 28px 24px; }
+
+  /* Body: radar + table side-by-side */
+  .cmp-body {
+    display: flex; gap: 0; overflow-y: auto; flex: 1; min-height: 0;
+  }
+  .cmp-radar-col {
+    flex: 0 0 300px; display: flex; flex-direction: column; align-items: center;
+    padding: 14px 8px 10px;
+    border-right: 1px solid var(--bd);
+    background: var(--sf);
+  }
+  .cmp-radar-svg { width: 100%; height: auto; display: block; }
+
+  /* SVG radar elements */
+  .radar-grid {
+    fill: none; stroke: var(--bd2); stroke-width: 1;
+  }
+  .radar-axis { stroke: var(--bd2); stroke-width: 1; }
+  .radar-data {
+    fill-opacity: 0.18; stroke-width: 2;
+    animation: radarIn 0.5s ease both;
+  }
+  .radar-data-1 { fill: #3d7fff; stroke: #3d7fff; animation-delay: 0.05s; }
+  .radar-data-2 { fill: #c084fc; stroke: #c084fc; animation-delay: 0.15s; }
+  .radar-data-3 { fill: #4ade80; stroke: #4ade80; animation-delay: 0.25s; }
+  .radar-dot { fill-opacity: 0.9; stroke: var(--sf); stroke-width: 1; }
+  .radar-dot-1 { fill: #3d7fff; }
+  .radar-dot-2 { fill: #c084fc; }
+  .radar-dot-3 { fill: #4ade80; }
+  .radar-label { font-size: 9px; fill: var(--mu); font-family: var(--font); }
+  .radar-tick  { font-size: 7px; fill: var(--mu); font-family: var(--mono); opacity: 0.6; }
+  @keyframes radarIn { from { opacity: 0; transform: scale(0.6); transform-box: fill-box; transform-origin: center; } to { opacity: 1; transform: scale(1); } }
+
+  /* Radar legend */
+  .radar-legend { display: flex; flex-direction: column; gap: 4px; padding: 4px 6px; width: 100%; }
+  .radar-leg-row { display: flex; align-items: center; gap: 7px; }
+  .radar-leg-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .leg-dot-1 { background: #3d7fff; }
+  .leg-dot-2 { background: #c084fc; }
+  .leg-dot-3 { background: #4ade80; }
+
+  /* Table column */
+  .cmp-table-col { flex: 1; overflow: auto; padding: 10px 14px; }
+  .cmp-table {
+    border-collapse: collapse; width: 100%; font-size: 0.79rem;
+    border: 1px solid var(--bd); border-radius: 6px; overflow: hidden;
+  }
+  .cmp-table thead th {
+    padding: 8px 12px; background: var(--sf3); border-bottom: 2px solid var(--bd);
+    font-weight: 700; text-align: left; white-space: nowrap;
+    font-size: 0.73rem; text-transform: uppercase; letter-spacing: .04em;
+  }
+  .cmp-table .th-a { color: #60a5fa; }
+  .cmp-table .th-b { color: #c084fc; }
+  .cmp-table .th-c { color: #4ade80; }
+  .th-score-row { display: flex; gap: 2px; margin-top: 4px; }
+  .th-score-pip { display: inline-block; width: 7px; height: 7px; border-radius: 2px; background: currentColor; }
+  .cmp-table tbody tr:nth-child(even) { background: var(--sf2); }
+  .cmp-table tbody tr:hover { background: color-mix(in srgb, var(--enzo) 6%, transparent); }
+  .cmp-table td { padding: 8px 12px; border-bottom: 1px solid var(--bd); vertical-align: top; line-height: 1.55; color: var(--tx2); }
+  .cmp-table tbody tr:last-child td { border-bottom: none; }
+  .cmp-dim {
+    font-weight: 600; color: var(--tx1); white-space: nowrap;
+    width: 120px; display: table-cell; vertical-align: top;
+  }
+  .cmp-dim-scores { display: flex; gap: 3px; margin-top: 4px; }
+  .dim-score {
+    font-size: 0.65rem; font-weight: 800; padding: 0 4px;
+    border-radius: 3px; font-family: var(--mono);
+  }
+  .dim-score-1 { background: rgba(61,127,255,.2); color: #60a5fa; }
+  .dim-score-2 { background: rgba(192,132,252,.2); color: #c084fc; }
+  .dim-score-3 { background: rgba(74,222,128,.2); color: #4ade80; }
+  .cmp-cell { color: var(--tx2); }
+
+  /* Verdict */
+  .cmp-verdict {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 12px 16px; background: var(--enzo-bg);
+    border-top: 1px solid var(--enzo-bd); flex-shrink: 0;
+  }
+  .cmp-verdict-label {
+    flex-shrink: 0; font-size: 0.68rem; font-weight: 800; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--enzo); padding-top: 2px;
+  }
+  .cmp-verdict-text { font-size: 0.83rem; color: var(--tx1); line-height: 1.65; margin: 0; }
+
+  /* Error state */
+  .cmp-error { padding: 28px 24px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+
+  /* Responsive: stack on narrow screens */
+  @media (max-width: 640px) {
+    .cmp-body { flex-direction: column; }
+    .cmp-radar-col { flex: none; border-right: none; border-bottom: 1px solid var(--bd); }
+  }
 </style>

@@ -984,6 +984,76 @@ Academic prose, third person, past tense for experiments, present tense for esta
   await streamGroq(MODELS.enzo, messages, onChunk, signal);
 }
 
+// ── Structured paper compare (radar chart data) ──────────────────────────────
+export type CompareStructured = {
+  scores: Record<string, number[]>;
+  axes: string[];
+  table: { dimension: string; [key: string]: string }[];
+  verdict: string;
+};
+
+export async function comparePapersStructured(
+  papers: { title: string; authors: string[]; year: number; journal: string; abstract: string }[],
+  signal?: AbortSignal
+): Promise<CompareStructured | null> {
+  const n = papers.length;
+  const keys = papers.map((_, i) => `paper_${i + 1}`);
+  const AXES = ['Sample Size', 'Methodology', 'Novelty', 'HGSOC Relevance', 'Statistical Power', 'Translatability'];
+
+  const paperBlocks = papers.map((p, i) =>
+    `**Paper ${i + 1}:** ${p.title} (${p.authors[0] ?? 'Unknown'} et al., ${p.year}, ${p.journal})\nAbstract: ${p.abstract?.slice(0, 500) ?? 'N/A'}`
+  ).join('\n\n');
+
+  const messages = [
+    {
+      role: 'system' as const,
+      content: 'You are Enzo, a scientific research analyst specialising in HGSOC and oncology. Return ONLY valid JSON — no markdown fences, no preamble. Scores must be integers 1–5.'
+    },
+    {
+      role: 'user' as const,
+      content: `Compare these ${n} papers and return a structured JSON analysis.
+
+Papers:
+${paperBlocks}
+
+Return EXACTLY this JSON (no other text):
+{
+  "scores": { ${keys.map(k => `"${k}": [3,4,5,2,4,3]`).join(', ')} },
+  "axes": ${JSON.stringify(AXES)},
+  "table": [
+    ${AXES.map(a => `{"dimension": "${a}", ${keys.map(k => `"${k}": "description"`).join(', ')}}`).join(',\n    ')}
+  ],
+  "verdict": "2-sentence verdict here"
+}
+
+Rules:
+- scores: rate each paper 1–5 on each axis (order matches "axes" array)
+- table: ONE concise sentence per paper per dimension (max 18 words each)
+- verdict: 2 sentences — key difference + which paper is more relevant to HGSOC research
+
+Return ONLY the JSON object.`
+    }
+  ];
+
+  let buffer = '';
+  await streamGroq(MODELS.enzo, messages, c => { buffer += c; }, signal, 1200);
+
+  const match = buffer.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[0]) as CompareStructured;
+    if (!parsed.scores || !parsed.axes || !parsed.table || !parsed.verdict) return null;
+    for (const key of Object.keys(parsed.scores)) {
+      parsed.scores[key] = (parsed.scores[key] as unknown[]).map(s =>
+        Math.min(5, Math.max(1, Math.round(Number(s) || 3)))
+      );
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 export async function comparePapers(
   papers: { title: string; authors: string[]; year: number; journal: string; abstract: string }[],
   onChunk: (text: string) => void,
