@@ -55,7 +55,7 @@ export function createImageBlock(opts: { onUpload: UploadFn }) {
         caption.setAttribute('data-placeholder', 'Caption (optional)…');
         caption.addEventListener('blur', () => {
           if (typeof getPos !== 'function') return;
-          editor.chain().setNodeSelection(getPos()).updateAttributes('imageBlock', { caption: caption.textContent ?? '' }).run();
+          editor.chain().setNodeSelection(getPos()!).updateAttributes('imageBlock', { caption: caption.textContent ?? '' }).run();
         });
         caption.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); caption.blur(); } });
 
@@ -84,7 +84,7 @@ export function createImageBlock(opts: { onUpload: UploadFn }) {
             e.preventDefault();
             if (typeof getPos !== 'function') return;
             const w = a === 'full' ? 100 : a === 'center' ? 80 : 50;
-            editor.chain().setNodeSelection(getPos()).updateAttributes('imageBlock', { align: a, width: w }).run();
+            editor.chain().setNodeSelection(getPos()!).updateAttributes('imageBlock', { align: a, width: w }).run();
           });
           controls.appendChild(btn);
         });
@@ -99,7 +99,7 @@ export function createImageBlock(opts: { onUpload: UploadFn }) {
         slider.addEventListener('input', (e) => {
           img.style.width = `${(e.target as HTMLInputElement).value}%`;
           if (typeof getPos !== 'function') return;
-          editor.chain().setNodeSelection(getPos()).updateAttributes('imageBlock', { width: parseInt((e.target as HTMLInputElement).value) }).run();
+          editor.chain().setNodeSelection(getPos()!).updateAttributes('imageBlock', { width: parseInt((e.target as HTMLInputElement).value) }).run();
         });
         controls.appendChild(slider);
 
@@ -110,7 +110,8 @@ export function createImageBlock(opts: { onUpload: UploadFn }) {
         del.addEventListener('mousedown', (e) => {
           e.preventDefault();
           if (typeof getPos !== 'function') return;
-          editor.chain().deleteRange({ from: getPos(), to: getPos() + node.nodeSize }).run();
+          const p = getPos(); if (p === undefined) return;
+          editor.chain().deleteRange({ from: p, to: p + node.nodeSize }).run();
         });
         controls.appendChild(del);
 
@@ -261,7 +262,8 @@ export function createAudioClipExtension() {
           del.addEventListener('mousedown', (e) => {
             e.preventDefault();
             if (typeof getPos !== 'function') return;
-            editor.chain().deleteRange({ from: getPos(), to: getPos() + node.nodeSize }).run();
+            const p = getPos(); if (p === undefined) return;
+            editor.chain().deleteRange({ from: p, to: p + node.nodeSize }).run();
           });
 
           dom.appendChild(icon);
@@ -329,7 +331,8 @@ export function createEmbedBlock() {
           del.addEventListener('mousedown', (e) => {
             e.preventDefault();
             if (typeof getPos !== 'function') return;
-            editor.chain().deleteRange({ from: getPos(), to: getPos() + n.nodeSize }).run();
+            const p = getPos(); if (p === undefined) return;
+            editor.chain().deleteRange({ from: p, to: p + n.nodeSize }).run();
           });
           dom.appendChild(del);
 
@@ -434,7 +437,8 @@ export function createAttachmentBlock() {
           del.addEventListener('mousedown', (e) => {
             e.preventDefault();
             if (typeof getPos !== 'function') return;
-            editor.chain().deleteRange({ from: getPos(), to: getPos() + n.nodeSize }).run();
+            const p = getPos(); if (p === undefined) return;
+            editor.chain().deleteRange({ from: p, to: p + n.nodeSize }).run();
           });
 
           dom.appendChild(icon); dom.appendChild(info); dom.appendChild(sz); dom.appendChild(dl); dom.appendChild(del);
@@ -513,7 +517,7 @@ export const InlineMathExtension = Node.create({
       dom.addEventListener('dblclick', () => {
         const formula = prompt('LaTeX formula:', node.attrs.formula);
         if (formula !== null && typeof getPos === 'function') {
-          editor.chain().setNodeSelection(getPos()).updateAttributes('inlineMath', { formula }).run();
+          editor.chain().setNodeSelection(getPos()!).updateAttributes('inlineMath', { formula }).run();
         }
       });
 
@@ -532,11 +536,11 @@ export const InlineMathExtension = Node.create({
         find: /(?:^|\s)\$([^$\n]+)\$(?:\s|$)/,
         handler: ({ state, range, match }) => {
           const formula = match[1]?.trim();
-          if (!formula) return;
+          if (!formula) return null;
           const node = state.schema.nodes.inlineMath?.create({ formula });
-          if (!node) return;
+          if (!node) return null;
           const tr = state.tr.replaceWith(range.from, range.to, [node, state.schema.text(' ')]);
-          state.tr = tr;
+          this.editor.view.dispatch(tr);
         },
       }),
     ];
@@ -588,7 +592,7 @@ export const BlockMathExtension = Node.create({
       dom.addEventListener('dblclick', () => {
         const formula = prompt('LaTeX formula (display mode):', node.attrs.formula);
         if (formula !== null && typeof getPos === 'function') {
-          editor.chain().setNodeSelection(getPos()).updateAttributes('blockMath', { formula }).run();
+          editor.chain().setNodeSelection(getPos()!).updateAttributes('blockMath', { formula }).run();
         }
       });
 
@@ -690,7 +694,8 @@ export const MermaidBlockExtension = Node.create({
       del.addEventListener('mousedown', (e) => {
         e.preventDefault();
         if (typeof getPos !== 'function') return;
-        editor.chain().deleteRange({ from: getPos(), to: getPos() + node.nodeSize }).run();
+        const p = getPos(); if (p === undefined) return;
+        editor.chain().deleteRange({ from: p, to: p + node.nodeSize }).run();
       });
 
       dom.appendChild(del);
@@ -715,7 +720,7 @@ export const MermaidBlockExtension = Node.create({
       dom.addEventListener('dblclick', () => {
         const code = prompt('Mermaid diagram code:', node.attrs.code);
         if (code !== null && typeof getPos === 'function') {
-          editor.chain().setNodeSelection(getPos()).updateAttributes('mermaidBlock', { code }).run();
+          editor.chain().setNodeSelection(getPos()!).updateAttributes('mermaidBlock', { code }).run();
         }
       });
 
@@ -803,12 +808,12 @@ export const DetailsExtension = Node.create({
       toggleBtn.addEventListener('mousedown', (e) => {
         e.preventDefault();
         if (typeof getPos !== 'function') return;
-        editor.chain().setNodeSelection(getPos()).updateAttributes('details', { open: !currentOpen }).run();
+        editor.chain().setNodeSelection(getPos()!).updateAttributes('details', { open: !currentOpen }).run();
       });
 
       summaryEl.addEventListener('blur', () => {
         if (typeof getPos !== 'function') return;
-        editor.chain().setNodeSelection(getPos()).updateAttributes('details', { summary: summaryEl.textContent ?? '' }).run();
+        editor.chain().setNodeSelection(getPos()!).updateAttributes('details', { summary: summaryEl.textContent ?? '' }).run();
       });
 
       summaryEl.addEventListener('keydown', (e) => {
@@ -826,11 +831,11 @@ export const DetailsExtension = Node.create({
         contentDOM: content,
         update: (n) => { render(n); return true; },
         stopEvent: (e) => {
-          if ((e.target as Node) === summaryEl || summaryEl.contains(e.target as Node)) return true;
+          if ((e.target as Element) === summaryEl || summaryEl.contains(e.target as Element)) return true;
           return false;
         },
         ignoreMutation: (mutation) => {
-          if ((mutation.target as Node) === summaryEl || summaryEl.contains(mutation.target as Node)) return true;
+          if ((mutation.target as Element) === summaryEl || summaryEl.contains(mutation.target as Element)) return true;
           return false;
         },
       };

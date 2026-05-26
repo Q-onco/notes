@@ -303,7 +303,7 @@ class Store {
       loadEncFile<{readingList: ReadingListItem[], savedSearches: SavedSearch[], paperCollections?: PaperCollection[], searchHistory?: SearchHistoryEntry[]}>(this.tok, PATHS.research, { readingList: [], savedSearches: [], paperCollections: [], searchHistory: [] }),
       loadEncFile<{runs: PipelineRun[], protocols: Protocol[], hypotheses: Hypothesis[]}>(this.tok, PATHS.pipelines, { runs: [], protocols: [], hypotheses: [] }),
       loadEncFile<SavedJob[]>(this.tok, PATHS.jobs, []),
-      loadEncFile<{contacts: JobContact[], templates: JobEmailTemplate[], salaries: SalaryEntry[], deadlines: JobDeadline[]}>(this.tok, PATHS.jobExt, { contacts: [], templates: [], salaries: [], deadlines: [] }),
+      loadEncFile<{contacts: JobContact[], templates: JobEmailTemplate[], salaries: SalaryEntry[], deadlines: JobDeadline[], pinnedJobs?: JobListing[]}>(this.tok, PATHS.jobExt, { contacts: [], templates: [], salaries: [], deadlines: [] }),
       loadEncFile<CvProfile>(this.tok, PATHS.cv, this.cvProfile),
       loadEncFile<CoverLetter[]>(this.tok, PATHS.coverLetters, []),
       loadEncFile<ResearcherProfile>(this.tok, PATHS.profile, DEFAULT_PROFILE),
