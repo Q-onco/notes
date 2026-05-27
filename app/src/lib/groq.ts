@@ -1087,9 +1087,12 @@ export async function streamCompareAnalysis(
   ).join('\n\n');
   const sharedNodes = graph.nodes.filter(n => n.papers.length > 1).map(n => n.label).slice(0, 8).join(', ');
   const contradictions = graph.edges.filter(e => e.relation === 'contradicts').length;
+  const scoresSummary = graph.axes.map((ax, ai) =>
+    `${ax}: ${papers.map((_, pi) => `P${pi + 1}=${graph.scores[`paper_${pi}`]?.[ai] ?? '?'}/5`).join(', ')}`
+  ).join(' | ');
   const messages = [
     { role: 'system' as const, content: 'You are Enzo, a super-intelligent oncology research dog. Write in a knowledgeable but direct voice. You are an expert in HGSOC, TME, scRNA-seq, PARPi resistance, and translational oncology.' },
-    { role: 'user' as const, content: `Write a detailed ~500-word analysis comparing these ${papers.length} oncology papers. Use flowing paragraphs — no bullet points or headers. Cover: the distinct research questions each paper pursues and how they relate, the methodological approaches and key differences in experimental design, the core findings and where they agree, diverge, or contradict each other (there are ${contradictions} contradictory relationships in the knowledge graph), shared concepts between papers (${sharedNodes || 'various shared themes'}), the significance and novelty of each contribution, their limitations, and what they collectively reveal about the state of HGSOC research. Be specific — cite paper-specific findings, methods, and numbers where relevant. End with a concise synthesis of what a clinician or researcher should take away.\n\n${paperBlocks}` }
+    { role: 'user' as const, content: `Write a detailed ~500-word analysis comparing these ${papers.length} oncology papers. Use flowing paragraphs — no bullet points or headers. The knowledge graph summary verdict: "${graph.verdict}". Structured scores (1–5): ${scoresSummary}. Cover: the distinct research questions each paper pursues and how they relate, the methodological approaches and key differences in experimental design, the core findings and where they agree, diverge, or contradict each other (there are ${contradictions} contradictory relationships in the knowledge graph), shared concepts between papers (${sharedNodes || 'various shared themes'}), the significance and novelty of each contribution, their limitations, and what they collectively reveal about the state of HGSOC research. Ensure your narrative is consistent with the scores above. Be specific — cite paper-specific findings, methods, and numbers where relevant. End with a concise synthesis of what a clinician or researcher should take away.\n\n${paperBlocks}` }
   ];
   await streamGroq(MODELS.enzo, messages, onChunk, signal, 2800);
 }

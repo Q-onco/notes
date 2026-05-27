@@ -1,6 +1,6 @@
 <script lang="ts">
   import { searchPubMed, fetchBioRxiv, fetchNatureCell, fetchPubMedAbstract, searchOpenAlex, searchEuropePMC } from '../lib/pubmed';
-  import type { PaperResult, ReadingListItem, SavedSearch, SearchHistoryEntry, Note, PaperCollection, BiblioReference, BiblioAuthor } from '../lib/types';
+  import type { PaperResult, ReadingListItem, SavedSearch, SearchHistoryEntry, Note, PaperCollection, BiblioReference, BiblioAuthor, FileRecord } from '../lib/types';
   import { store } from '../lib/store.svelte';
   import { exportPapers, exportPapersDocx, exportPapersBibTeX } from '../lib/export';
   import { askResearch, deepReadPaper, generateReadingNote, critiquePaper, streamRadarSummary, streamMarkerLookup, comparePapersStructured, streamCompareAnalysis, streamNodeAnalysis } from '../lib/groq';
@@ -527,6 +527,8 @@
   let compareAbort: AbortController | null = null;
   let comparePapersMeta = $state<{ title: string; journal: string; year: number }[]>([]);
   let comparePapersFullData = $state<{ title: string; authors: string[]; year: number; journal: string; abstract: string }[]>([]);
+  let comparePapersDOIs = $state<string[]>([]);
+  let comparePaperIds = $state<string[]>([]);
   let compareGraph = $state<CompareGraph | null>(null);
   let compareModalOpen = $state(false);
   let compareModalLoading = $state(false);
@@ -537,6 +539,7 @@
   // Streaming analysis state
   let compareAnalysisText = $state('');
   let compareAnalysisLoading = $state(false);
+  let compareAnalysisDone = $state(false);
   let compareAnalysisAbort: AbortController | null = null;
   let nodeAnalysisText = $state('');
   let nodeAnalysisLoading = $state(false);
@@ -558,7 +561,7 @@
   interface PhysNode {
     id: string; x: number; y: number; vx: number; vy: number;
     mass: number; isPaper: boolean; homeX: number; homeY: number;
-    dragging: boolean; nodeData: GraphNode | null;
+    dragging: boolean; pinned: boolean; nodeData: GraphNode | null;
   }
   interface PhysEdge { si: number; ti: number; restLen: number; strength: number; }
   let physNodes: PhysNode[] = [];
@@ -630,7 +633,7 @@
         id: `paper_${i}`, x: anchors[i]?.x ?? CX, y: anchors[i]?.y ?? CY,
         vx: 0, vy: 0, mass: 4, isPaper: true,
         homeX: anchors[i]?.x ?? CX, homeY: anchors[i]?.y ?? CY,
-        dragging: false, nodeData: null
+        dragging: false, pinned: false, nodeData: null
       });
     }
 
@@ -644,7 +647,7 @@
         y: CY + r * Math.sin(a) + (Math.random() - 0.5) * 50,
         vx: (Math.random() - 0.5) * 2, vy: (Math.random() - 0.5) * 2,
         mass: 1, isPaper: false, homeX: CX, homeY: CY,
-        dragging: false, nodeData: conceptNodes[i]
+        dragging: false, pinned: false, nodeData: conceptNodes[i]
       });
     }
 
@@ -690,7 +693,7 @@
     }
     for (const n of physNodes) {
       if (!n.isPaper) { n.vx += (450 - n.x) * 0.0015; n.vy += (280 - n.y) * 0.0015; }
-      else if (!n.dragging) { n.vx += (n.homeX - n.x) * 0.05; n.vy += (n.homeY - n.y) * 0.05; }
+      else if (!n.dragging && !n.pinned) { n.vx += (n.homeX - n.x) * 0.05; n.vy += (n.homeY - n.y) * 0.05; }
     }
     for (const n of physNodes) {
       if (n.dragging) continue;
@@ -720,9 +723,8 @@
     const density = compareNodeDensity;
     const nP = comparePapersMeta.length;
     if (!graph || nP === 0 || !compareModalOpen) return;
-    buildSimulation(graph, density, nP);
-    startAnimation();
-    return stopAnimation;
+    const t = setTimeout(() => { buildSimulation(graph, density, nP); startAnimation(); }, 120);
+    return () => { clearTimeout(t); stopAnimation(); };
   });
 
   $effect(() => {
@@ -801,21 +803,24 @@
 
   function handleSVGMouseUp() {
     if (dragNodeIdx !== null) {
-      physNodes[dragNodeIdx].dragging = false;
+      const node = physNodes[dragNodeIdx];
+      node.dragging = false;
       if (!mouseHasMoved) {
-        const id = physNodes[dragNodeIdx].id;
+        const id = node.id;
         if (selectedNodeId === id) {
           selectedNodeId = null;
           nodeAnalysisPanelNode = null;
         } else {
           selectedNodeId = id;
           if (!id.startsWith('paper_')) {
-            const node = compareGraph?.nodes.find(n => n.id === id) ?? null;
-            if (node) { nodeAnalysisPanelNode = node; handleNodeAnalysis(node); }
+            const gNode = compareGraph?.nodes.find(n => n.id === id) ?? null;
+            if (gNode) { nodeAnalysisPanelNode = gNode; handleNodeAnalysis(gNode); }
           } else {
             nodeAnalysisPanelNode = null;
           }
         }
+      } else if (node.isPaper) {
+        node.pinned = true;
       }
       dragNodeIdx = null;
       startAnimation();
@@ -854,12 +859,15 @@
     if (papersData.length < 2) return;
     comparePapersMeta = papersData.map(p => ({ title: p.title, journal: p.journal ?? '', year: p.year ?? 0 }));
     comparePapersFullData = papersData.map(p => ({ title: p.title, authors: p.authors, year: p.year, journal: p.journal ?? '', abstract: p.abstract ?? '' }));
+    comparePapersDOIs = papersData.map(p => p.doi ?? '');
+    comparePaperIds = papersData.map(p => p.id);
     compareAbort?.abort();
     compareAbort = new AbortController();
     compareAnalysisAbort?.abort();
     compareGraph = null;
     compareAnalysisText = '';
     compareAnalysisLoading = false;
+    compareAnalysisDone = false;
     nodeAnalysisPanelNode = null;
     nodeAnalysisText = '';
     compareModalLoading = true;
@@ -878,6 +886,7 @@
     compareAnalysisLoading = true;
     try {
       await streamCompareAnalysis(comparePapersFullData, compareGraph, c => { compareAnalysisText += c; }, compareAnalysisAbort.signal);
+      compareAnalysisDone = true;
     } catch { /* aborted */ }
     finally { compareAnalysisLoading = false; }
   }
@@ -893,10 +902,57 @@
     finally { nodeAnalysisLoading = false; }
   }
 
-  function saveCompareAsNote() {
+  async function exportGraphAsImage(): Promise<string | null> {
+    if (!graphSvgEl) return null;
+    try {
+      const w = 900, h = 560;
+      const clone = graphSvgEl.cloneNode(true) as SVGSVGElement;
+      clone.setAttribute('width', String(w));
+      clone.setAttribute('height', String(h));
+      clone.querySelectorAll('text').forEach(t => {
+        const ff = t.getAttribute('font-family') ?? '';
+        if (ff.includes('var(')) t.setAttribute('font-family', 'Inter, system-ui, sans-serif');
+      });
+      const svgStr = new XMLSerializer().serializeToString(clone);
+      const svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+      const svgUrl = URL.createObjectURL(svgBlob);
+      return new Promise<string | null>((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d')!;
+          ctx.drawImage(img, 0, 0, w, h);
+          URL.revokeObjectURL(svgUrl);
+          // DOI / title watermark — top left
+          const lines = comparePapersDOIs.map((doi, i) =>
+            doi ? `P${i + 1}: ${doi}` : `P${i + 1}: ${comparePapersMeta[i]?.title.slice(0, 55) ?? ''}…`
+          );
+          if (lines.length) {
+            const pad = 9, lineH = 14, boxW = 360, boxH = pad * 2 + lines.length * lineH;
+            ctx.fillStyle = 'rgba(0,0,0,0.78)';
+            ctx.beginPath();
+            ctx.roundRect(6, 6, boxW, boxH, 5);
+            ctx.fill();
+            ctx.font = '10px Inter, system-ui, monospace';
+            lines.forEach((l, i) => {
+              ctx.fillStyle = PAPER_COLORS[i] ?? '#9ca3af';
+              ctx.fillText(l, 6 + pad, 6 + pad + 11 + i * lineH);
+            });
+          }
+          resolve(canvas.toDataURL('image/png'));
+        };
+        img.onerror = () => { URL.revokeObjectURL(svgUrl); resolve(null); };
+        img.src = svgUrl;
+      });
+    } catch { return null; }
+  }
+
+  async function saveCompareAsNote() {
     if (!compareGraph) return;
     const titles = comparePapersMeta.map(p => p.title).join(' vs ');
-    let body = `# Knowledge Graph Comparison\n\n**Papers:**\n${comparePapersMeta.map((p, i) => `${i + 1}. ${p.title} (${p.journal}, ${p.year})`).join('\n')}\n\n## Verdict\n${compareGraph.verdict}\n\n## Scores\n| Axis | ${comparePapersMeta.map((_, i) => `P${i + 1}`).join(' | ')} |\n|---|${comparePapersMeta.map(() => '---').join('|')}|\n`;
+    const noteId = crypto.randomUUID();
+    let body = `# Knowledge Graph Comparison\n\n**Papers:**\n${comparePapersMeta.map((p, i) => `${i + 1}. ${p.title} (${p.journal}, ${p.year})${comparePapersDOIs[i] ? ' — DOI: ' + comparePapersDOIs[i] : ''}`).join('\n')}\n\n## Verdict\n${compareGraph.verdict}\n\n## Scores\n| Axis | ${comparePapersMeta.map((_, i) => `P${i + 1}`).join(' | ')} |\n|---|${comparePapersMeta.map(() => '---').join('|')}|\n`;
     for (let ai = 0; ai < (compareGraph.axes?.length ?? 0); ai++) {
       body += `| ${compareGraph.axes[ai]} | ${comparePapersMeta.map((_, pi) => `${compareGraph!.scores[`paper_${pi}`]?.[ai] ?? '?'}/5`).join(' | ')} |\n`;
     }
@@ -904,10 +960,43 @@
     for (const node of compareGraph.nodes.slice(0, 12)) {
       body += `- **${node.label}** (${node.type}): ${node.description}\n`;
     }
-    const note = { id: crypto.randomUUID(), title: `Compare: ${titles.slice(0, 60)}`, body, color: undefined, tags: ['comparison', 'research'], wordTarget: 0, pinned: false, archived: false, audioIds: [], createdAt: Date.now(), updatedAt: Date.now() };
+    if (compareAnalysisText) {
+      body += `\n## Deep Analysis\n\n${compareAnalysisText}\n`;
+    }
+
+    // Export graph as image
+    showToast('Saving comparison…');
+    const dataUrl = await exportGraphAsImage();
+    if (dataUrl) {
+      body += `\n## Knowledge Graph\n\n![Knowledge Graph Comparison](${dataUrl})\n`;
+      const base64 = dataUrl.split(',')[1];
+      const fileRec: FileRecord = {
+        id: crypto.randomUUID(),
+        name: `compare_graph_${new Date().toISOString().slice(0, 10)}.png`,
+        mimeType: 'image/png',
+        size: Math.round(base64.length * 0.75),
+        data: base64,
+        tags: ['comparison', 'graph'],
+        linkedNoteIds: [noteId],
+        linkedRunIds: [],
+        linkedPresentationIds: [],
+        linkedPaperIds: comparePaperIds,
+        linkedJournalIds: [],
+        linkedTaskIds: [],
+        linkedGrantIds: [],
+        linkedManuscriptIds: [],
+        description: `Knowledge graph: ${titles.slice(0, 80)}`,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      store.files = [fileRec, ...store.files];
+      store.saveFiles().catch(() => {});
+    }
+
+    const note: Note = { id: noteId, title: `Compare: ${titles.slice(0, 60)}`, body, color: undefined, tags: ['comparison', 'research'], wordTarget: 0, pinned: false, archived: false, audioIds: [], createdAt: Date.now(), updatedAt: Date.now() };
     store.notes.unshift(note);
     store.saveNotes();
-    showToast('Comparison saved as note');
+    showToast('Comparison saved as note' + (dataUrl ? ' with graph image' : ''));
   }
 
   // ── Related papers (OpenAlex) ──────────────────────────────────
@@ -2082,7 +2171,7 @@ Format your response as:
           <button class="btn btn-primary btn-sm" onclick={runCompare} disabled={compareModalLoading}>
             {compareModalLoading ? 'Analysing…' : 'Compare with Enzo'}
           </button>
-          <button class="btn btn-ghost btn-sm" onclick={() => { compareSet = new Set(); compareModalOpen = false; compareGraph = null; }}>Clear</button>
+          <button class="btn btn-ghost btn-sm" onclick={() => { compareSet = new Set(); compareModalOpen = false; compareGraph = null; compareAnalysisAbort?.abort(); nodeAnalysisAbort?.abort(); }}>Clear</button>
         </div>
       {/if}
 
@@ -2648,7 +2737,7 @@ Format your response as:
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div class="cmp-overlay" class:cmp-overlay-max={compareMaximized}
     role="dialog" aria-modal="true" tabindex="-1"
-    onkeydown={(e) => { if (e.key === 'Escape') { if (compareMaximized) compareMaximized = false; else { compareModalOpen = false; compareAbort?.abort(); stopAnimation(); } } }}>
+    onkeydown={(e) => { if (e.key === 'Escape') { if (compareMaximized) compareMaximized = false; else { compareModalOpen = false; compareAbort?.abort(); compareAnalysisAbort?.abort(); nodeAnalysisAbort?.abort(); stopAnimation(); } } }}>
     <div class="cmp-modal" class:cmp-modal-max={compareMaximized}>
 
       <!-- Header -->
@@ -2661,6 +2750,11 @@ Format your response as:
           <span class="cmp-head-title">Knowledge Graph</span>
           {#if compareGraph}
             <span class="cmp-node-count">{simConceptNodes.length} nodes · {visibleEdges.length} edges</span>
+          {/if}
+          {#if compareAnalysisLoading}
+            <span class="cmp-analysis-pill loading">analysing…</span>
+          {:else if compareAnalysisDone}
+            <span class="cmp-analysis-pill done">analysis ready ↓</span>
           {/if}
         </div>
         <div class="cmp-head-mid">
@@ -2685,7 +2779,7 @@ Format your response as:
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
             {/if}
           </button>
-          <button class="btn-icon btn-xs" onclick={() => { compareModalOpen = false; compareMaximized = false; compareAbort?.abort(); stopAnimation(); }} title="Close (Esc)">
+          <button class="btn-icon btn-xs" onclick={() => { compareModalOpen = false; compareMaximized = false; compareAbort?.abort(); compareAnalysisAbort?.abort(); nodeAnalysisAbort?.abort(); stopAnimation(); }} title="Close (Esc)">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
@@ -2921,7 +3015,7 @@ Format your response as:
               {#if nodeAnalysisLoading && !nodeAnalysisText}
                 <div class="node-panel-dots"><span></span><span></span><span></span></div>
               {:else if nodeAnalysisText}
-                <p class="node-panel-text">{nodeAnalysisText}</p>
+                <div class="node-panel-text md">{@html marked(nodeAnalysisText)}</div>
               {/if}
             </div>
             {#if nodeAnalysisLoading}
@@ -2948,7 +3042,7 @@ Format your response as:
                 {#if compareAnalysisLoading && !compareAnalysisText}
                   <div class="cmp-loading-dots" style="padding:12px 0"><span></span><span></span><span></span></div>
                 {:else if compareAnalysisText}
-                  <p class="cmp-analysis-text">{compareAnalysisText}</p>
+                  <div class="cmp-analysis-text md">{@html marked(compareAnalysisText)}</div>
                   {#if compareAnalysisLoading}
                     <button class="cmp-analysis-abort" onclick={() => compareAnalysisAbort?.abort()}>Stop</button>
                   {/if}
@@ -3930,13 +4024,23 @@ Format your response as:
   .cmp-analysis-body { padding: 0 16px 12px; max-height: 280px; overflow-y: auto; }
   .cmp-analysis-text {
     font-size: 0.82rem; color: #9ca3af; line-height: 1.75; margin: 0;
-    white-space: pre-wrap; word-break: break-word;
+    word-break: break-word;
   }
+  .cmp-analysis-text.md p { color: #9ca3af; margin: 0 0 0.7em; font-size: 0.82rem; line-height: 1.75; }
+  .cmp-analysis-text.md strong { color: #cdd9e5; font-weight: 600; }
+  .cmp-analysis-text.md em { color: #b0c0d8; }
+  .cmp-analysis-text.md p:last-child { margin-bottom: 0; }
   .cmp-analysis-abort {
     margin-top: 8px; font-size: 0.72rem; color: #3d4f6e; background: transparent;
     border: 1px solid #1d2535; border-radius: 4px; padding: 2px 10px; cursor: pointer;
   }
   .cmp-analysis-abort:hover { color: #ff7b72; border-color: #ff7b72; }
+  .cmp-analysis-pill {
+    font-size: 0.62rem; font-weight: 700; padding: 1px 7px; border-radius: 10px;
+    letter-spacing: .04em; text-transform: uppercase;
+  }
+  .cmp-analysis-pill.loading { color: #58a6ff; background: rgba(88,166,255,0.1); animation: cmpDotPulse 1.4s ease-in-out infinite; }
+  .cmp-analysis-pill.done { color: #3fb950; background: rgba(63,185,80,0.1); }
 
   /* Node analysis side panel */
   .node-panel {
@@ -3982,7 +4086,11 @@ Format your response as:
   }
   .node-panel-dots span:nth-child(2) { animation-delay: 0.2s; }
   .node-panel-dots span:nth-child(3) { animation-delay: 0.4s; }
-  .node-panel-text { font-size: 0.78rem; color: #9ca3af; line-height: 1.7; margin: 0; white-space: pre-wrap; word-break: break-word; }
+  .node-panel-text { font-size: 0.78rem; color: #9ca3af; line-height: 1.7; margin: 0; word-break: break-word; }
+  .node-panel-text.md p { color: #9ca3af; margin: 0 0 0.65em; font-size: 0.78rem; line-height: 1.7; }
+  .node-panel-text.md strong { color: #cdd9e5; font-weight: 600; }
+  .node-panel-text.md em { color: #b0c0d8; }
+  .node-panel-text.md p:last-child { margin-bottom: 0; }
   .node-panel-abort {
     flex-shrink: 0; margin: 0 12px 10px; font-size: 0.72rem; color: #3d4f6e; background: transparent;
     border: 1px solid #1d2535; border-radius: 4px; padding: 3px 10px; cursor: pointer;
@@ -4017,6 +4125,11 @@ Format your response as:
   :global([data-theme="light"]) .cmp-analysis-summary { color: #848d97; }
   :global([data-theme="light"]) .cmp-analysis-summary:hover { color: #1f2328; }
   :global([data-theme="light"]) .cmp-analysis-text { color: #59636e; }
+  :global([data-theme="light"]) .cmp-analysis-text.md p { color: #59636e; }
+  :global([data-theme="light"]) .cmp-analysis-text.md strong { color: #1f2328; }
+  :global([data-theme="light"]) .node-panel-text.md p { color: #9ca3af; }
+  :global([data-theme="light"]) .cmp-analysis-pill.done { color: #1a7f37; background: rgba(26,127,55,0.1); }
+  :global([data-theme="light"]) .cmp-analysis-pill.loading { color: #0969da; background: rgba(9,105,218,0.1); }
   :global([data-theme="light"]) .cmp-analysis-abort { color: #848d97; border-color: #d0d7de; }
   :global([data-theme="light"]) .cmp-table-details { background: #ffffff; border-top-color: #eaeef2; }
   :global([data-theme="light"]) .cmp-table-summary { color: #848d97; }
