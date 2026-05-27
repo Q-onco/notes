@@ -1076,6 +1076,41 @@ Return ONLY the JSON object.`;
   return result ?? attempt(true);
 }
 
+export async function streamCompareAnalysis(
+  papers: { title: string; authors: string[]; year: number; journal: string; abstract: string }[],
+  graph: CompareGraph,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const paperBlocks = papers.map((p, i) =>
+    `Paper ${i + 1}: ${p.title} (${p.authors[0] ?? 'Unknown'} et al., ${p.year}, ${p.journal})\n${p.abstract?.slice(0, 500) ?? ''}`
+  ).join('\n\n');
+  const sharedNodes = graph.nodes.filter(n => n.papers.length > 1).map(n => n.label).slice(0, 8).join(', ');
+  const contradictions = graph.edges.filter(e => e.relation === 'contradicts').length;
+  const messages = [
+    { role: 'system' as const, content: 'You are Enzo, a super-intelligent oncology research dog. Write in a knowledgeable but direct voice. You are an expert in HGSOC, TME, scRNA-seq, PARPi resistance, and translational oncology.' },
+    { role: 'user' as const, content: `Write a detailed ~500-word analysis comparing these ${papers.length} oncology papers. Use flowing paragraphs — no bullet points or headers. Cover: the distinct research questions each paper pursues and how they relate, the methodological approaches and key differences in experimental design, the core findings and where they agree, diverge, or contradict each other (there are ${contradictions} contradictory relationships in the knowledge graph), shared concepts between papers (${sharedNodes || 'various shared themes'}), the significance and novelty of each contribution, their limitations, and what they collectively reveal about the state of HGSOC research. Be specific — cite paper-specific findings, methods, and numbers where relevant. End with a concise synthesis of what a clinician or researcher should take away.\n\n${paperBlocks}` }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal, 2800);
+}
+
+export async function streamNodeAnalysis(
+  node: GraphNode,
+  papers: { title: string; authors: string[]; year: number; journal: string; abstract: string }[],
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const paperBlocks = papers.map((p, i) =>
+    `Paper ${i + 1}: ${p.title} (${p.year}, ${p.journal})\n${p.abstract?.slice(0, 400) ?? ''}`
+  ).join('\n\n');
+  const paperRefs = node.papers.map(idx => `Paper ${idx + 1}`).join(', ') || 'multiple papers';
+  const messages = [
+    { role: 'system' as const, content: 'You are Enzo, a super-intelligent oncology research dog. Answer with deep domain expertise in HGSOC, TME biology, and translational oncology. Be specific and analytical.' },
+    { role: 'user' as const, content: `Write a focused ~250-word analysis of "${node.label}" (${node.type}) as it appears in these papers. It is referenced in ${paperRefs}. Cover: what role this ${node.type} plays in the papers, how each paper uses or reports on it, whether the papers agree or show divergent findings about it, its broader significance in HGSOC research, and any clinical or translational implications. Write in paragraphs, be specific and cite paper-specific details.\n\n${paperBlocks}` }
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal, 1200);
+}
+
 export async function comparePapers(
   papers: { title: string; authors: string[]; year: number; journal: string; abstract: string }[],
   onChunk: (text: string) => void,

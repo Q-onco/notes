@@ -3,7 +3,7 @@
   import type { PaperResult, ReadingListItem, SavedSearch, SearchHistoryEntry, Note, PaperCollection, BiblioReference, BiblioAuthor } from '../lib/types';
   import { store } from '../lib/store.svelte';
   import { exportPapers, exportPapersDocx, exportPapersBibTeX } from '../lib/export';
-  import { askResearch, deepReadPaper, generateReadingNote, critiquePaper, streamRadarSummary, streamMarkerLookup, comparePapersStructured } from '../lib/groq';
+  import { askResearch, deepReadPaper, generateReadingNote, critiquePaper, streamRadarSummary, streamMarkerLookup, comparePapersStructured, streamCompareAnalysis, streamNodeAnalysis } from '../lib/groq';
   import type { CompareGraph, GraphNode, GraphEdge } from '../lib/groq';
   import { nanoid } from 'nanoid';
   import { marked } from 'marked';
@@ -526,12 +526,22 @@
   let compareSet = $state<Set<string>>(new Set());
   let compareAbort: AbortController | null = null;
   let comparePapersMeta = $state<{ title: string; journal: string; year: number }[]>([]);
+  let comparePapersFullData = $state<{ title: string; authors: string[]; year: number; journal: string; abstract: string }[]>([]);
   let compareGraph = $state<CompareGraph | null>(null);
   let compareModalOpen = $state(false);
   let compareModalLoading = $state(false);
   let compareMaximized = $state(false);
   let compareNodeDensity = $state(20);
   let compareTableOpen = $state(false);
+
+  // Streaming analysis state
+  let compareAnalysisText = $state('');
+  let compareAnalysisLoading = $state(false);
+  let compareAnalysisAbort: AbortController | null = null;
+  let nodeAnalysisText = $state('');
+  let nodeAnalysisLoading = $state(false);
+  let nodeAnalysisAbort: AbortController | null = null;
+  let nodeAnalysisPanelNode = $state<GraphNode | null>(null);
 
   // Graph interaction
   let hoveredNodeId = $state<string | null>(null);
@@ -794,7 +804,18 @@
       physNodes[dragNodeIdx].dragging = false;
       if (!mouseHasMoved) {
         const id = physNodes[dragNodeIdx].id;
-        selectedNodeId = selectedNodeId === id ? null : id;
+        if (selectedNodeId === id) {
+          selectedNodeId = null;
+          nodeAnalysisPanelNode = null;
+        } else {
+          selectedNodeId = id;
+          if (!id.startsWith('paper_')) {
+            const node = compareGraph?.nodes.find(n => n.id === id) ?? null;
+            if (node) { nodeAnalysisPanelNode = node; handleNodeAnalysis(node); }
+          } else {
+            nodeAnalysisPanelNode = null;
+          }
+        }
       }
       dragNodeIdx = null;
       startAnimation();
@@ -832,19 +853,44 @@
     }).filter(Boolean) as PaperResult[];
     if (papersData.length < 2) return;
     comparePapersMeta = papersData.map(p => ({ title: p.title, journal: p.journal ?? '', year: p.year ?? 0 }));
+    comparePapersFullData = papersData.map(p => ({ title: p.title, authors: p.authors, year: p.year, journal: p.journal ?? '', abstract: p.abstract ?? '' }));
     compareAbort?.abort();
     compareAbort = new AbortController();
+    compareAnalysisAbort?.abort();
     compareGraph = null;
+    compareAnalysisText = '';
+    compareAnalysisLoading = false;
+    nodeAnalysisPanelNode = null;
+    nodeAnalysisText = '';
     compareModalLoading = true;
     compareModalOpen = true;
     selectedNodeId = null; graphZoom = 1; graphPanX = 0; graphPanY = 0;
     try {
       compareGraph = await comparePapersStructured(
-        papersData.map(p => ({ title: p.title, authors: p.authors, year: p.year, journal: p.journal ?? '', abstract: p.abstract ?? '' })),
+        comparePapersFullData,
         compareAbort.signal
       );
     } catch { /* aborted */ }
     finally { compareModalLoading = false; }
+
+    if (!compareGraph || compareAbort.signal.aborted) return;
+    compareAnalysisAbort = new AbortController();
+    compareAnalysisLoading = true;
+    try {
+      await streamCompareAnalysis(comparePapersFullData, compareGraph, c => { compareAnalysisText += c; }, compareAnalysisAbort.signal);
+    } catch { /* aborted */ }
+    finally { compareAnalysisLoading = false; }
+  }
+
+  async function handleNodeAnalysis(node: GraphNode) {
+    nodeAnalysisAbort?.abort();
+    nodeAnalysisAbort = new AbortController();
+    nodeAnalysisText = '';
+    nodeAnalysisLoading = true;
+    try {
+      await streamNodeAnalysis(node, comparePapersFullData, c => { nodeAnalysisText += c; }, nodeAnalysisAbort.signal);
+    } catch { /* aborted */ }
+    finally { nodeAnalysisLoading = false; }
   }
 
   function saveCompareAsNote() {
@@ -2847,13 +2893,69 @@ Format your response as:
             <button class="btn btn-ghost btn-sm" onclick={runCompare}>Retry</button>
           </div>
         {/if}
+
+        <!-- Node analysis side panel -->
+        {#if nodeAnalysisPanelNode}
+          <div class="node-panel">
+            <div class="node-panel-head">
+              <span class="node-panel-badge" style="background:{NODE_COLORS[nodeAnalysisPanelNode.type] ?? '#8b949e'}22;color:{NODE_COLORS[nodeAnalysisPanelNode.type] ?? '#8b949e'}">{nodeAnalysisPanelNode.type}</span>
+              <span class="node-panel-title">{nodeAnalysisPanelNode.label}</span>
+              <button class="node-panel-close" onclick={() => { nodeAnalysisPanelNode = null; nodeAnalysisAbort?.abort(); }} title="Close">✕</button>
+            </div>
+            <p class="node-panel-desc">{nodeAnalysisPanelNode.description}</p>
+            <div class="node-panel-papers">
+              {#each nodeAnalysisPanelNode.papers as pi}
+                <span class="node-pp-chip" style="background:{PAPER_COLORS[pi] ?? '#8b949e'}18;color:{PAPER_COLORS[pi] ?? '#8b949e'}">P{pi + 1}</span>
+              {/each}
+            </div>
+            <div class="node-panel-section-lbl">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+              Enzo Analysis
+              {#if nodeAnalysisLoading}
+                <span class="node-panel-streaming">streaming…</span>
+              {:else if nodeAnalysisText}
+                <button class="node-panel-regen" onclick={() => handleNodeAnalysis(nodeAnalysisPanelNode!)} title="Regenerate">↺</button>
+              {/if}
+            </div>
+            <div class="node-panel-body">
+              {#if nodeAnalysisLoading && !nodeAnalysisText}
+                <div class="node-panel-dots"><span></span><span></span><span></span></div>
+              {:else if nodeAnalysisText}
+                <p class="node-panel-text">{nodeAnalysisText}</p>
+              {/if}
+            </div>
+            {#if nodeAnalysisLoading}
+              <button class="node-panel-abort" onclick={() => nodeAnalysisAbort?.abort()}>Stop</button>
+            {/if}
+          </div>
+        {/if}
       </div>
 
-      <!-- Verdict + collapsible table -->
+      <!-- Analysis + verdict + collapsible table -->
       {#if compareGraph}
-        <div class="cmp-verdict-bar">
-          <span class="cmp-verdict-label">Verdict</span>
-          <p class="cmp-verdict-text">{compareGraph.verdict}</p>
+        <div class="cmp-analysis-wrap">
+          <div class="cmp-verdict-line">
+            <span class="cmp-verdict-label">Verdict</span>
+            <p class="cmp-verdict-text">{compareGraph.verdict}</p>
+          </div>
+          {#if compareAnalysisText || compareAnalysisLoading}
+            <details class="cmp-analysis-details" open>
+              <summary class="cmp-analysis-summary">
+                Deep Analysis
+                {#if compareAnalysisLoading}<span class="cmp-analysis-streaming">streaming…</span>{/if}
+              </summary>
+              <div class="cmp-analysis-body">
+                {#if compareAnalysisLoading && !compareAnalysisText}
+                  <div class="cmp-loading-dots" style="padding:12px 0"><span></span><span></span><span></span></div>
+                {:else if compareAnalysisText}
+                  <p class="cmp-analysis-text">{compareAnalysisText}</p>
+                  {#if compareAnalysisLoading}
+                    <button class="cmp-analysis-abort" onclick={() => compareAnalysisAbort?.abort()}>Stop</button>
+                  {/if}
+                {/if}
+              </div>
+            </details>
+          {/if}
         </div>
         <details class="cmp-table-details" bind:open={compareTableOpen}>
           <summary class="cmp-table-summary">Detailed scores &amp; comparison</summary>
@@ -3798,4 +3900,146 @@ Format your response as:
   .csk-short { width: 45%; } .csk-medium { width: 70%; }
   .csk-label { font-size: 0.74rem; color: var(--mu); text-align: center; margin-top: 4px; animation: cskPulse 1.4s ease-in-out infinite; }
   @keyframes cskPulse { 0%,100%{opacity:.35} 50%{opacity:.75} }
+
+  /* Analysis wrap (verdict + deep analysis) */
+  .cmp-analysis-wrap {
+    flex-shrink: 0; background: #0b1120;
+    border-top: 1px solid rgba(88,166,255,0.1);
+  }
+  .cmp-verdict-line {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 9px 16px 8px;
+  }
+  .cmp-verdict-label {
+    flex-shrink: 0; font-size: 0.67rem; font-weight: 800; letter-spacing: .06em;
+    text-transform: uppercase; color: #58a6ff; padding-top: 2px;
+  }
+  .cmp-verdict-text { font-size: 0.82rem; color: #9ca3af; line-height: 1.65; margin: 0; }
+  .cmp-analysis-details {
+    border-top: 1px solid rgba(255,255,255,0.04);
+  }
+  .cmp-analysis-summary {
+    padding: 6px 16px; font-size: 0.74rem; font-weight: 600; color: #3d4f6e;
+    cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; user-select: none;
+  }
+  .cmp-analysis-summary::-webkit-details-marker { display: none; }
+  .cmp-analysis-summary::before { content: '▸'; font-size: 0.64rem; transition: transform 0.15s; }
+  .cmp-analysis-details[open] .cmp-analysis-summary::before { transform: rotate(90deg); }
+  .cmp-analysis-summary:hover { color: #cdd9e5; }
+  .cmp-analysis-streaming { font-size: 0.67rem; color: #58a6ff; opacity: 0.7; font-weight: 400; animation: cmpDotPulse 1.4s ease-in-out infinite; }
+  .cmp-analysis-body { padding: 0 16px 12px; max-height: 280px; overflow-y: auto; }
+  .cmp-analysis-text {
+    font-size: 0.82rem; color: #9ca3af; line-height: 1.75; margin: 0;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .cmp-analysis-abort {
+    margin-top: 8px; font-size: 0.72rem; color: #3d4f6e; background: transparent;
+    border: 1px solid #1d2535; border-radius: 4px; padding: 2px 10px; cursor: pointer;
+  }
+  .cmp-analysis-abort:hover { color: #ff7b72; border-color: #ff7b72; }
+
+  /* Node analysis side panel */
+  .node-panel {
+    position: absolute; top: 0; right: 0; bottom: 0;
+    width: 300px; display: flex; flex-direction: column;
+    background: rgba(8, 12, 24, 0.96); border-left: 1px solid rgba(88,166,255,0.14);
+    z-index: 100; overflow: hidden;
+    animation: nodePanelIn 0.18s ease;
+  }
+  @keyframes nodePanelIn { from { transform: translateX(16px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  .node-panel-head {
+    display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+    padding: 10px 12px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); flex-shrink: 0;
+  }
+  .node-panel-badge {
+    font-size: 0.62rem; font-weight: 800; padding: 1px 6px; border-radius: 3px;
+    text-transform: uppercase; letter-spacing: .05em; flex-shrink: 0;
+  }
+  .node-panel-title { font-size: 0.85rem; font-weight: 700; color: #cdd9e5; flex: 1; line-height: 1.3; }
+  .node-panel-close {
+    flex-shrink: 0; width: 20px; height: 20px; border-radius: 4px; background: transparent;
+    border: none; color: #3d4f6e; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  .node-panel-close:hover { color: #ff7b72; background: rgba(255,123,114,0.1); }
+  .node-panel-desc { font-size: 0.76rem; color: #768498; line-height: 1.5; padding: 8px 12px 6px; flex-shrink: 0; }
+  .node-panel-papers { display: flex; gap: 4px; flex-wrap: wrap; padding: 0 12px 8px; flex-shrink: 0; }
+  .node-pp-chip { font-size: 0.67rem; font-weight: 800; padding: 1px 7px; border-radius: 3px; }
+  .node-panel-section-lbl {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 0.67rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05em;
+    color: #e8943a; padding: 6px 12px 5px; border-top: 1px solid rgba(255,255,255,0.04);
+    flex-shrink: 0;
+  }
+  .node-panel-streaming { font-size: 0.64rem; font-weight: 400; color: #58a6ff; opacity: 0.7; text-transform: none; letter-spacing: 0; animation: cmpDotPulse 1.4s ease-in-out infinite; }
+  .node-panel-regen { background: transparent; border: none; color: #3d4f6e; font-size: 0.85rem; cursor: pointer; padding: 0 2px; margin-left: 2px; }
+  .node-panel-regen:hover { color: #58a6ff; }
+  .node-panel-body { flex: 1; overflow-y: auto; padding: 6px 12px 12px; }
+  .node-panel-dots { display: flex; gap: 6px; padding: 8px 0; }
+  .node-panel-dots span {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #e8943a; opacity: 0;
+    animation: cmpDotPulse 1.4s ease-in-out infinite;
+  }
+  .node-panel-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .node-panel-dots span:nth-child(3) { animation-delay: 0.4s; }
+  .node-panel-text { font-size: 0.78rem; color: #9ca3af; line-height: 1.7; margin: 0; white-space: pre-wrap; word-break: break-word; }
+  .node-panel-abort {
+    flex-shrink: 0; margin: 0 12px 10px; font-size: 0.72rem; color: #3d4f6e; background: transparent;
+    border: 1px solid #1d2535; border-radius: 4px; padding: 3px 10px; cursor: pointer;
+  }
+  .node-panel-abort:hover { color: #ff7b72; border-color: #ff7b72; }
+
+  /* Light mode overrides for compare modal chrome */
+  :global([data-theme="light"]) .cmp-overlay {
+    background: rgba(0, 0, 0, 0.55);
+  }
+  :global([data-theme="light"]) .cmp-modal {
+    background: #ffffff; border-color: #d0d7de;
+    box-shadow: 0 8px 48px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.06);
+  }
+  :global([data-theme="light"]) .cmp-head {
+    background: #f6f8fa; border-bottom-color: #d0d7de;
+  }
+  :global([data-theme="light"]) .cmp-head-title { color: #0969da; }
+  :global([data-theme="light"]) .cmp-node-count { color: #848d97; }
+  :global([data-theme="light"]) .density-txt { color: #59636e; }
+  :global([data-theme="light"]) .density-slider { background: #d0d7de; }
+  :global([data-theme="light"]) .density-val { color: #0969da; }
+  :global([data-theme="light"]) .cmp-pills-strip { border-bottom-color: #d0d7de; }
+  :global([data-theme="light"]) .cmp-pill { background: #f6f8fa; }
+  :global([data-theme="light"]) .cmp-pill + .cmp-pill { border-top-color: #eaeef2; }
+  :global([data-theme="light"]) .cmp-pill-title { color: #1f2328; }
+  :global([data-theme="light"]) .cmp-pill-meta { color: #848d97; }
+  :global([data-theme="light"]) .cmp-analysis-wrap { background: #f6f8fa; border-top-color: #d0d7de; }
+  :global([data-theme="light"]) .cmp-verdict-label { color: #0969da; }
+  :global([data-theme="light"]) .cmp-verdict-text { color: #59636e; }
+  :global([data-theme="light"]) .cmp-analysis-details { border-top-color: #eaeef2; }
+  :global([data-theme="light"]) .cmp-analysis-summary { color: #848d97; }
+  :global([data-theme="light"]) .cmp-analysis-summary:hover { color: #1f2328; }
+  :global([data-theme="light"]) .cmp-analysis-text { color: #59636e; }
+  :global([data-theme="light"]) .cmp-analysis-abort { color: #848d97; border-color: #d0d7de; }
+  :global([data-theme="light"]) .cmp-table-details { background: #ffffff; border-top-color: #eaeef2; }
+  :global([data-theme="light"]) .cmp-table-summary { color: #848d97; }
+  :global([data-theme="light"]) .cmp-table-summary:hover { color: #1f2328; }
+  :global([data-theme="light"]) .cmp-table thead th { background: #f6f8fa; color: #848d97; border-bottom-color: #d0d7de; }
+  :global([data-theme="light"]) .cmp-table tbody tr:nth-child(even) { background: rgba(0,0,0,0.02); }
+  :global([data-theme="light"]) .cmp-table tbody tr:hover { background: rgba(9,105,218,0.04); }
+  :global([data-theme="light"]) .cmp-table td { border-bottom-color: #eaeef2; color: #59636e; }
+  :global([data-theme="light"]) .cmp-dim { color: #1f2328; }
+  :global([data-theme="light"]) .cmp-cell { color: #59636e; }
+  :global([data-theme="light"]) .cmp-error { background: #f6f8fa; }
+  :global([data-theme="light"]) .graph-controls { background: rgba(246,248,250,0.95); border-color: #d0d7de; }
+  :global([data-theme="light"]) .graph-ctrl-btn { border-color: #d0d7de; color: #848d97; }
+  :global([data-theme="light"]) .graph-ctrl-btn:hover { background: #eaeef2; color: #1f2328; }
+  :global([data-theme="light"]) .graph-zoom-pct { color: #848d97; }
+  :global([data-theme="light"]) .graph-legend { background: rgba(246,248,250,0.95); border-color: #d0d7de; }
+  :global([data-theme="light"]) .legend-item { color: #848d97; }
+  :global([data-theme="light"]) .graph-tooltip { background: #ffffff; border-color: #d0d7de; box-shadow: 0 4px 20px rgba(0,0,0,0.12); }
+  :global([data-theme="light"]) .tt-title { color: #1f2328; }
+  :global([data-theme="light"]) .tt-desc { color: #59636e; }
+  :global([data-theme="light"]) .tt-sub { color: #848d97; }
+  :global([data-theme="light"]) .tt-shared { color: #848d97; }
+  :global([data-theme="light"]) .tt-imp-pip { background: #eaeef2; }
+  :global([data-theme="light"]) .tt-w-pip { background: #eaeef2; }
+  :global([data-theme="light"]) .tt-edge-pts { color: #848d97; }
 </style>
