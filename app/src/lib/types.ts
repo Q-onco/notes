@@ -914,3 +914,64 @@ export interface SystematicReview {
   createdAt: number;
   updatedAt: number;
 }
+
+// ── Grant Writing Studio ──────────────────────────────────────────────────────
+
+export type GrantAgency = 'nih-r01' | 'nih-r21' | 'erc-stg' | 'dfg-sach' | 'wellcome' | 'custom';
+export type GrantAppStatus = 'draft' | 'submitted' | 'under-review' | 'funded' | 'rejected' | 'resubmit';
+
+export interface GrantAppAim {
+  id: string;
+  label: string;
+  title: string;
+  hypothesis: string;
+  rationale: string;
+  approach: string;
+  milestone: string;
+  papers: string[];
+}
+
+export interface GrantAppSection {
+  id: string;
+  label: string;
+  wordLimit?: number;
+  content: string;
+  enzoNotes: string;
+}
+
+export interface GrantAppBudgetLine {
+  id: string;
+  category: string;
+  description: string;
+  year1: number;
+  year2: number;
+  year3: number;
+  justification: string;
+}
+
+export interface GrantAppReviewComment {
+  id: string;
+  reviewer: string;
+  criterion: string;
+  score?: number;
+  comment: string;
+  response: string;
+  resolved: boolean;
+}
+
+export interface GrantApp {
+  id: string;
+  title: string;
+  agency: GrantAgency;
+  mechanism?: string;
+  callId?: string;
+  status: GrantAppStatus;
+  deadline?: number;
+  duration?: number;
+  aims: GrantAppAim[];
+  sections: GrantAppSection[];
+  budget: GrantAppBudgetLine[];
+  reviewComments: GrantAppReviewComment[];
+  createdAt: number;
+  updatedAt: number;
+}

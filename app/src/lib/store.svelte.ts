@@ -10,13 +10,14 @@ import type {
   MailContact, MailSent, MailDraft, MailComposeDraft,
   ReviewArticle, PaperCollection, LaunchpadCustomResource,
   BiblioReference, BiblioCollection,
-  SystematicReview
+  SystematicReview,
+  GrantApp
 } from './types';
 import { loadEncFile, saveEncFile, PATHS, validateToken } from './github';
 import { WORKER_URL } from './groq';
 import { idbGet, idbSet, idbNuke } from './idb';
 
-type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs' | 'labtools' | 'presentations' | 'files' | 'grants' | 'manuscript' | 'review' | 'mail' | 'launchpad' | 'biblio' | 'sysreview';
+type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs' | 'labtools' | 'presentations' | 'files' | 'grants' | 'manuscript' | 'review' | 'mail' | 'launchpad' | 'biblio' | 'sysreview' | 'grantwriter';
 
 const DEFAULT_PROFILE: ResearcherProfile = {
   currentRole: 'Postdoctoral Researcher',
@@ -139,6 +140,9 @@ class Store {
   sysReviews = $state<SystematicReview[]>([]);
   sysReviewsSha = $state<string | null>(null);
 
+  grantApps = $state<GrantApp[]>([]);
+  grantAppsSha = $state<string | null>(null);
+
   profile = $state<ResearcherProfile>({ ...DEFAULT_PROFILE });
   profileSha = $state<string | null>(null);
 
@@ -252,6 +256,7 @@ class Store {
     this.reviewArticles = []; this.reviewArticlesSha = null;
     this.launchpadBookmarks = []; this.launchpadCustom = []; this.launchpadSha = null;
     this.biblioRefs = []; this.biblioCollections = []; this.biblioSha = null;
+    this.grantApps = []; this.grantAppsSha = null;
     this.habitLog = []; this.currentBook = ''; this.lastArvinCall = '';
     this.shownMilestones = []; this.sessionDates = []; this.wellnessSha = null;
     this.profile = { ...DEFAULT_PROFILE }; this.profileSha = null;
@@ -295,7 +300,7 @@ class Store {
       if (cached) this.files = cached;
     }
 
-    const [n, j, t, c, a, pp, s, res, pip, jb, jbx, cv, cl, prf, pres, fi, gr, conf, pr, ms, rv, lp, bl, wl, sr] = await Promise.all([
+    const [n, j, t, c, a, pp, s, res, pip, jb, jbx, cv, cl, prf, pres, fi, gr, conf, pr, ms, rv, lp, bl, wl, sr, ga] = await Promise.all([
       loadEncFile<Note[]>(this.tok, PATHS.notes, []),
       loadEncFile<JournalEntry[]>(this.tok, PATHS.journal, []),
       loadEncFile<Task[]>(this.tok, PATHS.tasks, []),
@@ -321,6 +326,7 @@ class Store {
       loadEncFile<{refs?: BiblioReference[], collections?: BiblioCollection[]}>(this.tok, PATHS.biblio, { refs: [], collections: [] }),
       loadEncFile<WellnessData>(this.tok, PATHS.wellness, { log: [] }),
       loadEncFile<SystematicReview[]>(this.tok, PATHS.sysReview, []),
+      loadEncFile<GrantApp[]>(this.tok, PATHS.grantApps, []),
     ]);
 
     this.notes = n.data; this.notesSha = n.sha;
@@ -376,6 +382,8 @@ class Store {
     this.biblioSha = bl.sha;
     this.sysReviews = sr.data ?? [];
     this.sysReviewsSha = sr.sha;
+    this.grantApps = ga.data ?? [];
+    this.grantAppsSha = ga.sha;
     this.habitLog = wl.data?.log ?? [];
     this.currentBook = wl.data?.currentBook ?? '';
     this.lastArvinCall = wl.data?.lastArvinCall ?? '';
@@ -421,6 +429,12 @@ class Store {
     if (!this.tok) return;
     const sha = await saveEncFile(this.tok, PATHS.sysReview, this.sysReviews, this.sysReviewsSha, 'sysreview: update');
     this.sysReviewsSha = sha;
+  }
+
+  async saveGrantApps(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(this.tok, PATHS.grantApps, this.grantApps, this.grantAppsSha, 'grantapps: update');
+    this.grantAppsSha = sha;
   }
 
   async saveWellness(): Promise<void> {

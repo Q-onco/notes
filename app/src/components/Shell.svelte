@@ -27,6 +27,7 @@
   import Launchpad from './Launchpad.svelte';
   import Biblio from './Biblio.svelte';
   import SystematicReview from './SystematicReview.svelte';
+  import GrantWriter from './GrantWriter.svelte';
   import Weather from './Weather.svelte';
   import Help from './Help.svelte';
   import CommandPalette from './CommandPalette.svelte';
@@ -1034,6 +1035,8 @@
         <Biblio />
       {:else if store.view === 'sysreview'}
         <SystematicReview {showToast} />
+      {:else if store.view === 'grantwriter'}
+        <GrantWriter {showToast} />
       {:else if store.view === 'launchpad'}
         <Launchpad />
       {:else if store.view === 'settings'}

@@ -32,6 +32,7 @@ export const PATHS = {
   biblio:        'data/biblio.enc',
   wellness:      'data/wellness.enc',
   sysReview:     'data/sys-review.enc',
+  grantApps:     'data/grant-apps.enc',
 } as const;
 
 function headers(token: string) {

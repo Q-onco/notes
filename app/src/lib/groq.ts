@@ -826,27 +826,6 @@ export async function streamFigureLegend(
   await streamGroq(MODELS.enzo, messages, onChunk, signal);
 }
 
-// ── Grant Critique ────────────────────────────────────────────────────────────
-export async function streamGrantCritique(
-  grantTitle: string,
-  sectionLabel: string,
-  sectionText: string,
-  onChunk: (text: string) => void,
-  signal?: AbortSignal
-): Promise<void> {
-  const messages = [
-    {
-      role: 'system' as const,
-      content: `You are a highly critical NIH/ERC study section reviewer with 20 years experience. You are not hostile for its own sake — you identify genuine scientific weaknesses.`
-    },
-    {
-      role: 'user' as const,
-      content: `Critique this ${sectionLabel} section from a grant titled '${grantTitle}'. Be specific about: (1) scientific gaps and weak justification, (2) methodological concerns, (3) feasibility issues, (4) missing controls or alternatives, (5) how reviewers will likely score this. Be direct and specific. Plain text.\n\n${sectionText}`
-    }
-  ];
-  await streamGroq(MODELS.enzo, messages, onChunk, signal);
-}
-
 // ── Voice to Protocol ─────────────────────────────────────────────────────────
 export async function streamVoiceToProtocol(
   transcript: string,
@@ -1967,4 +1946,62 @@ export async function srDraftSection(
     ];
     await streamGroq(MODELS.enzo, messages, onChunk, signal, 2200);
   }
+}
+
+// ── Grant Writing Studio ──────────────────────────────────────────────────────
+
+export async function streamGrantSection(
+  agency: string,
+  sectionLabel: string,
+  grantTitle: string,
+  aimsText: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    { role: 'system' as const, content: `You are an expert grant writer specialising in oncology research. You write compelling, fundable sections for ${agency} grant applications. Write formal scientific English: active voice, specific mechanistic claims, quantitative targets where appropriate. Focus on HGSOC and ovarian cancer biology. Do not use filler phrases.` },
+    { role: 'user' as const, content: `Write the "${sectionLabel}" section for a ${agency} grant application titled:\n"${grantTitle}"\n\nResearch aims summary:\n${aimsText}\n\nWrite at the expected length and depth for this section. Be specific, evidence-grounded, and avoid vague claims. Use markdown headers and bold for key terms where appropriate.` },
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal, 3000);
+}
+
+export async function streamSpecificAims(
+  grantTitle: string,
+  aimsText: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    { role: 'system' as const, content: `You are an expert NIH grant writer. The Specific Aims page is the single most important page of any NIH application — reviewers read it before everything else. Structure: (1) hook paragraph — disease significance and unmet need, (2) knowledge gap and opportunity, (3) central hypothesis with strong mechanistic basis, (4) 2–3 numbered aims each with a brief rationale and primary approach, (5) closing innovation/impact statement. Target 550–620 words total. Use bold for the hypothesis.` },
+    { role: 'user' as const, content: `Write the Specific Aims page for this NIH grant:\n\nTitle: "${grantTitle}"\n\nAims:\n${aimsText}\n\nThe research is in HGSOC (high-grade serous ovarian cancer) focusing on tumour microenvironment, PARP inhibitor resistance, and translational significance. Write a compelling, concise Specific Aims page.` },
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal, 2500);
+}
+
+export async function streamGrantCritique(
+  grantTitle: string,
+  agency: string,
+  sectionsText: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    { role: 'system' as const, content: `You are a rigorous but fair mock study section reviewer for ${agency} grants. Provide a realistic critique in this format:\n1. Overall Impact Score (1–9, 1=exceptional)\n2. Criterion scores with brief narrative (Significance, Investigator, Innovation, Approach, Environment for NIH; adapt to agency)\n3. Strengths (3–5 bullets)\n4. Weaknesses (3–5 bullets)\n5. Suggestions for resubmission\nBe specific — reference the actual content. Do not be uniformly harsh or uniformly positive.` },
+    { role: 'user' as const, content: `Review this ${agency} grant application:\nTitle: "${grantTitle}"\n\n${sectionsText.slice(0, 6000)}\n\nProvide a full mock study section critique with scores and specific feedback.` },
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal, 2500);
+}
+
+export async function streamReviewerResponse(
+  criterion: string,
+  reviewerComment: string,
+  sectionContent: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const messages = [
+    { role: 'system' as const, content: `You are an experienced PI drafting a point-by-point response to reviewer comments for a grant resubmission. Write a polite, professional, and persuasive ~150-word response. Acknowledge the concern, explain what you have changed or clarified, and provide scientific justification with specific details.` },
+    { role: 'user' as const, content: `Criterion: ${criterion}\n\nReviewer comment:\n"${reviewerComment}"\n\nRelevant section content (context):\n"${sectionContent.slice(0, 800)}"\n\nWrite a ~150-word resubmission response to this reviewer comment.` },
+  ];
+  await streamGroq(MODELS.enzo, messages, onChunk, signal, 800);
 }
