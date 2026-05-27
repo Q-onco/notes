@@ -4,7 +4,7 @@
   import { store } from '../lib/store.svelte';
   import { exportPapers, exportPapersDocx, exportPapersBibTeX } from '../lib/export';
   import { askResearch, deepReadPaper, generateReadingNote, critiquePaper, streamRadarSummary, streamMarkerLookup, comparePapersStructured } from '../lib/groq';
-  import type { CompareStructured } from '../lib/groq';
+  import type { CompareGraph, GraphNode, GraphEdge } from '../lib/groq';
   import { nanoid } from 'nanoid';
   import { marked } from 'marked';
 
@@ -523,45 +523,299 @@
   }
 
   // ── Enzo paper compare ─────────────────────────────────────────
-  let compareSet         = $state<Set<string>>(new Set());
+  let compareSet = $state<Set<string>>(new Set());
   let compareAbort: AbortController | null = null;
-  let comparePapersMeta  = $state<{ title: string; journal: string; year: number }[]>([]);
-  let compareStructured  = $state<CompareStructured | null>(null);
-  let compareModalOpen   = $state(false);
+  let comparePapersMeta = $state<{ title: string; journal: string; year: number }[]>([]);
+  let compareGraph = $state<CompareGraph | null>(null);
+  let compareModalOpen = $state(false);
   let compareModalLoading = $state(false);
+  let compareMaximized = $state(false);
+  let compareNodeDensity = $state(20);
+  let compareTableOpen = $state(false);
 
-  // SVG radar helpers
-  const RADAR_CX = 260; const RADAR_CY = 200; const RADAR_MAX_R = 130;
-  const RADAR_GRIDS = [26, 52, 78, 104, 130];
+  // Graph interaction
+  let hoveredNodeId = $state<string | null>(null);
+  let hoveredEdgeIdx = $state<number | null>(null);
+  let selectedNodeId = $state<string | null>(null);
+  let graphZoom = $state(1);
+  let graphPanX = $state(0);
+  let graphPanY = $state(0);
+  let tooltipX = $state(0);
+  let tooltipY = $state(0);
+  let simConceptNodes = $state<GraphNode[]>([]);
 
-  function radarPts(scores: number[], cx: number, cy: number, maxR: number): string {
-    const n = scores.length;
-    return scores.map((s, i) => {
-      const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
-      const r = (s / 5) * maxR;
-      return `${(cx + r * Math.cos(angle)).toFixed(1)},${(cy + r * Math.sin(angle)).toFixed(1)}`;
-    }).join(' ');
+  // Physics (non-reactive)
+  interface PhysNode {
+    id: string; x: number; y: number; vx: number; vy: number;
+    mass: number; isPaper: boolean; homeX: number; homeY: number;
+    dragging: boolean; nodeData: GraphNode | null;
+  }
+  interface PhysEdge { si: number; ti: number; restLen: number; strength: number; }
+  let physNodes: PhysNode[] = [];
+  let physEdges: PhysEdge[] = [];
+  let nodeIndexMap = new Map<string, number>();
+  let animRafId: number | null = null;
+  let renderPos = $state<{ x: number; y: number }[]>([]);
+  let graphSvgEl = $state<SVGSVGElement | null>(null);
+  let dragNodeIdx: number | null = null;
+  let isPanning = false;
+  let panStartCX = 0; let panStartCY = 0;
+  let panStartPX = 0; let panStartPY = 0;
+  let mouseHasMoved = false;
+
+  const PAPER_COLORS = ['#58a6ff', '#bc8cff', '#3fb950'];
+  const NODE_COLORS: Record<string, string> = {
+    method: '#f0883e', finding: '#79c0ff', gene: '#ff7b72',
+    pathway: '#56d364', limitation: '#8b949e', concept: '#d2a8ff', biomarker: '#ffa657'
+  };
+  const EDGE_COLORS: Record<string, string> = {
+    employs: '#58a6ff', reports: '#79c0ff', validates: '#3fb950',
+    contradicts: '#ff7b72', extends: '#d2a8ff', reveals: '#ffa657',
+    targets: '#f0883e', inhibits: '#ff4444', correlates: '#8b949e',
+  };
+
+  const visibleEdges = $derived.by((): GraphEdge[] => {
+    if (!compareGraph) return [];
+    const ids = new Set([
+      ...comparePapersMeta.map((_, i) => `paper_${i}`),
+      ...simConceptNodes.map(n => n.id)
+    ]);
+    return compareGraph.edges.filter(e => ids.has(e.source) && ids.has(e.target));
+  });
+
+  const connectedNodeIds = $derived.by(() => {
+    if (!selectedNodeId || !compareGraph) return new Set<string>();
+    const ids = new Set<string>([selectedNodeId]);
+    for (const e of compareGraph.edges) {
+      if (e.source === selectedNodeId) ids.add(e.target);
+      if (e.target === selectedNodeId) ids.add(e.source);
+    }
+    return ids;
+  });
+
+  const hoveredNodeData = $derived(
+    hoveredNodeId && !hoveredNodeId.startsWith('paper_')
+      ? (compareGraph?.nodes.find(n => n.id === hoveredNodeId) ?? null)
+      : null
+  );
+  const hoveredPaperIdx = $derived(
+    hoveredNodeId?.startsWith('paper_') ? parseInt(hoveredNodeId.slice(6)) : -1
+  );
+
+  function buildSimulation(graph: CompareGraph, density: number, nP: number) {
+    const CX = 450, CY = 280;
+    const conceptNodes = [...graph.nodes].sort((a, b) => b.importance - a.importance).slice(0, density);
+    simConceptNodes = conceptNodes;
+
+    const anchors = nP === 2
+      ? [{ x: CX - 165, y: CY }, { x: CX + 165, y: CY }]
+      : [{ x: CX, y: CY - 140 }, { x: CX - 155, y: CY + 95 }, { x: CX + 155, y: CY + 95 }];
+
+    physNodes = [];
+    nodeIndexMap = new Map();
+
+    for (let i = 0; i < nP; i++) {
+      nodeIndexMap.set(`paper_${i}`, physNodes.length);
+      physNodes.push({
+        id: `paper_${i}`, x: anchors[i]?.x ?? CX, y: anchors[i]?.y ?? CY,
+        vx: 0, vy: 0, mass: 4, isPaper: true,
+        homeX: anchors[i]?.x ?? CX, homeY: anchors[i]?.y ?? CY,
+        dragging: false, nodeData: null
+      });
+    }
+
+    for (let i = 0; i < conceptNodes.length; i++) {
+      const a = (i / conceptNodes.length) * Math.PI * 2;
+      const r = 150 + Math.random() * 80;
+      nodeIndexMap.set(conceptNodes[i].id, physNodes.length);
+      physNodes.push({
+        id: conceptNodes[i].id,
+        x: CX + r * Math.cos(a) + (Math.random() - 0.5) * 50,
+        y: CY + r * Math.sin(a) + (Math.random() - 0.5) * 50,
+        vx: (Math.random() - 0.5) * 2, vy: (Math.random() - 0.5) * 2,
+        mass: 1, isPaper: false, homeX: CX, homeY: CY,
+        dragging: false, nodeData: conceptNodes[i]
+      });
+    }
+
+    physEdges = [];
+    for (const e of graph.edges) {
+      const si = nodeIndexMap.get(e.source), ti = nodeIndexMap.get(e.target);
+      if (si !== undefined && ti !== undefined) {
+        const isPaperEdge = physNodes[si].isPaper || physNodes[ti].isPaper;
+        physEdges.push({
+          si, ti,
+          restLen: isPaperEdge ? 115 + (5 - e.weight) * 22 : 65 + (5 - e.weight) * 14,
+          strength: isPaperEdge ? 0.028 : 0.035
+        });
+      }
+    }
+
+    renderPos = physNodes.map(n => ({ x: n.x, y: n.y }));
   }
 
-  function gridPoly(n: number, cx: number, cy: number, r: number): string {
-    return Array.from({ length: n }, (_, i) => {
-      const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
-      return `${(cx + r * Math.cos(angle)).toFixed(1)},${(cy + r * Math.sin(angle)).toFixed(1)}`;
-    }).join(' ');
+  function simTick() {
+    for (let i = 0; i < physNodes.length; i++) {
+      for (let j = i + 1; j < physNodes.length; j++) {
+        const a = physNodes[i], b = physNodes[j];
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const d2 = Math.max(dx * dx + dy * dy, 1);
+        const d = Math.sqrt(d2);
+        if (d < 320) {
+          const f = 4500 / (d2 * 0.8 + 1);
+          if (!a.dragging) { a.vx -= (dx / d) * f / a.mass; a.vy -= (dy / d) * f / a.mass; }
+          if (!b.dragging) { b.vx += (dx / d) * f / b.mass; b.vy += (dy / d) * f / b.mass; }
+        }
+      }
+    }
+    for (const e of physEdges) {
+      const a = physNodes[e.si], b = physNodes[e.ti];
+      if (!a || !b) continue;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const d = Math.sqrt(dx * dx + dy * dy) || 1;
+      const f = (d - e.restLen) * e.strength;
+      const fx = (dx / d) * f, fy = (dy / d) * f;
+      if (!a.dragging) { a.vx += fx / a.mass; a.vy += fy / a.mass; }
+      if (!b.dragging) { b.vx -= fx / b.mass; b.vy -= fy / b.mass; }
+    }
+    for (const n of physNodes) {
+      if (!n.isPaper) { n.vx += (450 - n.x) * 0.0015; n.vy += (280 - n.y) * 0.0015; }
+      else if (!n.dragging) { n.vx += (n.homeX - n.x) * 0.05; n.vy += (n.homeY - n.y) * 0.05; }
+    }
+    for (const n of physNodes) {
+      if (n.dragging) continue;
+      n.vx *= 0.84; n.vy *= 0.84;
+      n.x = Math.max(24, Math.min(876, n.x + n.vx));
+      n.y = Math.max(24, Math.min(536, n.y + n.vy));
+    }
   }
 
-  function radarAxisEnd(i: number, n: number, cx: number, cy: number, r: number) {
-    const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
-    return { x: (cx + r * Math.cos(angle)).toFixed(1), y: (cy + r * Math.sin(angle)).toFixed(1) };
+  function stopAnimation() {
+    if (animRafId !== null) { cancelAnimationFrame(animRafId); animRafId = null; }
   }
 
-  function radarLabelPos(i: number, n: number, cx: number, cy: number, r: number) {
-    const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
-    const x = cx + r * Math.cos(angle);
-    const y = cy + r * Math.sin(angle);
-    const anchor = Math.cos(angle) > 0.2 ? 'start' : Math.cos(angle) < -0.2 ? 'end' : 'middle';
-    const dy = Math.sin(angle) < -0.5 ? '-0.2em' : Math.sin(angle) > 0.5 ? '0.9em' : '0.35em';
-    return { x: x.toFixed(1), y: y.toFixed(1), anchor, dy };
+  function startAnimation() {
+    stopAnimation();
+    function step() {
+      for (let t = 0; t < 4; t++) simTick();
+      renderPos = physNodes.map(n => ({ x: n.x, y: n.y }));
+      const ke = physNodes.reduce((s, n) => s + n.vx * n.vx + n.vy * n.vy, 0);
+      animRafId = ke > 0.04 ? requestAnimationFrame(step) : null;
+    }
+    animRafId = requestAnimationFrame(step);
+  }
+
+  $effect(() => {
+    const graph = compareGraph;
+    const density = compareNodeDensity;
+    const nP = comparePapersMeta.length;
+    if (!graph || nP === 0 || !compareModalOpen) return;
+    buildSimulation(graph, density, nP);
+    startAnimation();
+    return stopAnimation;
+  });
+
+  $effect(() => {
+    const svg = graphSvgEl;
+    if (!svg) return;
+    function onWheel(e: WheelEvent) {
+      e.preventDefault();
+      const f = e.deltaY > 0 ? 0.88 : 1.14;
+      graphZoom = Math.max(0.25, Math.min(4, graphZoom * f));
+    }
+    svg.addEventListener('wheel', onWheel, { passive: false });
+    return () => svg.removeEventListener('wheel', onWheel);
+  });
+
+  function svgCoords(e: MouseEvent): { x: number; y: number } | null {
+    if (!graphSvgEl) return null;
+    const rect = graphSvgEl.getBoundingClientRect();
+    const vbX = (e.clientX - rect.left) * (900 / rect.width);
+    const vbY = (e.clientY - rect.top) * (560 / rect.height);
+    return { x: (vbX - graphPanX) / graphZoom, y: (vbY - graphPanY) / graphZoom };
+  }
+
+  function hitNode(x: number, y: number): number | null {
+    for (let i = 0; i < comparePapersMeta.length; i++) {
+      const n = physNodes[i]; if (!n) continue;
+      const dx = x - n.x, dy = y - n.y;
+      if (dx * dx + dy * dy <= 34 * 34) return i;
+    }
+    for (let i = comparePapersMeta.length; i < physNodes.length; i++) {
+      const n = physNodes[i]; if (!n) continue;
+      const r = n.nodeData ? 7 + n.nodeData.importance * 2.8 : 8;
+      const dx = x - n.x, dy = y - n.y;
+      if (dx * dx + dy * dy <= r * r) return i;
+    }
+    return null;
+  }
+
+  function handleSVGMouseDown(e: MouseEvent) {
+    if (e.button !== 0) return;
+    mouseHasMoved = false;
+    const coords = svgCoords(e);
+    if (!coords) return;
+    const hitIdx = hitNode(coords.x, coords.y);
+    if (hitIdx !== null) {
+      dragNodeIdx = hitIdx;
+      physNodes[hitIdx].dragging = true;
+      physNodes[hitIdx].vx = 0; physNodes[hitIdx].vy = 0;
+      e.preventDefault(); return;
+    }
+    isPanning = true;
+    panStartCX = e.clientX; panStartCY = e.clientY;
+    panStartPX = graphPanX; panStartPY = graphPanY;
+    e.preventDefault();
+  }
+
+  function handleSVGMouseMove(e: MouseEvent) {
+    if (!graphSvgEl) return;
+    const rect = graphSvgEl.getBoundingClientRect();
+    tooltipX = e.clientX - rect.left + 14;
+    tooltipY = e.clientY - rect.top - 6;
+    mouseHasMoved = true;
+    if (dragNodeIdx !== null) {
+      const coords = svgCoords(e);
+      if (coords) {
+        physNodes[dragNodeIdx].x = Math.max(24, Math.min(876, coords.x));
+        physNodes[dragNodeIdx].y = Math.max(24, Math.min(536, coords.y));
+        renderPos = physNodes.map(n => ({ x: n.x, y: n.y }));
+      }
+    } else if (isPanning) {
+      const dx = (e.clientX - panStartCX) * (900 / rect.width);
+      const dy = (e.clientY - panStartCY) * (560 / rect.height);
+      graphPanX = panStartPX + dx;
+      graphPanY = panStartPY + dy;
+    }
+  }
+
+  function handleSVGMouseUp() {
+    if (dragNodeIdx !== null) {
+      physNodes[dragNodeIdx].dragging = false;
+      if (!mouseHasMoved) {
+        const id = physNodes[dragNodeIdx].id;
+        selectedNodeId = selectedNodeId === id ? null : id;
+      }
+      dragNodeIdx = null;
+      startAnimation();
+    }
+    isPanning = false;
+  }
+
+  function getPos(id: string): { x: number; y: number } {
+    const idx = nodeIndexMap.get(id);
+    if (idx === undefined) return { x: 450, y: 280 };
+    return renderPos[idx] ?? { x: 450, y: 280 };
+  }
+
+  function curvePath(sx: number, sy: number, tx: number, ty: number): string {
+    const mx = (sx + tx) / 2 + (ty - sy) * 0.08;
+    const my = (sy + ty) / 2 - (tx - sx) * 0.08;
+    return `M ${sx.toFixed(1)} ${sy.toFixed(1)} Q ${mx.toFixed(1)} ${my.toFixed(1)} ${tx.toFixed(1)} ${ty.toFixed(1)}`;
+  }
+
+  function edgeHighlighted(edge: GraphEdge): boolean {
+    return !selectedNodeId || edge.source === selectedNodeId || edge.target === selectedNodeId;
   }
 
   function toggleCompare(id: string) {
@@ -580,11 +834,12 @@
     comparePapersMeta = papersData.map(p => ({ title: p.title, journal: p.journal ?? '', year: p.year ?? 0 }));
     compareAbort?.abort();
     compareAbort = new AbortController();
-    compareStructured = null;
+    compareGraph = null;
     compareModalLoading = true;
     compareModalOpen = true;
+    selectedNodeId = null; graphZoom = 1; graphPanX = 0; graphPanY = 0;
     try {
-      compareStructured = await comparePapersStructured(
+      compareGraph = await comparePapersStructured(
         papersData.map(p => ({ title: p.title, authors: p.authors, year: p.year, journal: p.journal ?? '', abstract: p.abstract ?? '' })),
         compareAbort.signal
       );
@@ -593,17 +848,17 @@
   }
 
   function saveCompareAsNote() {
-    if (!compareStructured) return;
+    if (!compareGraph) return;
     const titles = comparePapersMeta.map(p => p.title).join(' vs ');
-    let body = `# Paper Comparison\n\n**Papers:**\n${comparePapersMeta.map((p, i) => `${i + 1}. ${p.title} (${p.journal}, ${p.year})`).join('\n')}\n\n## Verdict\n${compareStructured.verdict}\n\n## Radar Scores\n| Axis | ${comparePapersMeta.map((_, i) => `Paper ${i + 1}`).join(' | ')} |\n|---|${comparePapersMeta.map(() => '---').join('|')}|\n`;
-    for (let ai = 0; ai < compareStructured.axes.length; ai++) {
-      body += `| ${compareStructured.axes[ai]} | ${comparePapersMeta.map((_, pi) => `${compareStructured!.scores[`paper_${pi + 1}`]?.[ai] ?? '?'}/5`).join(' | ')} |\n`;
+    let body = `# Knowledge Graph Comparison\n\n**Papers:**\n${comparePapersMeta.map((p, i) => `${i + 1}. ${p.title} (${p.journal}, ${p.year})`).join('\n')}\n\n## Verdict\n${compareGraph.verdict}\n\n## Scores\n| Axis | ${comparePapersMeta.map((_, i) => `P${i + 1}`).join(' | ')} |\n|---|${comparePapersMeta.map(() => '---').join('|')}|\n`;
+    for (let ai = 0; ai < (compareGraph.axes?.length ?? 0); ai++) {
+      body += `| ${compareGraph.axes[ai]} | ${comparePapersMeta.map((_, pi) => `${compareGraph!.scores[`paper_${pi}`]?.[ai] ?? '?'}/5`).join(' | ')} |\n`;
     }
-    body += `\n## Detailed Comparison\n| Dimension | ${comparePapersMeta.map((_, i) => `Paper ${i + 1}`).join(' | ')} |\n|---|${comparePapersMeta.map(() => '---').join('|')}|\n`;
-    for (const row of compareStructured.table) {
-      body += `| ${row.dimension} | ${comparePapersMeta.map((_, i) => row[`paper_${i + 1}`] ?? '—').join(' | ')} |\n`;
+    body += `\n## Key Concepts\n`;
+    for (const node of compareGraph.nodes.slice(0, 12)) {
+      body += `- **${node.label}** (${node.type}): ${node.description}\n`;
     }
-    const note = { id: crypto.randomUUID(), title: `Compare: ${titles.slice(0, 60)}`, body, color: 'none', tags: ['comparison', 'research'], wordTarget: 0, createdAt: Date.now(), updatedAt: Date.now() };
+    const note = { id: crypto.randomUUID(), title: `Compare: ${titles.slice(0, 60)}`, body, color: undefined, tags: ['comparison', 'research'], wordTarget: 0, pinned: false, archived: false, audioIds: [], createdAt: Date.now(), updatedAt: Date.now() };
     store.notes.unshift(note);
     store.saveNotes();
     showToast('Comparison saved as note');
@@ -1781,7 +2036,7 @@ Format your response as:
           <button class="btn btn-primary btn-sm" onclick={runCompare} disabled={compareModalLoading}>
             {compareModalLoading ? 'Analysing…' : 'Compare with Enzo'}
           </button>
-          <button class="btn btn-ghost btn-sm" onclick={() => { compareSet = new Set(); compareModalOpen = false; compareStructured = null; }}>Clear</button>
+          <button class="btn btn-ghost btn-sm" onclick={() => { compareSet = new Set(); compareModalOpen = false; compareGraph = null; }}>Clear</button>
         </div>
       {/if}
 
@@ -2343,167 +2598,296 @@ Format your response as:
 
 <!-- ── Visual Paper Compare Modal ──────────────────────────────────────── -->
 {#if compareModalOpen}
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <div class="cmp-overlay" role="dialog" aria-modal="true"
-    onclick={(e) => { if (e.target === e.currentTarget) { compareModalOpen = false; compareAbort?.abort(); } }}
-    onkeydown={(e) => { if (e.key === 'Escape') { compareModalOpen = false; compareAbort?.abort(); } }}>
-    <div class="cmp-modal card">
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+  <div class="cmp-overlay" class:cmp-overlay-max={compareMaximized}
+    role="dialog" aria-modal="true" tabindex="-1"
+    onkeydown={(e) => { if (e.key === 'Escape') { if (compareMaximized) compareMaximized = false; else { compareModalOpen = false; compareAbort?.abort(); stopAnimation(); } } }}>
+    <div class="cmp-modal" class:cmp-modal-max={compareMaximized}>
 
-      <!-- Modal header -->
+      <!-- Header -->
       <div class="cmp-head">
         <div class="cmp-head-left">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--enzo)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-          <span class="cmp-head-title">Paper Compare</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2">
+            <circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/>
+            <line x1="6" y1="8.5" x2="11" y2="15.8"/><line x1="18" y1="8.5" x2="13" y2="15.8"/><line x1="7.5" y1="6" x2="16.5" y2="6"/>
+          </svg>
+          <span class="cmp-head-title">Knowledge Graph</span>
+          {#if compareGraph}
+            <span class="cmp-node-count">{simConceptNodes.length} nodes · {visibleEdges.length} edges</span>
+          {/if}
+        </div>
+        <div class="cmp-head-mid">
+          {#if compareGraph}
+            <label class="density-label">
+              <span class="density-txt">Density</span>
+              <input type="range" min="8" max="30" step="1" bind:value={compareNodeDensity} class="density-slider" />
+              <span class="density-val">{compareNodeDensity}</span>
+            </label>
+          {/if}
         </div>
         <div class="cmp-head-actions">
-          {#if compareStructured}
+          {#if compareGraph}
             <button class="btn-icon btn-xs" onclick={saveCompareAsNote} title="Save as note">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
             </button>
           {/if}
-          <button class="btn-icon btn-xs" onclick={() => { compareModalOpen = false; compareAbort?.abort(); }} title="Close (Esc)">
+          <button class="btn-icon btn-xs" onclick={() => compareMaximized = !compareMaximized} title={compareMaximized ? 'Restore' : 'Maximise'}>
+            {#if compareMaximized}
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="10" y1="14" x2="3" y2="21"/><line x1="21" y1="3" x2="14" y2="10"/></svg>
+            {:else}
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+            {/if}
+          </button>
+          <button class="btn-icon btn-xs" onclick={() => { compareModalOpen = false; compareMaximized = false; compareAbort?.abort(); stopAnimation(); }} title="Close (Esc)">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
       </div>
 
-      <!-- Paper pills strip -->
+      <!-- Paper pills -->
       {#if comparePapersMeta.length >= 2}
         <div class="cmp-pills-strip">
           {#each comparePapersMeta as meta, i}
-            <div class="cmp-pill" class:cmp-pill-a={i===0} class:cmp-pill-b={i===1} class:cmp-pill-c={i===2}>
-              <span class="cmp-pill-lbl">P{i+1}</span>
-              <span class="cmp-pill-title">{meta.title.length > 60 ? meta.title.slice(0, 60) + '…' : meta.title}</span>
+            <div class="cmp-pill" style="border-left: 3px solid {PAPER_COLORS[i]}">
+              <span class="cmp-pill-lbl" style="background:{PAPER_COLORS[i]}22;color:{PAPER_COLORS[i]}">P{i+1}</span>
+              <span class="cmp-pill-title">{meta.title.length > 72 ? meta.title.slice(0, 72) + '…' : meta.title}</span>
               <span class="cmp-pill-meta">{meta.journal ? meta.journal.split(' ').slice(0, 3).join(' ') : ''}{meta.year ? ` · ${meta.year}` : ''}</span>
             </div>
           {/each}
         </div>
       {/if}
 
-      <!-- Loading skeleton -->
-      {#if compareModalLoading}
-        <div class="cmp-loading">
-          <div class="compare-skeleton">
-            <div class="csk-row"></div>
-            <div class="csk-row csk-short"></div>
-            <div class="csk-row"></div>
-            <div class="csk-row csk-medium"></div>
-            <div class="csk-label">Enzo is analysing the papers…</div>
+      <!-- Graph canvas -->
+      <div class="cmp-graph-wrap">
+        {#if compareModalLoading}
+          <div class="cmp-loading-state">
+            <div class="cmp-loading-dots"><span></span><span></span><span></span></div>
+            <p class="cmp-loading-txt">Enzo is mapping the knowledge graph…</p>
           </div>
-        </div>
 
-      {:else if compareStructured}
-        <!-- Main content: radar + table -->
-        <div class="cmp-body">
+        {:else if compareGraph}
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+          <svg class="cmp-graph-svg" viewBox="0 0 900 560"
+            bind:this={graphSvgEl}
+            tabindex="0"
+            onmousedown={handleSVGMouseDown}
+            onmousemove={handleSVGMouseMove}
+            onmouseup={handleSVGMouseUp}
+            onmouseleave={() => {
+              isPanning = false;
+              if (dragNodeIdx !== null) { physNodes[dragNodeIdx].dragging = false; dragNodeIdx = null; startAnimation(); }
+              hoveredNodeId = null; hoveredEdgeIdx = null;
+            }}>
 
-          <!-- SVG Radar chart -->
-          <div class="cmp-radar-col">
-            <svg class="cmp-radar-svg" viewBox="0 0 520 400" role="img" aria-label="Radar comparison chart">
-              <!-- Grid polygons -->
-              {#each RADAR_GRIDS as gr}
-                <polygon class="radar-grid" points={gridPoly(compareStructured.axes.length, RADAR_CX, RADAR_CY, gr)} />
+            <defs>
+              <filter id="cmp-glow" x="-80%" y="-80%" width="260%" height="260%">
+                <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur"/>
+                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+              <radialGradient id="cmp-canvas-bg" cx="50%" cy="50%" r="60%">
+                <stop offset="0%" stop-color="#0d1520"/>
+                <stop offset="100%" stop-color="#060910"/>
+              </radialGradient>
+            </defs>
+
+            <rect width="900" height="560" fill="url(#cmp-canvas-bg)"/>
+
+            <g transform="translate({graphPanX} {graphPanY}) scale({graphZoom})">
+
+              <!-- Edges -->
+              {#each visibleEdges as edge, ei}
+                {@const sp = getPos(edge.source)}
+                {@const tp = getPos(edge.target)}
+                {@const d = curvePath(sp.x, sp.y, tp.x, tp.y)}
+                {@const hi = edgeHighlighted(edge)}
+                {@const hov = hoveredEdgeIdx === ei}
+                <path {d} fill="none" stroke="transparent" stroke-width="14" style="cursor:crosshair"
+                  onmouseenter={() => { hoveredEdgeIdx = ei; hoveredNodeId = null; }}
+                  onmouseleave={() => hoveredEdgeIdx = null}/>
+                <path {d} fill="none"
+                  stroke={EDGE_COLORS[edge.relation] ?? '#8b949e'}
+                  stroke-width={0.6 + edge.weight * 0.55}
+                  stroke-linecap="round"
+                  opacity={hi ? (hov ? 0.95 : 0.48) : 0.07}
+                  pointer-events="none"/>
               {/each}
-              <!-- Axis lines -->
-              {#each compareStructured.axes as _ax, i}
-                {@const ep = radarAxisEnd(i, compareStructured.axes.length, RADAR_CX, RADAR_CY, RADAR_MAX_R)}
-                <line class="radar-axis" x1={RADAR_CX} y1={RADAR_CY} x2={ep.x} y2={ep.y} />
+
+              <!-- Concept nodes -->
+              {#each simConceptNodes as node, ni}
+                {@const pos = renderPos[comparePapersMeta.length + ni]}
+                {#if pos}
+                  {@const r = 7 + node.importance * 2.8}
+                  {@const color = NODE_COLORS[node.type] ?? '#8b949e'}
+                  {@const sel = selectedNodeId === node.id}
+                  {@const conn = !selectedNodeId || connectedNodeIds.has(node.id)}
+                  {@const hov = hoveredNodeId === node.id}
+                  <g style="cursor:pointer"
+                    onmouseenter={() => hoveredNodeId = node.id}
+                    onmouseleave={() => { if (hoveredNodeId === node.id) hoveredNodeId = null; }}>
+                    {#if node.papers.length > 1}
+                      <circle cx={pos.x} cy={pos.y} r={r + 6} fill="none" stroke="#ffffff" stroke-width="1" opacity="0.2"/>
+                    {/if}
+                    {#if hov || sel}
+                      <circle cx={pos.x} cy={pos.y} r={r + 10} fill={color} opacity="0.14"/>
+                    {/if}
+                    <circle cx={pos.x} cy={pos.y} r={r}
+                      fill={color}
+                      opacity={conn ? (hov || sel ? 1 : 0.78) : 0.1}
+                      stroke={sel ? '#fff' : (hov ? color : 'none')}
+                      stroke-width={sel ? 2 : 1.5}/>
+                    <text x={pos.x} y={pos.y + r + 11}
+                      text-anchor="middle"
+                      fill={conn ? '#9ca3af' : '#2d3748'}
+                      font-size={hov ? '9.5' : '8.5'}
+                      font-family="var(--font, system-ui)"
+                      pointer-events="none">
+                      {node.label.length > 18 ? node.label.slice(0, 17) + '…' : node.label}
+                    </text>
+                  </g>
+                {/if}
               {/each}
-              <!-- Data polygons -->
-              {#each comparePapersMeta as _meta, pi}
-                {@const key = `paper_${pi + 1}`}
-                {@const sc = compareStructured.scores[key] ?? []}
-                <polygon class="radar-data radar-data-{pi + 1}" points={radarPts(sc, RADAR_CX, RADAR_CY, RADAR_MAX_R)} />
+
+              <!-- Paper nodes (on top) -->
+              {#each comparePapersMeta as _m, pi}
+                {@const pos = renderPos[pi]}
+                {#if pos}
+                  {@const color = PAPER_COLORS[pi]}
+                  {@const sel = selectedNodeId === `paper_${pi}`}
+                  {@const conn = !selectedNodeId || connectedNodeIds.has(`paper_${pi}`)}
+                  {@const hov = hoveredNodeId === `paper_${pi}`}
+                  <g style="cursor:pointer"
+                    onmouseenter={() => hoveredNodeId = `paper_${pi}`}
+                    onmouseleave={() => { if (hoveredNodeId === `paper_${pi}`) hoveredNodeId = null; }}>
+                    <circle cx={pos.x} cy={pos.y} r="50" fill={color} opacity={conn ? 0.06 : 0.02}/>
+                    <circle cx={pos.x} cy={pos.y} r="38" fill={color} opacity={conn ? 0.09 : 0.03}/>
+                    <circle cx={pos.x} cy={pos.y} r="27"
+                      fill={color}
+                      opacity={conn ? (hov || sel ? 1 : 0.88) : 0.2}
+                      stroke={sel ? '#fff' : color}
+                      stroke-width={sel ? 2.5 : 1.5}
+                      filter="url(#cmp-glow)"/>
+                    <text x={pos.x} y={pos.y + 5}
+                      text-anchor="middle" fill="#ffffff"
+                      font-size="13" font-weight="800"
+                      font-family="var(--font, system-ui)"
+                      pointer-events="none">P{pi+1}</text>
+                  </g>
+                {/if}
               {/each}
-              <!-- Score dots -->
-              {#each comparePapersMeta as _meta, pi}
-                {@const key = `paper_${pi + 1}`}
-                {@const sc = compareStructured.scores[key] ?? []}
-                {#each sc as score, ai}
-                  {@const angle = (ai / compareStructured.axes.length) * 2 * Math.PI - Math.PI / 2}
-                  {@const r = (score / 5) * RADAR_MAX_R}
-                  <circle class="radar-dot radar-dot-{pi + 1}"
-                    cx={(RADAR_CX + r * Math.cos(angle)).toFixed(1)}
-                    cy={(RADAR_CY + r * Math.sin(angle)).toFixed(1)}
-                    r="3.5" />
-                {/each}
-              {/each}
-              <!-- Axis labels -->
-              {#each compareStructured.axes as ax, i}
-                {@const lp = radarLabelPos(i, compareStructured.axes.length, RADAR_CX, RADAR_CY, RADAR_MAX_R + 30)}
-                <text class="radar-label" x={lp.x} y={lp.y} text-anchor={lp.anchor} dy={lp.dy}>
-                  {ax.length > 14 ? ax.slice(0, 13) + '…' : ax}
-                </text>
-              {/each}
-              <!-- Score markers on grid -->
-              {#each [1,2,3,4,5] as tick, ti}
-                <text class="radar-tick" x={RADAR_CX + 4} y={RADAR_CY - RADAR_GRIDS[ti]}>{tick}</text>
-              {/each}
-            </svg>
-            <!-- Legend -->
-            <div class="radar-legend">
-              {#each comparePapersMeta as meta, i}
-                <div class="radar-leg-row">
-                  <span class="radar-leg-dot leg-dot-{i + 1}"></span>
-                  <span class="text-xs text-mu">P{i + 1}: {meta.title.slice(0, 36)}{meta.title.length > 36 ? '…' : ''}</span>
+
+            </g>
+          </svg>
+
+          <!-- Tooltip -->
+          {#if tooltipX > 0 && (hoveredNodeData || hoveredPaperIdx >= 0)}
+            <div class="graph-tooltip" style="left:{Math.min(tooltipX, 700)}px;top:{Math.max(4, tooltipY - 20)}px">
+              {#if hoveredPaperIdx >= 0}
+                {@const meta = comparePapersMeta[hoveredPaperIdx]}
+                <div class="tt-head" style="color:{PAPER_COLORS[hoveredPaperIdx]}">P{hoveredPaperIdx + 1}</div>
+                <div class="tt-title">{meta?.title}</div>
+                <div class="tt-sub">{meta?.journal}{meta?.year ? ` · ${meta.year}` : ''}</div>
+              {:else if hoveredNodeData}
+                <div class="tt-type-badge" style="background:{NODE_COLORS[hoveredNodeData.type] ?? '#8b949e'}22;color:{NODE_COLORS[hoveredNodeData.type] ?? '#8b949e'}">{hoveredNodeData.type}</div>
+                <div class="tt-title">{hoveredNodeData.label}</div>
+                <div class="tt-desc">{hoveredNodeData.description}</div>
+                {#if hoveredNodeData.papers.length > 0}
+                  <div class="tt-chips">
+                    {#each hoveredNodeData.papers as pi}
+                      <span class="tt-chip" style="background:{PAPER_COLORS[pi] ?? '#8b949e'}22;color:{PAPER_COLORS[pi] ?? '#8b949e'}">P{pi + 1}</span>
+                    {/each}
+                  </div>
+                {:else}
+                  <div class="tt-shared">shared concept</div>
+                {/if}
+                <div class="tt-imp">
+                  {#each {length: 5} as _, i}
+                    <span class="tt-imp-pip" class:on={i < hoveredNodeData.importance}></span>
+                  {/each}
                 </div>
-              {/each}
+              {/if}
             </div>
+          {:else if hoveredEdgeIdx !== null && visibleEdges[hoveredEdgeIdx] && tooltipX > 0}
+            {@const edge = visibleEdges[hoveredEdgeIdx]}
+            <div class="graph-tooltip" style="left:{Math.min(tooltipX, 700)}px;top:{Math.max(4, tooltipY - 20)}px">
+              <div class="tt-relation" style="color:{EDGE_COLORS[edge.relation] ?? '#8b949e'}">{edge.relation}</div>
+              <div class="tt-weight-row">
+                {#each {length: 5} as _, i}
+                  <span class="tt-w-pip" class:on={i < edge.weight}></span>
+                {/each}
+              </div>
+              <div class="tt-edge-pts">
+                <span>{edge.source.startsWith('paper_') ? `P${parseInt(edge.source.slice(6)) + 1}` : edge.source}</span>
+                <span>→</span>
+                <span>{edge.target.startsWith('paper_') ? `P${parseInt(edge.target.slice(6)) + 1}` : edge.target}</span>
+              </div>
+            </div>
+          {/if}
+
+          <!-- Zoom controls -->
+          <div class="graph-controls">
+            <button class="graph-ctrl-btn" onclick={() => graphZoom = Math.min(4, graphZoom * 1.2)} title="Zoom in">+</button>
+            <span class="graph-zoom-pct">{Math.round(graphZoom * 100)}%</span>
+            <button class="graph-ctrl-btn" onclick={() => graphZoom = Math.max(0.25, graphZoom / 1.2)} title="Zoom out">−</button>
+            <button class="graph-ctrl-btn" onclick={() => { graphZoom = 1; graphPanX = 0; graphPanY = 0; }} title="Reset view">⌖</button>
           </div>
 
-          <!-- Comparison table -->
-          <div class="cmp-table-col">
+          <!-- Node type legend -->
+          <div class="graph-legend">
+            {#each Object.entries(NODE_COLORS) as [type, color]}
+              <span class="legend-item"><span class="legend-dot" style="background:{color}"></span>{type}</span>
+            {/each}
+            <span class="legend-item"><span class="legend-dot" style="background:#fff;opacity:0.4;border-radius:0;width:18px;height:2px;margin-top:2px"></span>shared</span>
+          </div>
+
+        {:else}
+          <div class="cmp-error">
+            <p class="text-mu text-sm">Could not generate graph. Enzo may have returned unexpected output.</p>
+            <button class="btn btn-ghost btn-sm" onclick={runCompare}>Retry</button>
+          </div>
+        {/if}
+      </div>
+
+      <!-- Verdict + collapsible table -->
+      {#if compareGraph}
+        <div class="cmp-verdict-bar">
+          <span class="cmp-verdict-label">Verdict</span>
+          <p class="cmp-verdict-text">{compareGraph.verdict}</p>
+        </div>
+        <details class="cmp-table-details" bind:open={compareTableOpen}>
+          <summary class="cmp-table-summary">Detailed scores &amp; comparison</summary>
+          <div class="cmp-table-wrap">
             <table class="cmp-table">
               <thead>
                 <tr>
                   <th>Dimension</th>
-                  {#each comparePapersMeta as _meta, i}
-                    <th class:th-a={i===0} class:th-b={i===1} class:th-c={i===2}>
-                      P{i+1}
-                      <span class="th-score-row">
-                        {#each (compareStructured.scores[`paper_${i+1}`] ?? []) as s, ai}
-                          <span class="th-score-pip" title={compareStructured.axes[ai]} style="opacity: {0.3 + (s/5)*0.7}"></span>
-                        {/each}
-                      </span>
-                    </th>
+                  {#each comparePapersMeta as _m, i}
+                    <th style="color:{PAPER_COLORS[i]}">P{i+1}</th>
                   {/each}
                 </tr>
               </thead>
               <tbody>
-                {#each compareStructured.table as row, ri}
+                {#each (compareGraph.table ?? []) as row, ri}
                   <tr>
                     <td class="cmp-dim">
                       {row.dimension}
-                      <span class="cmp-dim-scores">
-                        {#each comparePapersMeta as _meta, pi}
-                          {@const sc = compareStructured.scores[`paper_${pi+1}`]?.[ri] ?? 0}
-                          <span class="dim-score dim-score-{pi+1}" title="Paper {pi+1}: {sc}/5">{sc}</span>
+                      <div class="cmp-dim-scores">
+                        {#each comparePapersMeta as _m, pi}
+                          {@const sc = compareGraph.scores[`paper_${pi}`]?.[ri] ?? 0}
+                          <span class="dim-score" style="background:{PAPER_COLORS[pi]}22;color:{PAPER_COLORS[pi]}">{sc}</span>
                         {/each}
-                      </span>
+                      </div>
                     </td>
-                    {#each comparePapersMeta as _meta, pi}
-                      <td class="cmp-cell">{row[`paper_${pi + 1}`] ?? '—'}</td>
+                    {#each comparePapersMeta as _m, pi}
+                      <td class="cmp-cell">{row[`paper_${pi}`] ?? '—'}</td>
                     {/each}
                   </tr>
                 {/each}
               </tbody>
             </table>
           </div>
-
-        </div>
-
-        <!-- Verdict strip -->
-        <div class="cmp-verdict">
-          <span class="cmp-verdict-label">Verdict</span>
-          <p class="cmp-verdict-text">{compareStructured.verdict}</p>
-        </div>
-
-      {:else}
-        <!-- Failed to parse -->
-        <div class="cmp-error">
-          <p class="text-mu text-sm">Could not generate a structured comparison. Enzo may have returned unexpected output.</p>
-          <button class="btn btn-ghost btn-sm" onclick={runCompare}>Retry</button>
-        </div>
+        </details>
       {/if}
 
     </div>
@@ -3124,86 +3508,6 @@ Format your response as:
   }
   .compare-bar-count { font-size: 0.78rem; color: var(--mu); font-weight: 600; }
 
-  .compare-result {
-    display: flex; flex-direction: column; gap: 0;
-    border: 1px solid var(--enzo-bd); border-radius: var(--radius);
-    background: var(--sf1); overflow: hidden;
-  }
-  .compare-result-head {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 14px; background: var(--enzo-bg); border-bottom: 1px solid var(--enzo-bd);
-  }
-  .compare-head-left { display: flex; align-items: center; gap: 7px; }
-  .compare-head-title { font-size: 0.82rem; font-weight: 700; color: var(--enzo); }
-  .compare-head-actions { display: flex; align-items: center; gap: 4px; }
-
-  /* paper pills */
-  .compare-papers-strip {
-    display: flex; flex-direction: column; gap: 1px;
-    border-bottom: 1px solid var(--bd);
-  }
-  .compare-paper-pill {
-    display: flex; align-items: baseline; gap: 8px;
-    padding: 7px 14px; font-size: 0.78rem; background: var(--sf2);
-  }
-  .compare-paper-pill + .compare-paper-pill { border-top: 1px solid var(--bd); }
-  .cpp-label {
-    flex-shrink: 0; font-size: 0.68rem; font-weight: 800; letter-spacing: .03em;
-    padding: 1px 5px; border-radius: 3px; line-height: 1.6;
-  }
-  .cpp-a .cpp-label { background: #1e3a5f; color: #60a5fa; }
-  .cpp-b .cpp-label { background: #2d1f47; color: #c084fc; }
-  .cpp-c .cpp-label { background: #1a3a2a; color: #4ade80; }
-  .cpp-title { color: var(--tx1); font-weight: 600; flex: 1; line-height: 1.4; }
-  .cpp-meta  { flex-shrink: 0; color: var(--mu); font-size: 0.72rem; }
-
-  /* body */
-  .compare-body {
-    padding: 16px 18px; font-size: 0.84rem; line-height: 1.8;
-    color: var(--tx2); overflow-x: auto;
-  }
-  .compare-body p { margin: 0 0 12px; }
-  .compare-body p:last-child { margin-bottom: 0; }
-  .compare-body h1,.compare-body h2,.compare-body h3,.compare-body h4 {
-    color: var(--tx1); font-size: 0.85rem; font-weight: 700;
-    margin: 18px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--bd);
-  }
-  .compare-body ul,.compare-body ol { padding-left: 18px; margin: 0 0 12px; }
-  .compare-body li { margin-bottom: 4px; }
-  .compare-body strong { color: var(--tx1); font-weight: 700; }
-  .compare-body em { color: var(--ac); font-style: normal; font-weight: 600; }
-  .compare-body table {
-    border-collapse: collapse; width: 100%; font-size: 0.8rem;
-    margin: 12px 0; border: 1px solid var(--bd); border-radius: 6px; overflow: hidden;
-  }
-  .compare-body thead th {
-    padding: 9px 13px; background: var(--sf3); border-bottom: 2px solid var(--bd);
-    font-weight: 700; text-align: left; color: var(--tx1); white-space: nowrap;
-    font-size: 0.75rem; text-transform: uppercase; letter-spacing: .04em;
-  }
-  .compare-body tbody tr:nth-child(even) { background: var(--sf2); }
-  .compare-body tbody tr:hover { background: var(--ac-bg); }
-  .compare-body td {
-    padding: 9px 13px; border-bottom: 1px solid var(--bd);
-    vertical-align: top; line-height: 1.6;
-  }
-  .compare-body tbody tr:last-child td { border-bottom: none; }
-  .compare-body td:first-child { font-weight: 600; color: var(--tx1); white-space: nowrap; width: 130px; }
-  .compare-body blockquote {
-    border-left: 3px solid var(--enzo); background: var(--enzo-bg);
-    margin: 12px 0; padding: 10px 14px; border-radius: 0 6px 6px 0;
-    font-style: italic; color: var(--tx1);
-  }
-  /* skeleton */
-  .compare-skeleton { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
-  .csk-row {
-    height: 11px; background: var(--sf3); border-radius: 4px; width: 100%;
-    animation: cskPulse 1.4s ease-in-out infinite;
-  }
-  .csk-short  { width: 45%; }
-  .csk-medium { width: 70%; }
-  .csk-label  { font-size: 0.74rem; color: var(--mu); text-align: center; margin-top: 4px; animation: cskPulse 1.4s ease-in-out infinite; }
-  @keyframes cskPulse { 0%,100%{opacity:.35} 50%{opacity:.75} }
 
   /* ── 3-state status button ───────────────────────────────────── */
   .rl-status-btn {
@@ -3311,137 +3615,187 @@ Format your response as:
   .bibtex-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
   /* ── Visual Paper Compare Modal ──────────────────────────────── */
+  /* ── Knowledge Graph compare modal ───────────────────────────── */
   .cmp-overlay {
     position: fixed; inset: 0; z-index: 9100;
-    background: rgba(8, 12, 20, 0.82);
+    background: rgba(4, 8, 16, 0.9);
     display: flex; align-items: center; justify-content: center;
     padding: 16px;
   }
+  .cmp-overlay-max { padding: 0; }
   .cmp-modal {
-    width: min(920px, 96vw); max-height: 90vh;
-    display: flex; flex-direction: column; gap: 0;
-    background: var(--sf1); border: 1px solid var(--enzo-bd);
+    width: min(1160px, 96vw); max-height: 92vh;
+    display: flex; flex-direction: column;
+    background: #0b1120; border: 1px solid rgba(88,166,255,0.18);
     border-radius: var(--radius); overflow: hidden;
+    box-shadow: 0 0 80px rgba(0,0,0,0.75), 0 0 0 1px rgba(88,166,255,0.06);
   }
+  .cmp-modal-max { width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; border: none; }
+
   .cmp-head {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 16px; background: var(--enzo-bg); border-bottom: 1px solid var(--enzo-bd);
-    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 9px 16px; background: rgba(88,166,255,0.05);
+    border-bottom: 1px solid rgba(88,166,255,0.12); flex-shrink: 0; flex-wrap: wrap;
   }
   .cmp-head-left { display: flex; align-items: center; gap: 8px; }
-  .cmp-head-title { font-size: 0.84rem; font-weight: 700; color: var(--enzo); }
+  .cmp-head-title { font-size: 0.84rem; font-weight: 700; color: #58a6ff; }
+  .cmp-node-count { font-size: 0.71rem; color: #3d4f6e; font-family: var(--mono); }
+  .cmp-head-mid { flex: 1; display: flex; justify-content: center; align-items: center; }
   .cmp-head-actions { display: flex; align-items: center; gap: 4px; }
 
-  .cmp-pills-strip { display: flex; flex-direction: column; gap: 0; border-bottom: 1px solid var(--bd); flex-shrink: 0; }
+  .density-label { display: flex; align-items: center; gap: 8px; cursor: default; }
+  .density-txt { font-size: 0.70rem; font-weight: 600; color: #3d4f6e; text-transform: uppercase; letter-spacing: .05em; }
+  .density-slider {
+    -webkit-appearance: none; appearance: none;
+    width: 90px; height: 3px; border-radius: 2px;
+    background: #1d2535; cursor: pointer; outline: none;
+  }
+  .density-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 13px; height: 13px;
+    border-radius: 50%; background: #58a6ff;
+    box-shadow: 0 0 6px rgba(88,166,255,0.5); cursor: pointer;
+  }
+  .density-val { font-size: 0.78rem; font-weight: 700; color: #58a6ff; font-family: var(--mono); min-width: 20px; }
+
+  .cmp-pills-strip { display: flex; flex-direction: column; border-bottom: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; }
   .cmp-pill {
-    display: flex; align-items: baseline; gap: 8px;
-    padding: 7px 16px; font-size: 0.78rem; background: var(--sf2);
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 6px 16px; font-size: 0.78rem; background: rgba(255,255,255,0.015);
   }
-  .cmp-pill + .cmp-pill { border-top: 1px solid var(--bd); }
+  .cmp-pill + .cmp-pill { border-top: 1px solid rgba(255,255,255,0.04); }
   .cmp-pill-lbl {
-    flex-shrink: 0; font-size: 0.68rem; font-weight: 800; letter-spacing: .03em;
-    padding: 1px 5px; border-radius: 3px; line-height: 1.6;
+    flex-shrink: 0; font-size: 0.67rem; font-weight: 800; letter-spacing: .03em;
+    padding: 1px 6px; border-radius: 4px; line-height: 1.6;
   }
-  .cmp-pill-a .cmp-pill-lbl { background: #1e3a5f; color: #60a5fa; }
-  .cmp-pill-b .cmp-pill-lbl { background: #2d1f47; color: #c084fc; }
-  .cmp-pill-c .cmp-pill-lbl { background: #1a3a2a; color: #4ade80; }
-  .cmp-pill-title { color: var(--tx1); font-weight: 600; flex: 1; line-height: 1.4; }
-  .cmp-pill-meta  { flex-shrink: 0; color: var(--mu); font-size: 0.72rem; }
+  .cmp-pill-title { color: #cdd9e5; font-weight: 600; flex: 1; line-height: 1.4; }
+  .cmp-pill-meta  { flex-shrink: 0; color: #3d4f6e; font-size: 0.71rem; }
 
-  .cmp-loading { padding: 28px 24px; }
+  /* Graph canvas */
+  .cmp-graph-wrap {
+    flex: 1; min-height: 0; position: relative;
+    background: #060910; overflow: hidden;
+  }
+  .cmp-graph-svg { width: 100%; height: 100%; display: block; cursor: grab; user-select: none; min-height: 400px; }
+  .cmp-graph-svg:active { cursor: grabbing; }
 
-  /* Body: radar + table side-by-side */
-  .cmp-body {
-    display: flex; gap: 0; overflow-y: auto; flex: 1; min-height: 0;
+  /* Loading */
+  .cmp-loading-state {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 16px;
   }
-  .cmp-radar-col {
-    flex: 0 0 300px; display: flex; flex-direction: column; align-items: center;
-    padding: 14px 8px 10px;
-    border-right: 1px solid var(--bd);
-    background: var(--sf);
+  .cmp-loading-dots { display: flex; gap: 8px; }
+  .cmp-loading-dots span {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #58a6ff; opacity: 0;
+    animation: cmpDotPulse 1.4s ease-in-out infinite;
   }
-  .cmp-radar-svg { width: 100%; height: auto; display: block; }
+  .cmp-loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .cmp-loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes cmpDotPulse { 0%,80%,100%{opacity:0;transform:scale(0.6)} 40%{opacity:1;transform:scale(1)} }
+  .cmp-loading-txt { font-size: 0.8rem; color: #3d4f6e; }
 
-  /* SVG radar elements */
-  .radar-grid {
-    fill: none; stroke: var(--bd2); stroke-width: 1;
+  /* Tooltip */
+  .graph-tooltip {
+    position: absolute; pointer-events: none; z-index: 200;
+    background: #111827; border: 1px solid #1d2d42;
+    border-radius: 8px; padding: 10px 12px;
+    max-width: 220px; box-shadow: 0 8px 28px rgba(0,0,0,0.55);
+    font-size: 0.78rem;
   }
-  .radar-axis { stroke: var(--bd2); stroke-width: 1; }
-  .radar-data {
-    fill-opacity: 0.18; stroke-width: 2;
-    animation: radarIn 0.5s ease both;
+  .tt-head { font-size: 0.68rem; font-weight: 800; margin-bottom: 3px; }
+  .tt-type-badge {
+    display: inline-block; font-size: 0.64rem; font-weight: 700;
+    padding: 1px 6px; border-radius: 3px; margin-bottom: 5px;
+    text-transform: uppercase; letter-spacing: .04em;
   }
-  .radar-data-1 { fill: #3d7fff; stroke: #3d7fff; animation-delay: 0.05s; }
-  .radar-data-2 { fill: #c084fc; stroke: #c084fc; animation-delay: 0.15s; }
-  .radar-data-3 { fill: #4ade80; stroke: #4ade80; animation-delay: 0.25s; }
-  .radar-dot { fill-opacity: 0.9; stroke: var(--sf); stroke-width: 1; }
-  .radar-dot-1 { fill: #3d7fff; }
-  .radar-dot-2 { fill: #c084fc; }
-  .radar-dot-3 { fill: #4ade80; }
-  .radar-label { font-size: 9px; fill: var(--mu); font-family: var(--font); }
-  .radar-tick  { font-size: 7px; fill: var(--mu); font-family: var(--mono); opacity: 0.6; }
-  @keyframes radarIn { from { opacity: 0; transform: scale(0.6); transform-box: fill-box; transform-origin: center; } to { opacity: 1; transform: scale(1); } }
+  .tt-title { font-weight: 600; color: #cdd9e5; line-height: 1.35; margin-bottom: 4px; }
+  .tt-desc { color: #768498; font-size: 0.73rem; line-height: 1.45; margin-bottom: 6px; }
+  .tt-sub { color: #3d4f6e; font-size: 0.71rem; margin-top: 2px; }
+  .tt-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+  .tt-chip { font-size: 0.67rem; font-weight: 700; padding: 1px 6px; border-radius: 3px; }
+  .tt-shared { font-size: 0.7rem; color: #3d4f6e; font-style: italic; }
+  .tt-imp { display: flex; gap: 3px; margin-top: 6px; }
+  .tt-imp-pip { width: 10px; height: 4px; border-radius: 2px; background: #1d2535; }
+  .tt-imp-pip.on { background: #58a6ff; }
+  .tt-relation { font-weight: 700; color: #cdd9e5; margin-bottom: 4px; }
+  .tt-weight-row { display: flex; gap: 3px; margin-bottom: 6px; }
+  .tt-w-pip { width: 14px; height: 4px; border-radius: 2px; background: #1d2535; }
+  .tt-w-pip.on { background: #58a6ff; }
+  .tt-edge-pts { font-size: 0.71rem; color: #3d4f6e; display: flex; gap: 6px; align-items: center; }
 
-  /* Radar legend */
-  .radar-legend { display: flex; flex-direction: column; gap: 4px; padding: 4px 6px; width: 100%; }
-  .radar-leg-row { display: flex; align-items: center; gap: 7px; }
-  .radar-leg-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-  .leg-dot-1 { background: #3d7fff; }
-  .leg-dot-2 { background: #c084fc; }
-  .leg-dot-3 { background: #4ade80; }
+  /* Graph controls overlay */
+  .graph-controls {
+    position: absolute; bottom: 10px; right: 10px;
+    display: flex; align-items: center; gap: 3px;
+    background: rgba(11,17,32,0.92); border: 1px solid #1d2535;
+    border-radius: 8px; padding: 4px 7px;
+  }
+  .graph-ctrl-btn {
+    width: 24px; height: 24px; border-radius: 5px; border: 1px solid #1d2535;
+    background: transparent; color: #768498; font-size: 0.88rem; font-weight: 700;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: all 0.12s;
+  }
+  .graph-ctrl-btn:hover { background: #1d2535; color: #cdd9e5; }
+  .graph-zoom-pct { font-size: 0.67rem; color: #3d4f6e; font-family: var(--mono); min-width: 34px; text-align: center; }
 
-  /* Table column */
-  .cmp-table-col { flex: 1; overflow: auto; padding: 10px 14px; }
-  .cmp-table {
-    border-collapse: collapse; width: 100%; font-size: 0.79rem;
-    border: 1px solid var(--bd); border-radius: 6px; overflow: hidden;
+  /* Legend */
+  .graph-legend {
+    position: absolute; bottom: 10px; left: 10px;
+    display: flex; gap: 8px; flex-wrap: wrap;
+    background: rgba(11,17,32,0.88); border: 1px solid #1d2535;
+    border-radius: 8px; padding: 5px 10px; max-width: 420px;
   }
-  .cmp-table thead th {
-    padding: 8px 12px; background: var(--sf3); border-bottom: 2px solid var(--bd);
-    font-weight: 700; text-align: left; white-space: nowrap;
-    font-size: 0.73rem; text-transform: uppercase; letter-spacing: .04em;
-  }
-  .cmp-table .th-a { color: #60a5fa; }
-  .cmp-table .th-b { color: #c084fc; }
-  .cmp-table .th-c { color: #4ade80; }
-  .th-score-row { display: flex; gap: 2px; margin-top: 4px; }
-  .th-score-pip { display: inline-block; width: 7px; height: 7px; border-radius: 2px; background: currentColor; }
-  .cmp-table tbody tr:nth-child(even) { background: var(--sf2); }
-  .cmp-table tbody tr:hover { background: color-mix(in srgb, var(--enzo) 6%, transparent); }
-  .cmp-table td { padding: 8px 12px; border-bottom: 1px solid var(--bd); vertical-align: top; line-height: 1.55; color: var(--tx2); }
-  .cmp-table tbody tr:last-child td { border-bottom: none; }
-  .cmp-dim {
-    font-weight: 600; color: var(--tx1); white-space: nowrap;
-    width: 120px; display: table-cell; vertical-align: top;
-  }
-  .cmp-dim-scores { display: flex; gap: 3px; margin-top: 4px; }
-  .dim-score {
-    font-size: 0.65rem; font-weight: 800; padding: 0 4px;
-    border-radius: 3px; font-family: var(--mono);
-  }
-  .dim-score-1 { background: rgba(61,127,255,.2); color: #60a5fa; }
-  .dim-score-2 { background: rgba(192,132,252,.2); color: #c084fc; }
-  .dim-score-3 { background: rgba(74,222,128,.2); color: #4ade80; }
-  .cmp-cell { color: var(--tx2); }
+  .legend-item { display: flex; align-items: center; gap: 4px; font-size: 0.66rem; color: #3d4f6e; }
+  .legend-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+  /* Error */
+  .cmp-error { padding: 60px 24px; display: flex; flex-direction: column; align-items: center; gap: 10px; background: #060910; }
 
   /* Verdict */
-  .cmp-verdict {
-    display: flex; align-items: flex-start; gap: 10px;
-    padding: 12px 16px; background: var(--enzo-bg);
-    border-top: 1px solid var(--enzo-bd); flex-shrink: 0;
+  .cmp-verdict-bar {
+    display: flex; align-items: flex-start; gap: 10px; flex-shrink: 0;
+    padding: 10px 16px; background: rgba(88,166,255,0.04);
+    border-top: 1px solid rgba(88,166,255,0.1);
   }
   .cmp-verdict-label {
-    flex-shrink: 0; font-size: 0.68rem; font-weight: 800; letter-spacing: .06em;
-    text-transform: uppercase; color: var(--enzo); padding-top: 2px;
+    flex-shrink: 0; font-size: 0.67rem; font-weight: 800; letter-spacing: .06em;
+    text-transform: uppercase; color: #58a6ff; padding-top: 2px;
   }
-  .cmp-verdict-text { font-size: 0.83rem; color: var(--tx1); line-height: 1.65; margin: 0; }
+  .cmp-verdict-text { font-size: 0.82rem; color: #9ca3af; line-height: 1.65; margin: 0; }
 
-  /* Error state */
-  .cmp-error { padding: 28px 24px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
-
-  /* Responsive: stack on narrow screens */
-  @media (max-width: 640px) {
-    .cmp-body { flex-direction: column; }
-    .cmp-radar-col { flex: none; border-right: none; border-bottom: 1px solid var(--bd); }
+  /* Collapsible table */
+  .cmp-table-details { border-top: 1px solid rgba(255,255,255,0.04); flex-shrink: 0; background: #0b1120; }
+  .cmp-table-summary {
+    padding: 8px 16px; font-size: 0.74rem; font-weight: 600; color: #3d4f6e;
+    cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; user-select: none;
   }
+  .cmp-table-summary::-webkit-details-marker { display: none; }
+  .cmp-table-summary::before { content: '▸'; font-size: 0.64rem; transition: transform 0.15s; }
+  .cmp-table-details[open] .cmp-table-summary::before { transform: rotate(90deg); }
+  .cmp-table-summary:hover { color: #cdd9e5; }
+  .cmp-table-wrap { overflow-x: auto; max-height: 250px; overflow-y: auto; }
+  .cmp-table { border-collapse: collapse; width: 100%; font-size: 0.76rem; }
+  .cmp-table thead th {
+    padding: 6px 12px; background: #0d1625;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    font-weight: 700; text-align: left; font-size: 0.70rem;
+    text-transform: uppercase; letter-spacing: .04em; color: #3d4f6e;
+    position: sticky; top: 0;
+  }
+  .cmp-table tbody tr:nth-child(even) { background: rgba(255,255,255,0.012); }
+  .cmp-table tbody tr:hover { background: rgba(88,166,255,0.04); }
+  .cmp-table td { padding: 7px 12px; border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: top; line-height: 1.5; }
+  .cmp-table tbody tr:last-child td { border-bottom: none; }
+  .cmp-dim { font-weight: 600; color: #9ca3af; white-space: nowrap; min-width: 120px; }
+  .cmp-dim-scores { display: flex; gap: 3px; margin-top: 3px; }
+  .dim-score { font-size: 0.63rem; font-weight: 800; padding: 0 4px; border-radius: 3px; font-family: var(--mono); }
+  .cmp-cell { color: #768498; font-size: 0.74rem; }
+
+  /* Legacy skeleton classes kept for other uses */
+  .compare-skeleton { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
+  .csk-row { height: 14px; border-radius: 4px; background: var(--sf2); animation: cskPulse 1.4s ease infinite; }
+  .csk-short { width: 45%; } .csk-medium { width: 70%; }
+  .csk-label { font-size: 0.74rem; color: var(--mu); text-align: center; margin-top: 4px; animation: cskPulse 1.4s ease-in-out infinite; }
+  @keyframes cskPulse { 0%,100%{opacity:.35} 50%{opacity:.75} }
 </style>

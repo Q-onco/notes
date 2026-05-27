@@ -985,7 +985,25 @@ Academic prose, third person, past tense for experiments, present tense for esta
 }
 
 // ── Structured paper compare (radar chart data) ──────────────────────────────
-export type CompareStructured = {
+export type GraphNode = {
+  id: string;
+  label: string;
+  type: 'method' | 'finding' | 'gene' | 'pathway' | 'limitation' | 'concept' | 'biomarker';
+  papers: number[];
+  importance: number;
+  description: string;
+};
+
+export type GraphEdge = {
+  source: string;
+  target: string;
+  relation: string;
+  weight: number;
+};
+
+export type CompareGraph = {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
   scores: Record<string, number[]>;
   axes: string[];
   table: { dimension: string; [key: string]: string }[];
@@ -995,63 +1013,67 @@ export type CompareStructured = {
 export async function comparePapersStructured(
   papers: { title: string; authors: string[]; year: number; journal: string; abstract: string }[],
   signal?: AbortSignal
-): Promise<CompareStructured | null> {
+): Promise<CompareGraph | null> {
   const n = papers.length;
-  const keys = papers.map((_, i) => `paper_${i + 1}`);
   const AXES = ['Sample Size', 'Methodology', 'Novelty', 'HGSOC Relevance', 'Statistical Power', 'Translatability'];
+  const keys = papers.map((_, i) => `paper_${i}`);
 
   const paperBlocks = papers.map((p, i) =>
-    `**Paper ${i + 1}:** ${p.title} (${p.authors[0] ?? 'Unknown'} et al., ${p.year}, ${p.journal})\nAbstract: ${p.abstract?.slice(0, 500) ?? 'N/A'}`
+    `Paper ${i}: ${p.title} (${p.authors[0] ?? 'Unknown'} et al., ${p.year}, ${p.journal})\n${p.abstract?.slice(0, 550) ?? ''}`
   ).join('\n\n');
 
-  const messages = [
-    {
-      role: 'system' as const,
-      content: 'You are Enzo, a scientific research analyst specialising in HGSOC and oncology. Return ONLY valid JSON — no markdown fences, no preamble. Scores must be integers 1–5.'
-    },
-    {
-      role: 'user' as const,
-      content: `Compare these ${n} papers and return a structured JSON analysis.
+  function buildPrompt(concise: boolean) {
+    const nodeCount = concise ? '12–16' : '22–28';
+    return `Compare these ${n} oncology papers. Return ONLY valid JSON — no markdown fences, no explanation.
 
-Papers:
 ${paperBlocks}
 
-Return EXACTLY this JSON (no other text):
+Return exactly this structure:
 {
-  "scores": { ${keys.map(k => `"${k}": [3,4,5,2,4,3]`).join(', ')} },
+  "nodes": [{"id":"n1","label":"scRNA-seq","type":"method","papers":[0,1],"importance":4,"description":"Single-cell RNA sequencing profiles TME heterogeneity"}],
+  "edges": [{"source":"paper_0","target":"n1","relation":"employs","weight":4},{"source":"n1","target":"n2","relation":"reveals","weight":3}],
+  "scores": {${keys.map(k => `"${k}":[3,4,2,5,3,4]`).join(',')}},
   "axes": ${JSON.stringify(AXES)},
-  "table": [
-    ${AXES.map(a => `{"dimension": "${a}", ${keys.map(k => `"${k}": "description"`).join(', ')}}`).join(',\n    ')}
-  ],
-  "verdict": "2-sentence verdict here"
+  "table": [${AXES.map(a => `{"dimension":"${a}",${keys.map(k => `"${k}":"1 sentence"`).join(',')}}`).join(',')}],
+  "verdict": "2 sentence verdict."
 }
 
-Rules:
-- scores: rate each paper 1–5 on each axis (order matches "axes" array)
-- table: ONE concise sentence per paper per dimension (max 18 words each)
-- verdict: 2 sentences — key difference + which paper is more relevant to HGSOC research
-
-Return ONLY the JSON object.`
-    }
-  ];
-
-  let buffer = '';
-  await streamGroq(MODELS.enzo, messages, c => { buffer += c; }, signal, 1200);
-
-  const match = buffer.match(/\{[\s\S]*\}/);
-  if (!match) return null;
-  try {
-    const parsed = JSON.parse(match[0]) as CompareStructured;
-    if (!parsed.scores || !parsed.axes || !parsed.table || !parsed.verdict) return null;
-    for (const key of Object.keys(parsed.scores)) {
-      parsed.scores[key] = (parsed.scores[key] as unknown[]).map(s =>
-        Math.min(5, Math.max(1, Math.round(Number(s) || 3)))
-      );
-    }
-    return parsed;
-  } catch {
-    return null;
+node types: method | finding | gene | pathway | limitation | concept | biomarker
+edge relations: employs | reports | validates | contradicts | extends | reveals | targets | inhibits | correlates
+papers[]: 0-based indices of papers referencing this concept (shared = 2+ indices)
+Generate ${nodeCount} nodes covering methods, findings, genes/pathways, limitations, shared themes.
+Edge weight 1–5 = strength. Node importance 1–5 = centrality. Table: 1 sentence per cell max 15 words.
+Return ONLY the JSON object.`;
   }
+
+  async function attempt(concise: boolean): Promise<CompareGraph | null> {
+    let buffer = '';
+    try {
+      await streamGroq(MODELS.enzo, [
+        { role: 'system' as const, content: 'You are Enzo, an oncology research AI specialising in HGSOC. Return ONLY valid JSON, no preamble, no markdown.' },
+        { role: 'user' as const, content: buildPrompt(concise) }
+      ], c => { buffer += c; }, signal, concise ? 2000 : 3200);
+    } catch { return null; }
+
+    buffer = buffer.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/m, '').trim();
+    const match = buffer.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try {
+      const parsed = JSON.parse(match[0]) as CompareGraph;
+      if (!Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges) || !parsed.verdict) return null;
+      for (const k of Object.keys(parsed.scores ?? {}))
+        parsed.scores[k] = (parsed.scores[k] as unknown[]).map(s => Math.min(5, Math.max(1, Math.round(Number(s) || 3))));
+      for (const e of parsed.edges) e.weight = Math.min(5, Math.max(1, Math.round(Number(e.weight) || 3)));
+      for (const node of parsed.nodes) {
+        node.importance = Math.min(5, Math.max(1, Math.round(Number(node.importance) || 3)));
+        if (!Array.isArray(node.papers)) node.papers = [];
+      }
+      return parsed;
+    } catch { return null; }
+  }
+
+  const result = await attempt(false);
+  return result ?? attempt(true);
 }
 
 export async function comparePapers(
