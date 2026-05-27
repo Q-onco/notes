@@ -31,6 +31,7 @@ export const PATHS = {
   launchpad:     'data/launchpad.enc',
   biblio:        'data/biblio.enc',
   wellness:      'data/wellness.enc',
+  sysReview:     'data/sys-review.enc',
 } as const;
 
 function headers(token: string) {

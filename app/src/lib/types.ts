@@ -862,3 +862,55 @@ export interface WellnessData {
   shownMilestones?: string[]; // e.g. ['gym-7', 'journal-30']
   sessionDates?: string[];    // YYYY-MM-DD entries to count logins per day
 }
+
+// ── Systematic Review Conductor ───────────────────────────────────────────────
+
+export type SRDecision = 'include' | 'exclude' | 'uncertain';
+export type SRStage = 'protocol' | 'search' | 'screening' | 'fulltext' | 'extraction' | 'synthesis';
+
+export interface SRExtractionField {
+  id: string;
+  label: string;
+}
+
+export interface SRPaper {
+  id: string;
+  title: string;
+  authors: string[];
+  year: number;
+  journal: string;
+  abstract: string;
+  doi: string;
+  source: string;
+  // Stage 1: title/abstract screening
+  s1Decision?: SRDecision;
+  s1Reason?: string;
+  s1EnzoSuggestion?: SRDecision;
+  s1EnzoReason?: string;
+  // Stage 2: full-text screening
+  s2Decision?: SRDecision;
+  s2Reason?: string;
+  s2ExclusionReason?: string;
+  // Data extraction
+  extraction?: Record<string, string>;
+}
+
+export interface SystematicReview {
+  id: string;
+  title: string;
+  pico: {
+    population: string;
+    intervention: string;
+    comparator: string;
+    outcome: string;
+    studyDesign: string;
+  };
+  inclusion: string[];
+  exclusion: string[];
+  extractionFields: SRExtractionField[];
+  papers: SRPaper[];
+  searches: { source: string; query: string; date: number; count: number }[];
+  stage: SRStage;
+  createdAt: number;
+  updatedAt: number;
+}

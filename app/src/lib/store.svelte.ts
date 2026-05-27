@@ -9,13 +9,14 @@ import type {
   Grant, ConferenceAbstract, PeerReview, Manuscript,
   MailContact, MailSent, MailDraft, MailComposeDraft,
   ReviewArticle, PaperCollection, LaunchpadCustomResource,
-  BiblioReference, BiblioCollection
+  BiblioReference, BiblioCollection,
+  SystematicReview
 } from './types';
 import { loadEncFile, saveEncFile, PATHS, validateToken } from './github';
 import { WORKER_URL } from './groq';
 import { idbGet, idbSet, idbNuke } from './idb';
 
-type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs' | 'labtools' | 'presentations' | 'files' | 'grants' | 'manuscript' | 'review' | 'mail' | 'launchpad' | 'biblio';
+type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs' | 'labtools' | 'presentations' | 'files' | 'grants' | 'manuscript' | 'review' | 'mail' | 'launchpad' | 'biblio' | 'sysreview';
 
 const DEFAULT_PROFILE: ResearcherProfile = {
   currentRole: 'Postdoctoral Researcher',
@@ -135,6 +136,8 @@ class Store {
   biblioRefs = $state<BiblioReference[]>([]);
   biblioCollections = $state<BiblioCollection[]>([]);
   biblioSha = $state<string | null>(null);
+  sysReviews = $state<SystematicReview[]>([]);
+  sysReviewsSha = $state<string | null>(null);
 
   profile = $state<ResearcherProfile>({ ...DEFAULT_PROFILE });
   profileSha = $state<string | null>(null);
@@ -292,7 +295,7 @@ class Store {
       if (cached) this.files = cached;
     }
 
-    const [n, j, t, c, a, pp, s, res, pip, jb, jbx, cv, cl, prf, pres, fi, gr, conf, pr, ms, rv, lp, bl, wl] = await Promise.all([
+    const [n, j, t, c, a, pp, s, res, pip, jb, jbx, cv, cl, prf, pres, fi, gr, conf, pr, ms, rv, lp, bl, wl, sr] = await Promise.all([
       loadEncFile<Note[]>(this.tok, PATHS.notes, []),
       loadEncFile<JournalEntry[]>(this.tok, PATHS.journal, []),
       loadEncFile<Task[]>(this.tok, PATHS.tasks, []),
@@ -317,6 +320,7 @@ class Store {
       loadEncFile<{bookmarks?: string[], custom?: LaunchpadCustomResource[]}>(this.tok, PATHS.launchpad, { bookmarks: [], custom: [] }),
       loadEncFile<{refs?: BiblioReference[], collections?: BiblioCollection[]}>(this.tok, PATHS.biblio, { refs: [], collections: [] }),
       loadEncFile<WellnessData>(this.tok, PATHS.wellness, { log: [] }),
+      loadEncFile<SystematicReview[]>(this.tok, PATHS.sysReview, []),
     ]);
 
     this.notes = n.data; this.notesSha = n.sha;
@@ -370,6 +374,8 @@ class Store {
     this.biblioRefs = bl.data?.refs ?? [];
     this.biblioCollections = bl.data?.collections ?? [];
     this.biblioSha = bl.sha;
+    this.sysReviews = sr.data ?? [];
+    this.sysReviewsSha = sr.sha;
     this.habitLog = wl.data?.log ?? [];
     this.currentBook = wl.data?.currentBook ?? '';
     this.lastArvinCall = wl.data?.lastArvinCall ?? '';
@@ -409,6 +415,12 @@ class Store {
       'biblio: update'
     );
     this.biblioSha = sha;
+  }
+
+  async saveSysReviews(): Promise<void> {
+    if (!this.tok) return;
+    const sha = await saveEncFile(this.tok, PATHS.sysReview, this.sysReviews, this.sysReviewsSha, 'sysreview: update');
+    this.sysReviewsSha = sha;
   }
 
   async saveWellness(): Promise<void> {

@@ -1883,3 +1883,88 @@ export async function biblioMultiGap(
   ];
   await streamGroq(MODELS.enzo, messages, onChunk, signal);
 }
+
+// ── Systematic Review Conductor ───────────────────────────────────────────────
+
+export async function srScreenPaper(
+  paper: { title: string; abstract: string; year: number; journal: string },
+  inclusion: string[],
+  exclusion: string[],
+  signal?: AbortSignal
+): Promise<{ decision: 'include' | 'exclude' | 'uncertain'; reason: string }> {
+  const inc = inclusion.length ? inclusion.map(c => `- ${c}`).join('\n') : '- Relevant oncology study';
+  const exc = exclusion.length ? exclusion.map(c => `- ${c}`).join('\n') : '- Non-oncology studies';
+  const messages = [
+    { role: 'system' as const, content: 'You are a systematic review screener. Return ONLY valid JSON: {"decision":"include"|"exclude"|"uncertain","reason":"one sentence max 20 words"}' },
+    { role: 'user' as const, content: `Screen this paper.\n\nInclusion:\n${inc}\n\nExclusion:\n${exc}\n\nTitle: ${paper.title}\nJournal: ${paper.journal} (${paper.year})\nAbstract: ${paper.abstract?.slice(0, 500) ?? 'N/A'}\n\nReturn ONLY JSON.` }
+  ];
+  let buf = '';
+  try {
+    await streamGroq(MODELS.quick, messages, c => { buf += c; }, signal, 120);
+  } catch { return { decision: 'uncertain', reason: 'Screening error' }; }
+  buf = buf.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/m, '').trim();
+  try {
+    const match = buf.match(/\{[^{}]+\}/);
+    if (!match) return { decision: 'uncertain', reason: 'Parse error' };
+    const parsed = JSON.parse(match[0]);
+    const decision = (['include', 'exclude', 'uncertain'] as const).includes(parsed.decision) ? parsed.decision : 'uncertain';
+    return { decision, reason: String(parsed.reason ?? '').slice(0, 120) };
+  } catch { return { decision: 'uncertain', reason: '' }; }
+}
+
+export async function srExtractPaper(
+  paper: { title: string; abstract: string; year: number; journal: string; authors: string[] },
+  fields: { id: string; label: string }[],
+  signal?: AbortSignal
+): Promise<Record<string, string>> {
+  if (!fields.length) return {};
+  const fieldSpec = fields.map(f => `"${f.id}": "<${f.label}>"`).join(', ');
+  const messages = [
+    { role: 'system' as const, content: 'You are a systematic review data extractor. Return ONLY a JSON object, no markdown.' },
+    { role: 'user' as const, content: `Extract data for systematic review.\n\nFields: {${fieldSpec}}\n\nTitle: ${paper.title}\nAuthors: ${paper.authors.slice(0, 3).join(', ')}\nJournal: ${paper.journal} (${paper.year})\nAbstract: ${paper.abstract?.slice(0, 700) ?? 'N/A'}\n\nUse "Not reported" if unavailable. Return ONLY JSON.` }
+  ];
+  let buf = '';
+  try {
+    await streamGroq(MODELS.quick, messages, c => { buf += c; }, signal, 500);
+  } catch { return {}; }
+  buf = buf.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/m, '').trim();
+  try {
+    const match = buf.match(/\{[\s\S]*\}/);
+    if (!match) return {};
+    return JSON.parse(match[0]);
+  } catch { return {}; }
+}
+
+export async function srDraftSection(
+  mode: 'methods' | 'results',
+  review: {
+    title: string;
+    pico: { population: string; intervention: string; comparator: string; outcome: string; studyDesign: string };
+    inclusion: string[];
+    exclusion: string[];
+    searches: { source: string; query: string; count: number }[];
+    prisma: { identified: number; deduped: number; screened: number; excluded1: number; fulltext: number; excluded2: number; included: number };
+    included: { title: string; authors: string[]; year: number; journal: string; extraction: Record<string, string> }[];
+  },
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const picoStr = `P: ${review.pico.population} | I: ${review.pico.intervention} | C: ${review.pico.comparator} | O: ${review.pico.outcome} | Design: ${review.pico.studyDesign}`;
+  if (mode === 'methods') {
+    const searchSummary = review.searches.map(s => `${s.source} ("${s.query}", ${s.count} records)`).join('; ');
+    const messages = [
+      { role: 'system' as const, content: 'You are Enzo, an expert systematic reviewer in oncology. Write formal academic prose suitable for a PRISMA-compliant methods section.' },
+      { role: 'user' as const, content: `Write the Methods section for this systematic review.\n\nTitle: ${review.title}\nPICO: ${picoStr}\nInclusion: ${review.inclusion.join('; ')}\nExclusion: ${review.exclusion.join('; ')}\nSearches: ${searchSummary}\nPRISMA: ${review.prisma.identified} identified, ${review.prisma.deduped} after dedup, ${review.prisma.screened} screened, ${review.prisma.excluded1} excluded at title/abstract, ${review.prisma.fulltext} full-texts, ${review.prisma.excluded2} excluded, ${review.prisma.included} included.\n\nCover: databases, dates, search terms, screening process, data extraction. PRISMA 2020 standards. Past tense, third person. ~300 words.` }
+    ];
+    await streamGroq(MODELS.enzo, messages, onChunk, signal, 1800);
+  } else {
+    const tableRows = review.included.slice(0, 15).map((p, i) =>
+      `[${i + 1}] ${p.authors[0] ?? 'Unknown'} et al. (${p.year}), ${p.journal}: ${Object.entries(p.extraction).map(([k, v]) => `${k}=${v}`).join('; ')}`
+    ).join('\n');
+    const messages = [
+      { role: 'system' as const, content: 'You are Enzo, an expert systematic reviewer in HGSOC oncology. Write formal academic prose for a systematic review results section.' },
+      { role: 'user' as const, content: `Write the Results section for this systematic review.\n\nTitle: ${review.title}\nPICO: ${picoStr}\nIncluded studies (${review.included.length}):\n${tableRows}\n\nCover: PRISMA flow, study characteristics, key findings, agreement/disagreement, effect sizes. Numbered citations [1], [2]. Past tense. ~400 words.` }
+    ];
+    await streamGroq(MODELS.enzo, messages, onChunk, signal, 2200);
+  }
+}

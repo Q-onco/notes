@@ -26,6 +26,7 @@
   import Mail from './Mail.svelte';
   import Launchpad from './Launchpad.svelte';
   import Biblio from './Biblio.svelte';
+  import SystematicReview from './SystematicReview.svelte';
   import Weather from './Weather.svelte';
   import Help from './Help.svelte';
   import CommandPalette from './CommandPalette.svelte';
@@ -1031,6 +1032,8 @@
         <Mail {showToast} />
       {:else if store.view === 'biblio'}
         <Biblio />
+      {:else if store.view === 'sysreview'}
+        <SystematicReview {showToast} />
       {:else if store.view === 'launchpad'}
         <Launchpad />
       {:else if store.view === 'settings'}
