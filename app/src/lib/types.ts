@@ -78,6 +78,8 @@ export interface ChatSession {
   date: string;
   messages: ChatMessage[];
   noteContext: string | null;
+  fileContext?: string;   // persisted file content for session
+  fileName?: string;      // display name of the loaded file
 }
 
 export interface CalendarEvent {

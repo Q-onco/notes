@@ -6,6 +6,13 @@
   import { getEnzoPersonality } from '../lib/personality';
   import EnzoDog from './EnzoDog.svelte';
   import { extractPdfText } from '../lib/pdfUtils';
+  import { marked, Renderer } from 'marked';
+
+  // Open all Enzo links in a new tab
+  const enzoRenderer = new Renderer();
+  enzoRenderer.link = ({ href, title, text }) =>
+    `<a href="${href}" target="_blank" rel="noopener noreferrer"${title ? ` title="${title}"` : ''}>${text}</a>`;
+  marked.use({ renderer: enzoRenderer, breaks: true });
 
   let { showToast, emotion = 'content' }: {
     showToast: (msg: string, type?: 'success' | 'error') => void;
@@ -612,6 +619,16 @@
   let resumedSessionId = $state<string | null>(null);
   // Persists fetched file content for the duration of a session
   let sessionFileContext = $state('');
+  let sessionFileName = $state('');
+
+  // Restore file context when current session changes (resume / page load)
+  $effect(() => {
+    const s = currentSession;
+    if (s?.fileContext && !sessionFileContext) {
+      sessionFileContext = s.fileContext;
+      sessionFileName = s.fileName ?? '';
+    }
+  });
 
   // Current session for today
   const todayKey = new Date().toISOString().slice(0, 10);
@@ -641,6 +658,7 @@
 
   function startNewChat() {
     sessionFileContext = '';
+    sessionFileName = '';
     inputText = '';
     if (resumedSessionId) {
       resumedSessionId = null;
@@ -735,20 +753,45 @@
           msgLower.includes(f.name.toLowerCase()) ||
           msgLower.includes(f.name.toLowerCase().replace(/\.[^.]+$/, ''))
         );
-        if (mentionedFile?.r2Key && store.workerBase) {
-          const fileUrl = `${store.workerBase}/file/${encodeURIComponent(mentionedFile.r2Key)}`;
+        if (mentionedFile) {
           try {
-            if (mentionedFile.mimeType === 'application/pdf') {
-              const extracted = await extractPdfText(fileUrl);
-              if (extracted.trim()) {
-                sessionFileContext = `## File: ${mentionedFile.name}\n${extracted.slice(0, 60000)}`;
+            let extracted = '';
+            const mime = mentionedFile.mimeType ?? '';
+
+            if (mentionedFile.r2Key && store.workerBase) {
+              // R2-stored file — fetch via worker
+              const fileUrl = `${store.workerBase}/file/${encodeURIComponent(mentionedFile.r2Key)}`;
+              if (mime === 'application/pdf') {
+                extracted = await extractPdfText(fileUrl);
+              } else if (mime.startsWith('text/') || mime.includes('json')) {
+                const res = await fetch(fileUrl);
+                if (res.ok) extracted = await res.text();
               }
-            } else if (mentionedFile.mimeType?.startsWith('text/') || mentionedFile.mimeType?.includes('json')) {
-              const res = await fetch(fileUrl);
-              if (res.ok) {
-                const txt = await res.text();
-                sessionFileContext = `## File: ${mentionedFile.name}\n${txt.slice(0, 40000)}`;
+            } else if ((mentionedFile as any).data) {
+              // Legacy base64-stored file
+              const raw = (mentionedFile as any).data as string;
+              const base64 = raw.includes(',') ? raw.split(',')[1] : raw;
+              const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+              const blob = new Blob([bytes], { type: mime || 'application/octet-stream' });
+              const blobUrl = URL.createObjectURL(blob);
+              try {
+                if (mime === 'application/pdf') {
+                  extracted = await extractPdfText(blobUrl);
+                } else if (mime.startsWith('text/') || mime.includes('json')) {
+                  extracted = new TextDecoder().decode(bytes);
+                }
+              } finally {
+                URL.revokeObjectURL(blobUrl);
               }
+            }
+
+            if (extracted.trim()) {
+              sessionFileContext = `## File: ${mentionedFile.name}\n${extracted.slice(0, 60000)}`;
+              sessionFileName = mentionedFile.name;
+              const sess = getOrCreateSession();
+              sess.fileContext = sessionFileContext;
+              sess.fileName = mentionedFile.name;
+              await store.saveChat();
             }
           } catch { /* silent */ }
         }
@@ -1009,6 +1052,8 @@
                 <span class="thinking-dots">
                   <span></span><span></span><span></span>
                 </span>
+              {:else if msg.role === 'assistant'}
+                <div class="enzo-md">{@html marked(msg.content)}</div>
               {:else}
                 {msg.content}
               {/if}
@@ -1042,8 +1087,17 @@
     </div>
 
     <!-- Context bar -->
-    {#if store.currentNote || hasJournal || hasWeeklyMemory}
+    {#if store.currentNote || hasJournal || hasWeeklyMemory || sessionFileName}
       <div class="context-bar text-xs text-mu">
+        {#if sessionFileName}
+          <span class="file-ctx-chip" title="File loaded into session context">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
+            </svg>
+            {sessionFileName}
+            <button class="file-ctx-clear" onclick={() => { sessionFileContext = ''; sessionFileName = ''; }} title="Clear file from context">×</button>
+          </span>
+        {/if}
         {#if store.currentNote}
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
@@ -1294,6 +1348,35 @@
   .message:hover .msg-action-btn { opacity: 1; }
   .msg-action-btn:hover { color: var(--tx); }
   .msg-user .msg-actions { justify-content: flex-end; }
+
+  /* Markdown rendering in Enzo responses */
+  .enzo-md { line-height: 1.65; }
+  .enzo-md p { margin: 0 0 8px; }
+  .enzo-md p:last-child { margin-bottom: 0; }
+  .enzo-md h1, .enzo-md h2, .enzo-md h3 { font-weight: 700; margin: 12px 0 4px; font-size: 0.9rem; }
+  .enzo-md h1 { font-size: 0.95rem; }
+  .enzo-md ul, .enzo-md ol { margin: 4px 0 8px 16px; padding: 0; }
+  .enzo-md li { margin-bottom: 3px; }
+  .enzo-md strong { font-weight: 700; }
+  .enzo-md em { font-style: italic; }
+  .enzo-md code { font-family: monospace; font-size: 0.82em; background: var(--sf2); padding: 1px 4px; border-radius: 3px; }
+  .enzo-md pre { background: var(--sf2); border-radius: 6px; padding: 10px 12px; overflow-x: auto; margin: 8px 0; }
+  .enzo-md pre code { background: none; padding: 0; }
+  .enzo-md blockquote { border-left: 3px solid var(--bd2); margin: 8px 0; padding: 4px 10px; color: var(--tx2); }
+  .enzo-md a { color: var(--pc-primary, #1a535c); text-decoration: underline; }
+  .enzo-md table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 0.82rem; }
+  .enzo-md th, .enzo-md td { border: 1px solid var(--bd); padding: 5px 8px; text-align: left; }
+  .enzo-md th { background: var(--sf2); font-weight: 600; }
+  .enzo-md hr { border: none; border-top: 1px solid var(--bd); margin: 10px 0; }
+
+  /* File context chip */
+  .file-ctx-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: var(--sf2); border: 1px solid var(--bd); border-radius: 10px;
+    padding: 2px 7px 2px 5px; font-size: 0.72rem; color: var(--tx2);
+  }
+  .file-ctx-clear { background: none; border: none; cursor: pointer; color: var(--tx3); padding: 0 0 0 3px; font-size: 0.85rem; line-height: 1; }
+  .file-ctx-clear:hover { color: var(--tx); }
 
   .thinking-dots {
     display: inline-flex;
