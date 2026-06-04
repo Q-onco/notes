@@ -108,8 +108,9 @@ async function initAudio(db) {
 
 export default {
   async fetch(request, env) {
-    const origin  = request.headers.get('Origin') ?? '*';
-    const allowed = env.ALLOWED_ORIGIN || '*';
+    const origin  = request.headers.get('Origin') ?? '';
+    const allowedList = (env.ALLOWED_ORIGIN || '*').split(',').map(s => s.trim());
+    const allowed = allowedList.includes(origin) ? origin : (allowedList[0] || '*');
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: cors(allowed) });
