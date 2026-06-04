@@ -628,6 +628,16 @@
     return store.chatSessions.find(s => s.id === todayKey)!;
   }
 
+  function startNewChat() {
+    const existing = store.chatSessions.find(s => s.id === todayKey);
+    if (!existing || existing.messages.length === 0) return;
+    // Archive current session under a timestamp ID so it appears in history
+    store.chatSessions = store.chatSessions.map(s =>
+      s.id === todayKey ? { ...s, id: `${todayKey}-${Date.now()}` } : s
+    );
+    inputText = '';
+  }
+
   async function send() {
     const text = inputText.trim();
     if (!text || streaming) return;
@@ -683,7 +693,7 @@
     try {
       abortController = new AbortController();
       const noteContext = store.currentNote
-        ? `${store.currentNote.title}\n\n${store.currentNote.body.slice(0, 2000)}`
+        ? `${store.currentNote.title}\n\n${store.currentNote.body.slice(0, 40000)}`
         : '';
 
       const journalPart = useJournalContext && store.journal.length > 0
@@ -1003,15 +1013,23 @@
         disabled={streaming}
         class="enzo-input"
       ></textarea>
-      {#if streaming}
-        <button class="btn btn-danger btn-sm" onclick={stopStream}>Stop</button>
-      {:else}
-        <button class="btn btn-primary btn-sm send-btn" onclick={send} disabled={!inputText.trim()} aria-label="Send message">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+      <div class="enzo-btn-col">
+        <button class="btn btn-ghost btn-xs new-chat-btn" onclick={startNewChat}
+          title="New chat" disabled={!currentSession || currentSession.messages.length === 0}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
           </svg>
         </button>
-      {/if}
+        {#if streaming}
+          <button class="btn btn-danger btn-sm" onclick={stopStream}>Stop</button>
+        {:else}
+          <button class="btn btn-primary btn-sm send-btn" onclick={send} disabled={!inputText.trim()} aria-label="Send message">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
+          </button>
+        {/if}
+      </div>
     </div>
 
   {:else}
@@ -1225,7 +1243,10 @@
     max-height: 120px;
     overflow-y: auto;
   }
-  .send-btn { padding: 8px; border-radius: var(--radius-sm); flex-shrink: 0; }
+  .enzo-btn-col { display: flex; flex-direction: column; align-items: center; gap: 4px; flex-shrink: 0; }
+  .send-btn { padding: 8px; border-radius: var(--radius-sm); }
+  .new-chat-btn { padding: 4px 5px; border-radius: var(--radius-sm); opacity: 0.55; }
+  .new-chat-btn:not(:disabled):hover { opacity: 1; }
 
   /* ── History ── */
   .history-panel { flex: 1; overflow: hidden; display: flex; flex-direction: column; }

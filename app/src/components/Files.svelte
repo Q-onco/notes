@@ -327,7 +327,7 @@
     const mime = selectedFile.mimeType;
 
     if (viewerText) {
-      context += `\n\nContent:\n${viewerText.slice(0, 8000)}${viewerText.length > 8000 ? '\n…(truncated)' : ''}`;
+      context += `\n\nContent:\n${viewerText.slice(0, 40000)}${viewerText.length > 40000 ? '\n…(truncated)' : ''}`;
       contentLoaded = true;
     } else if (viewerTable) {
       const preview = viewerTable.slice(0, 30).map(r => r.join('\t')).join('\n');
@@ -339,8 +339,8 @@
       try {
         const text = await extractPdfText(viewerUrl);
         if (text.trim()) {
-          const truncated = text.slice(0, 12000);
-          context += `\n\nExtracted text:\n${truncated}${text.length > 12000 ? '\n…(truncated at 12 000 chars)' : ''}`;
+          const truncated = text.slice(0, 60000);
+          context += `\n\nExtracted text:\n${truncated}${text.length > 60000 ? '\n…(truncated at 60 000 chars)' : ''}`;
           contentLoaded = true;
         }
       } catch (err) {
@@ -353,7 +353,7 @@
         const res = await fetch(viewerUrl);
         if (res.ok) {
           const text = await res.text();
-          context += `\n\nContent:\n${text.slice(0, 8000)}${text.length > 8000 ? '\n…(truncated)' : ''}`;
+          context += `\n\nContent:\n${text.slice(0, 40000)}${text.length > 40000 ? '\n…(truncated)' : ''}`;
           contentLoaded = true;
         }
       } catch { /* fall through */ }
