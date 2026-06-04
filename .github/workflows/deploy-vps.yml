@@ -43,4 +43,12 @@ jobs:
           remote_user: ${{ secrets.VPS_USER }}
           remote_key: ${{ secrets.VPS_SSH_KEY }}
           remote_port: 22
-          rsh: ssh -q -o StrictHostKeyChecking=no -o LogLevel=QUIET
+          rsh: ssh -q -o StrictHostKeyChecking=no
+
+      - name: Fix ownership
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: chown -R shiva:shiva /home/shiva/web/q-onco.phytolabs.in/public_html/
