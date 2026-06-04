@@ -6,13 +6,40 @@
   import { getEnzoPersonality } from '../lib/personality';
   import EnzoDog from './EnzoDog.svelte';
   import { extractPdfText } from '../lib/pdfUtils';
-  import { marked, Renderer } from 'marked';
+  import { marked } from 'marked';
+  import { markedHighlight } from 'marked-highlight';
+  import hljs from 'highlight.js/lib/core';
+  import langR from 'highlight.js/lib/languages/r';
+  import langPython from 'highlight.js/lib/languages/python';
+  import langBash from 'highlight.js/lib/languages/bash';
+  import langTS from 'highlight.js/lib/languages/typescript';
+  import langJS from 'highlight.js/lib/languages/javascript';
+  import langSQL from 'highlight.js/lib/languages/sql';
 
-  // Open all Enzo links in a new tab
-  const enzoRenderer = new Renderer();
-  enzoRenderer.link = ({ href, title, text }) =>
-    `<a href="${href}" target="_blank" rel="noopener noreferrer"${title ? ` title="${title}"` : ''}>${text}</a>`;
-  marked.use({ renderer: enzoRenderer, breaks: true });
+  hljs.registerLanguage('r', langR);
+  hljs.registerLanguage('python', langPython);
+  hljs.registerLanguage('bash', langBash);
+  hljs.registerLanguage('shell', langBash);
+  hljs.registerLanguage('typescript', langTS);
+  hljs.registerLanguage('javascript', langJS);
+  hljs.registerLanguage('sql', langSQL);
+
+  marked.use(
+    markedHighlight({
+      langPrefix: 'hljs language-',
+      highlight(code, lang) {
+        const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+        try { return hljs.highlight(code, { language }).value; } catch { return code; }
+      }
+    }),
+    { breaks: true }
+  );
+
+  // Post-process: open all links in new tab (avoids marked v14 renderer API differences)
+  function renderEnzo(content: string): string {
+    const html = marked(content) as string;
+    return html.replace(/<a href=/g, '<a target="_blank" rel="noopener noreferrer" href=');
+  }
 
   let { showToast, emotion = 'content' }: {
     showToast: (msg: string, type?: 'success' | 'error') => void;
@@ -617,16 +644,16 @@
   let historySearch = $state('');
   let selectedSessionId = $state<string | null>(null);
   let resumedSessionId = $state<string | null>(null);
-  // Persists fetched file content for the duration of a session
-  let sessionFileContext = $state('');
-  let sessionFileName = $state('');
+  // Up to 3 files loaded into session context
+  type FileCtx = { name: string; content: string };
+  let sessionFileContexts = $state<FileCtx[]>([]);
+  let fetchingFile = $state(''); // filename being extracted — shows loading indicator
 
-  // Restore file context when current session changes (resume / page load)
+  // Restore file contexts when current session changes (resume / page load)
   $effect(() => {
     const s = currentSession;
-    if (s?.fileContext && !sessionFileContext) {
-      sessionFileContext = s.fileContext;
-      sessionFileName = s.fileName ?? '';
+    if (s?.fileContexts?.length && !sessionFileContexts.length) {
+      sessionFileContexts = s.fileContexts;
     }
   });
 
@@ -657,8 +684,8 @@
   }
 
   function startNewChat() {
-    sessionFileContext = '';
-    sessionFileName = '';
+    sessionFileContexts = [];
+    fetchingFile = '';
     inputText = '';
     if (resumedSessionId) {
       resumedSessionId = null;
@@ -748,59 +775,72 @@
       abortController = new AbortController();
       // Auto-fetch file content on mention; persist for rest of session
       const msgLower = text.toLowerCase();
-      if (!sessionFileContext) {
-        const mentionedFile = store.files.find(f =>
-          msgLower.includes(f.name.toLowerCase()) ||
-          msgLower.includes(f.name.toLowerCase().replace(/\.[^.]+$/, ''))
-        );
-        if (mentionedFile) {
-          try {
-            let extracted = '';
-            const mime = mentionedFile.mimeType ?? '';
+      // Auto-fetch up to 3 files mentioned by name; show loading indicator
+      const alreadyLoaded = new Set(sessionFileContexts.map(f => f.name.toLowerCase()));
+      const mentionedFiles = store.files.filter(f =>
+        !alreadyLoaded.has(f.name.toLowerCase()) &&
+        (msgLower.includes(f.name.toLowerCase()) ||
+         msgLower.includes(f.name.toLowerCase().replace(/\.[^.]+$/, '')))
+      ).slice(0, 3 - sessionFileContexts.length);
 
-            if (mentionedFile.r2Key && store.workerBase) {
-              // R2-stored file — fetch via worker
-              const fileUrl = `${store.workerBase}/file/${encodeURIComponent(mentionedFile.r2Key)}`;
+      for (const mentionedFile of mentionedFiles) {
+        fetchingFile = mentionedFile.name;
+        try {
+          let extracted = '';
+          const mime = mentionedFile.mimeType ?? '';
+
+          if (mentionedFile.r2Key && store.workerBase) {
+            const fileUrl = `${store.workerBase}/file/${encodeURIComponent(mentionedFile.r2Key)}`;
+            if (mime === 'application/pdf') {
+              extracted = await extractPdfText(fileUrl);
+            } else if (mime.startsWith('text/') || mime.includes('json')) {
+              const res = await fetch(fileUrl);
+              if (res.ok) extracted = await res.text();
+            }
+          } else if ((mentionedFile as any).data) {
+            const raw = (mentionedFile as any).data as string;
+            const base64 = raw.includes(',') ? raw.split(',')[1] : raw;
+            const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+            const blob = new Blob([bytes], { type: mime || 'application/octet-stream' });
+            const blobUrl = URL.createObjectURL(blob);
+            try {
               if (mime === 'application/pdf') {
-                extracted = await extractPdfText(fileUrl);
+                extracted = await extractPdfText(blobUrl);
               } else if (mime.startsWith('text/') || mime.includes('json')) {
-                const res = await fetch(fileUrl);
-                if (res.ok) extracted = await res.text();
+                extracted = new TextDecoder().decode(bytes);
               }
-            } else if ((mentionedFile as any).data) {
-              // Legacy base64-stored file
-              const raw = (mentionedFile as any).data as string;
-              const base64 = raw.includes(',') ? raw.split(',')[1] : raw;
-              const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-              const blob = new Blob([bytes], { type: mime || 'application/octet-stream' });
-              const blobUrl = URL.createObjectURL(blob);
-              try {
-                if (mime === 'application/pdf') {
-                  extracted = await extractPdfText(blobUrl);
-                } else if (mime.startsWith('text/') || mime.includes('json')) {
-                  extracted = new TextDecoder().decode(bytes);
-                }
-              } finally {
-                URL.revokeObjectURL(blobUrl);
-              }
+            } finally {
+              URL.revokeObjectURL(blobUrl);
             }
+          }
 
-            if (extracted.trim()) {
-              sessionFileContext = `## File: ${mentionedFile.name}\n${extracted.slice(0, 60000)}`;
-              sessionFileName = mentionedFile.name;
-              const sess = getOrCreateSession();
-              sess.fileContext = sessionFileContext;
-              sess.fileName = mentionedFile.name;
-              await store.saveChat();
-            }
-          } catch { /* silent */ }
+          if (extracted.trim()) {
+            sessionFileContexts = [...sessionFileContexts, {
+              name: mentionedFile.name,
+              content: extracted.slice(0, 60000)
+            }];
+          } else {
+            showToast(`Could not extract text from ${mentionedFile.name} — it may be a scanned image PDF`, 'error');
+          }
+        } catch {
+          showToast(`Failed to read ${mentionedFile.name}`, 'error');
         }
+        fetchingFile = '';
+      }
+
+      // Persist loaded file contexts to session
+      if (mentionedFiles.length > 0 && sessionFileContexts.length > 0) {
+        const sess = getOrCreateSession();
+        sess.fileContexts = sessionFileContexts;
+        await store.saveChat();
       }
 
       const noteContext = store.currentNote
         ? `${store.currentNote.title}\n\n${store.currentNote.body.slice(0, 40000)}`
         : '';
-      const effectiveNoteContext = [sessionFileContext, noteContext].filter(Boolean).join('\n\n');
+      const filePart = sessionFileContexts
+        .map(f => `## File: ${f.name}\n${f.content}`).join('\n\n');
+      const effectiveNoteContext = [filePart, noteContext].filter(Boolean).join('\n\n');
 
       const journalPart = useJournalContext && store.journal.length > 0
         ? [...store.journal]
@@ -1045,6 +1085,12 @@
           {/if}
         </div>
       {:else}
+        {#if fetchingFile}
+          <div class="file-fetching-indicator">
+            <span class="thinking-dots"><span></span><span></span><span></span></span>
+            Reading <strong>{fetchingFile}</strong>…
+          </div>
+        {/if}
         {#each currentSession.messages as msg, i (msg.id)}
           <div class="message msg-{msg.role}">
             <div class="msg-content">
@@ -1053,7 +1099,7 @@
                   <span></span><span></span><span></span>
                 </span>
               {:else if msg.role === 'assistant'}
-                <div class="enzo-md">{@html marked(msg.content)}</div>
+                <div class="enzo-md">{@html renderEnzo(msg.content)}</div>
               {:else}
                 {msg.content}
               {/if}
@@ -1087,17 +1133,17 @@
     </div>
 
     <!-- Context bar -->
-    {#if store.currentNote || hasJournal || hasWeeklyMemory || sessionFileName}
+    {#if store.currentNote || hasJournal || hasWeeklyMemory || sessionFileContexts.length}
       <div class="context-bar text-xs text-mu">
-        {#if sessionFileName}
+        {#each sessionFileContexts as fc, fi}
           <span class="file-ctx-chip" title="File loaded into session context">
             <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
             </svg>
-            {sessionFileName}
-            <button class="file-ctx-clear" onclick={() => { sessionFileContext = ''; sessionFileName = ''; }} title="Clear file from context">×</button>
+            {fc.name}
+            <button class="file-ctx-clear" onclick={() => { sessionFileContexts = sessionFileContexts.filter((_, i) => i !== fi); }} title="Remove from context">×</button>
           </span>
-        {/if}
+        {/each}
         {#if store.currentNote}
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
@@ -1377,6 +1423,36 @@
   }
   .file-ctx-clear { background: none; border: none; cursor: pointer; color: var(--tx3); padding: 0 0 0 3px; font-size: 0.85rem; line-height: 1; }
   .file-ctx-clear:hover { color: var(--tx); }
+
+  /* File fetching loading indicator */
+  .file-fetching-indicator {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 0.8rem; color: var(--tx2); padding: 6px 12px;
+    animation: fadein 0.2s ease;
+  }
+
+  /* Syntax highlighting — github-style minimal theme */
+  .enzo-md .hljs { background: transparent; padding: 0; }
+  .enzo-md .hljs-keyword, .enzo-md .hljs-selector-tag { color: #cf222e; }
+  .enzo-md .hljs-string, .enzo-md .hljs-attr { color: #0a3069; }
+  .enzo-md .hljs-number, .enzo-md .hljs-literal { color: #0550ae; }
+  .enzo-md .hljs-comment { color: #6e7781; font-style: italic; }
+  .enzo-md .hljs-function, .enzo-md .hljs-title { color: #8250df; }
+  .enzo-md .hljs-variable, .enzo-md .hljs-name { color: #953800; }
+  .enzo-md .hljs-built_in { color: #0550ae; }
+  .enzo-md .hljs-type { color: #0550ae; }
+  .enzo-md .hljs-operator, .enzo-md .hljs-punctuation { color: #24292f; }
+  /* Dark mode override */
+  @media (prefers-color-scheme: dark) {
+    .enzo-md .hljs-keyword { color: #ff7b72; }
+    .enzo-md .hljs-string, .enzo-md .hljs-attr { color: #a5d6ff; }
+    .enzo-md .hljs-number, .enzo-md .hljs-literal { color: #79c0ff; }
+    .enzo-md .hljs-comment { color: #8b949e; }
+    .enzo-md .hljs-function, .enzo-md .hljs-title { color: #d2a8ff; }
+    .enzo-md .hljs-variable, .enzo-md .hljs-name { color: #ffa657; }
+    .enzo-md .hljs-built_in { color: #79c0ff; }
+    .enzo-md .hljs-operator { color: #c9d1d9; }
+  }
 
   .thinking-dots {
     display: inline-flex;
