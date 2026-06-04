@@ -19,8 +19,9 @@ jobs:
           timeout: 300s
           script: |
             set -e
-            cd /root/notes
-            git pull --rebase origin main
+            cd /root/notes-deploy
+            git fetch origin main
+            git reset --hard origin/main
             cd app
             npm ci --silent
             BASE_PATH=/ npm run build
