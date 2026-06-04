@@ -1412,6 +1412,15 @@ Format your response as:
   let doiLoading = $state(false);
   let doiOpen = $state(false);
 
+  $effect(() => {
+    if (!doiOpen) return;
+    const close = (e: MouseEvent) => {
+      if (!(e.target as Element)?.closest('.doi-wrap')) doiOpen = false;
+    };
+    window.addEventListener('click', close, true);
+    return () => window.removeEventListener('click', close, true);
+  });
+
   async function resolveDoi() {
     const doi = doiInput.replace(/^https?:\/\/doi\.org\//i, '').trim();
     if (!doi) return;
@@ -1727,8 +1736,6 @@ Format your response as:
           DOI
         </button>
         {#if doiOpen}
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <div class="doi-backdrop" onclick={() => doiOpen = false}></div>
           <div class="doi-popover">
             <p class="doi-hint">Paste a DOI (or doi.org URL) to fetch paper metadata and add it to your reading list.</p>
             <div class="doi-input-row">
@@ -3544,7 +3551,6 @@ Format your response as:
 
   /* DOI resolver */
   .doi-wrap { position: relative; }
-  .doi-backdrop { position: fixed; inset: 0; z-index: 30; }
   .doi-popover {
     position: absolute; top: calc(100% + 6px); left: 0; z-index: 31;
     background: var(--sf); border: 1px solid var(--bd); border-radius: var(--radius);
