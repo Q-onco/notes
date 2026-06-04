@@ -608,15 +608,24 @@
   let abortController: AbortController | null = null;
   let messagesEl = $state<HTMLDivElement | undefined>(undefined);
   let historySearch = $state('');
-  let selectedDate = $state<string | null>(null);
+  let selectedSessionId = $state<string | null>(null);
+  // When resuming a past session, this overrides the today session in the chat view
+  let resumedSessionId = $state<string | null>(null);
 
   // Current session for today
   const todayKey = new Date().toISOString().slice(0, 10);
   const currentSession = $derived(
-    store.chatSessions.find(s => s.id === todayKey) ?? null
+    resumedSessionId
+      ? store.chatSessions.find(s => s.id === resumedSessionId) ?? null
+      : store.chatSessions.find(s => s.id === todayKey) ?? null
   );
 
   function getOrCreateSession(): ChatSession {
+    // If resuming a past session, append to it
+    if (resumedSessionId) {
+      const resumed = store.chatSessions.find(s => s.id === resumedSessionId);
+      if (resumed) return resumed;
+    }
     const existing = store.chatSessions.find(s => s.id === todayKey);
     if (existing) return existing;
     const session: ChatSession = {
@@ -631,12 +640,25 @@
 
   function startNewChat() {
     const existing = store.chatSessions.find(s => s.id === todayKey);
+    if (resumedSessionId) {
+      // Exit resume mode → go back to today fresh
+      resumedSessionId = null;
+      inputText = '';
+      return;
+    }
     if (!existing || existing.messages.length === 0) return;
     // Archive current session under a timestamp ID so it appears in history
     store.chatSessions = store.chatSessions.map(s =>
       s.id === todayKey ? { ...s, id: `${todayKey}-${Date.now()}` } : s
     );
     inputText = '';
+  }
+
+  function resumeSession(sessionId: string) {
+    resumedSessionId = sessionId;
+    selectedSessionId = null;
+    tab = 'chat';
+    setTimeout(scrollToBottom, 50);
   }
 
   async function send() {
@@ -882,7 +904,7 @@
   );
 
   const selectedSession = $derived(
-    selectedDate ? store.chatSessions.find(s => s.date === selectedDate) ?? null : null
+    selectedSessionId ? store.chatSessions.find(s => s.id === selectedSessionId) ?? null : null
   );
 
   function fmtDate(d: string) {
@@ -939,11 +961,17 @@
     </div>
     <div class="enzo-tabs">
       <button class="etab" class:active={tab === 'chat'} onclick={() => tab = 'chat'}>Chat</button>
-      <button class="etab" class:active={tab === 'history'} onclick={() => { tab = 'history'; selectedDate = null; }}>History</button>
+      <button class="etab" class:active={tab === 'history'} onclick={() => { tab = 'history'; selectedSessionId = null; }}>History</button>
     </div>
   </div>
 
   {#if tab === 'chat'}
+    {#if resumedSessionId}
+      <div class="resumed-banner">
+        <span>Continuing past conversation · {currentSession ? fmtDate(currentSession.date) : ''}</span>
+        <button class="btn btn-ghost btn-xs" onclick={() => { resumedSessionId = null; }}>← Back to today</button>
+      </div>
+    {/if}
     <!-- Messages -->
     <div class="messages" bind:this={messagesEl}>
       {#if !currentSession || currentSession.messages.length === 0}
@@ -1068,13 +1096,18 @@
         <input type="search" bind:value={historySearch} placeholder="Search conversations..." />
       </div>
 
-      {#if selectedDate && selectedSession}
+      {#if selectedSessionId && selectedSession}
         <div class="history-session">
-          <button class="btn btn-ghost btn-sm back-btn" onclick={() => selectedDate = null}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-            Back
-          </button>
-          <p class="text-xs text-mu">{fmtDate(selectedDate)}</p>
+          <div class="history-session-head">
+            <button class="btn btn-ghost btn-sm back-btn" onclick={() => selectedSessionId = null}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+              Back
+            </button>
+            <button class="btn btn-primary btn-sm" onclick={() => resumeSession(selectedSession.id)}>
+              Resume →
+            </button>
+          </div>
+          <p class="text-xs text-mu" style="padding: 0 14px 8px;">{fmtDate(selectedSession.date)}</p>
           <div class="history-msgs">
             {#each selectedSession.messages as msg}
               <div class="message msg-{msg.role}">
@@ -1088,7 +1121,7 @@
         <div class="sessions-list">
           {#each filteredHistory as session (session.id)}
             <div class="session-item-wrap">
-              <button class="session-item" onclick={() => selectedDate = session.date}>
+              <button class="session-item" onclick={() => selectedSessionId = session.id}>
                 <span class="session-date">{fmtDate(session.date)}</span>
                 <span class="session-count text-xs text-mu">{session.messages.length} messages</span>
                 {#if session.noteContext}
@@ -1276,6 +1309,12 @@
   .send-btn { padding: 8px; border-radius: var(--radius-sm); }
   .new-chat-btn { padding: 4px 5px; border-radius: var(--radius-sm); opacity: 0.55; }
   .new-chat-btn:not(:disabled):hover { opacity: 1; }
+  .resumed-banner {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 12px; background: var(--sf2); border-bottom: 1px solid var(--bd);
+    font-size: 0.78rem; color: var(--tx2); flex-shrink: 0;
+  }
+  .history-session-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px 4px; }
 
   /* ── History ── */
   .history-panel { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
