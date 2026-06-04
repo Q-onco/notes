@@ -609,8 +609,9 @@
   let messagesEl = $state<HTMLDivElement | undefined>(undefined);
   let historySearch = $state('');
   let selectedSessionId = $state<string | null>(null);
-  // When resuming a past session, this overrides the today session in the chat view
   let resumedSessionId = $state<string | null>(null);
+  // Persists fetched file content for the duration of a session
+  let sessionFileContext = $state('');
 
   // Current session for today
   const todayKey = new Date().toISOString().slice(0, 10);
@@ -639,19 +640,17 @@
   }
 
   function startNewChat() {
-    const existing = store.chatSessions.find(s => s.id === todayKey);
+    sessionFileContext = '';
+    inputText = '';
     if (resumedSessionId) {
-      // Exit resume mode → go back to today fresh
       resumedSessionId = null;
-      inputText = '';
       return;
     }
+    const existing = store.chatSessions.find(s => s.id === todayKey);
     if (!existing || existing.messages.length === 0) return;
-    // Archive current session under a timestamp ID so it appears in history
     store.chatSessions = store.chatSessions.map(s =>
       s.id === todayKey ? { ...s, id: `${todayKey}-${Date.now()}` } : s
     );
-    inputText = '';
   }
 
   function resumeSession(sessionId: string) {
@@ -659,6 +658,20 @@
     selectedSessionId = null;
     tab = 'chat';
     setTimeout(scrollToBottom, 50);
+  }
+
+  async function regenerate() {
+    const session = getOrCreateSession();
+    // Find last user message
+    const lastUser = [...session.messages].reverse().find(m => m.role === 'user');
+    if (!lastUser || streaming) return;
+    // Drop the last assistant message
+    session.messages = session.messages.filter((m, i) =>
+      !(m.role === 'assistant' && i === session.messages.length - 1)
+    );
+    // Re-send as if the user typed it again
+    inputText = lastUser.content;
+    await send();
   }
 
   async function send() {
@@ -715,37 +728,36 @@
 
     try {
       abortController = new AbortController();
-      // Auto-fetch content for any file the user mentions by name
-      let autoFileContext = '';
+      // Auto-fetch file content on mention; persist for rest of session
       const msgLower = text.toLowerCase();
-      const mentionedFile = store.files.find(f =>
-        msgLower.includes(f.name.toLowerCase()) ||
-        msgLower.includes(f.name.toLowerCase().replace(/\.[^.]+$/, ''))
-      );
-      if (mentionedFile?.r2Key && store.workerBase) {
-        const fileUrl = `${store.workerBase}/file/${encodeURIComponent(mentionedFile.r2Key)}`;
-        try {
-          if (mentionedFile.mimeType === 'application/pdf') {
-            const extracted = await extractPdfText(fileUrl);
-            if (extracted.trim()) {
-              autoFileContext = `## File: ${mentionedFile.name}\n${extracted.slice(0, 60000)}`;
+      if (!sessionFileContext) {
+        const mentionedFile = store.files.find(f =>
+          msgLower.includes(f.name.toLowerCase()) ||
+          msgLower.includes(f.name.toLowerCase().replace(/\.[^.]+$/, ''))
+        );
+        if (mentionedFile?.r2Key && store.workerBase) {
+          const fileUrl = `${store.workerBase}/file/${encodeURIComponent(mentionedFile.r2Key)}`;
+          try {
+            if (mentionedFile.mimeType === 'application/pdf') {
+              const extracted = await extractPdfText(fileUrl);
+              if (extracted.trim()) {
+                sessionFileContext = `## File: ${mentionedFile.name}\n${extracted.slice(0, 60000)}`;
+              }
+            } else if (mentionedFile.mimeType?.startsWith('text/') || mentionedFile.mimeType?.includes('json')) {
+              const res = await fetch(fileUrl);
+              if (res.ok) {
+                const txt = await res.text();
+                sessionFileContext = `## File: ${mentionedFile.name}\n${txt.slice(0, 40000)}`;
+              }
             }
-          } else if (mentionedFile.mimeType?.startsWith('text/') || mentionedFile.mimeType?.includes('json')) {
-            const res = await fetch(fileUrl);
-            if (res.ok) {
-              const txt = await res.text();
-              autoFileContext = `## File: ${mentionedFile.name}\n${txt.slice(0, 40000)}`;
-            }
-          }
-        } catch { /* silent — Enzo will work without file content */ }
+          } catch { /* silent */ }
+        }
       }
 
       const noteContext = store.currentNote
         ? `${store.currentNote.title}\n\n${store.currentNote.body.slice(0, 40000)}`
-        : autoFileContext ? '' : '';
-      const effectiveNoteContext = autoFileContext
-        ? `${autoFileContext}${noteContext ? '\n\n' + noteContext : ''}`
-        : noteContext;
+        : '';
+      const effectiveNoteContext = [sessionFileContext, noteContext].filter(Boolean).join('\n\n');
 
       const journalPart = useJournalContext && store.journal.length > 0
         ? [...store.journal]
@@ -799,7 +811,7 @@
 
       const history = session.messages
         .filter(m => m.id !== assistantId)
-        .slice(-10)
+        .slice(-30)
         .map(m => ({ role: m.role, content: m.content }));
 
       const { text: full, tokens, model } = await askEnzo(
@@ -990,7 +1002,7 @@
           {/if}
         </div>
       {:else}
-        {#each currentSession.messages as msg (msg.id)}
+        {#each currentSession.messages as msg, i (msg.id)}
           <div class="message msg-{msg.role}">
             <div class="msg-content">
               {#if msg.role === 'assistant' && !msg.content}
@@ -1001,9 +1013,29 @@
                 {msg.content}
               {/if}
             </div>
-            {#if msg.tokens > 0}
-              <span class="msg-meta text-xs text-mu">{msg.tokens} tokens · {fmtTime(msg.timestamp)}</span>
-            {/if}
+            <div class="msg-actions">
+              {#if msg.tokens > 0}
+                <span class="msg-meta text-xs text-mu">{msg.tokens} tokens · {fmtTime(msg.timestamp)}</span>
+              {:else if msg.role !== 'assistant' || msg.content}
+                <span class="msg-meta text-xs text-mu">{fmtTime(msg.timestamp)}</span>
+              {/if}
+              {#if msg.content}
+                <button class="msg-action-btn copy-btn" title="Copy"
+                  onclick={() => navigator.clipboard.writeText(msg.content)}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                  </svg>
+                </button>
+              {/if}
+              {#if msg.role === 'assistant' && i === currentSession.messages.length - 1 && !streaming}
+                <button class="msg-action-btn regen-btn" title="Regenerate response"
+                  onclick={() => regenerate()}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/>
+                  </svg>
+                </button>
+              {/if}
+            </div>
           </div>
         {/each}
       {/if}
@@ -1252,8 +1284,16 @@
     border-radius: var(--radius) var(--radius) var(--radius) var(--radius-sm);
   }
 
-  .msg-meta { align-self: flex-end; padding: 0 4px; }
-  .msg-user .msg-meta { align-self: flex-end; }
+  .msg-actions { display: flex; align-items: center; gap: 6px; padding: 0 4px; min-height: 18px; }
+  .msg-meta { font-size: 0.72rem; }
+  .msg-action-btn {
+    background: none; border: none; cursor: pointer; padding: 2px 3px;
+    color: var(--tx3, #aaa); border-radius: 3px; opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+  }
+  .message:hover .msg-action-btn { opacity: 1; }
+  .msg-action-btn:hover { color: var(--tx); }
+  .msg-user .msg-actions { justify-content: flex-end; }
 
   .thinking-dots {
     display: inline-flex;
