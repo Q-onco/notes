@@ -13,11 +13,11 @@ import type {
   SystematicReview,
   GrantApp
 } from './types';
-import { loadEncFile, saveEncFile, PATHS, validateToken } from './github';
+import { loadEncFile, loadEncFileFallback, saveEncFile, makePaths, LEGACY_PATHS, validateToken } from './github';
 import { WORKER_URL } from './groq';
 import { idbGet, idbSet, idbNuke } from './idb';
 
-type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs' | 'labtools' | 'presentations' | 'files' | 'grants' | 'manuscript' | 'review' | 'mail' | 'launchpad' | 'biblio' | 'sysreview' | 'grantwriter';
+type View = 'dashboard' | 'notes' | 'journal' | 'tasks' | 'calendar' | 'research' | 'audio' | 'settings' | 'enzo' | 'pipeline' | 'jobs' | 'labtools' | 'presentations' | 'files' | 'grants' | 'manuscript' | 'review' | 'mail' | 'launchpad' | 'biblio' | 'sysreview';
 
 const DEFAULT_PROFILE: ResearcherProfile = {
   currentRole: 'Postdoctoral Researcher',
@@ -181,6 +181,7 @@ class Store {
 
   // Derived
   get authenticated(): boolean { return this.tok !== null; }
+  get paths() { return makePaths(this.userLogin); }
 
   get aiSettings(): AiFeatureSettings {
     return {
@@ -300,33 +301,38 @@ class Store {
       if (cached) this.files = cached;
     }
 
+    const p = this.paths;
+    const L = LEGACY_PATHS;
+    const load = <T>(userPath: string, legacyPath: string, def: T) =>
+      loadEncFileFallback<T>(this.tok!, userPath, legacyPath, def);
+
     const [n, j, t, c, a, pp, s, res, pip, jb, jbx, cv, cl, prf, pres, fi, gr, conf, pr, ms, rv, lp, bl, wl, sr, ga] = await Promise.all([
-      loadEncFile<Note[]>(this.tok, PATHS.notes, []),
-      loadEncFile<JournalEntry[]>(this.tok, PATHS.journal, []),
-      loadEncFile<Task[]>(this.tok, PATHS.tasks, []),
-      loadEncFile<ChatSession[]>(this.tok, PATHS.chat, []),
-      loadEncFile<AudioRecord[]>(this.tok, PATHS.audio, []),
-      loadEncFile<PaperResult[]>(this.tok, PATHS.pinned, []),
-      loadEncFile<AppSettings>(this.tok, PATHS.settings, this.settings),
-      loadEncFile<{readingList: ReadingListItem[], savedSearches: SavedSearch[], paperCollections?: PaperCollection[], searchHistory?: SearchHistoryEntry[]}>(this.tok, PATHS.research, { readingList: [], savedSearches: [], paperCollections: [], searchHistory: [] }),
-      loadEncFile<{runs: PipelineRun[], protocols: Protocol[], hypotheses: Hypothesis[]}>(this.tok, PATHS.pipelines, { runs: [], protocols: [], hypotheses: [] }),
-      loadEncFile<SavedJob[]>(this.tok, PATHS.jobs, []),
-      loadEncFile<{contacts: JobContact[], templates: JobEmailTemplate[], salaries: SalaryEntry[], deadlines: JobDeadline[], pinnedJobs?: JobListing[]}>(this.tok, PATHS.jobExt, { contacts: [], templates: [], salaries: [], deadlines: [] }),
-      loadEncFile<CvProfile>(this.tok, PATHS.cv, this.cvProfile),
-      loadEncFile<CoverLetter[]>(this.tok, PATHS.coverLetters, []),
-      loadEncFile<ResearcherProfile>(this.tok, PATHS.profile, DEFAULT_PROFILE),
-      loadEncFile<Presentation[]>(this.tok, PATHS.presentations, []),
-      loadEncFile<FileRecord[]>(this.tok, PATHS.files, []),
-      loadEncFile<Grant[]>(this.tok, PATHS.grants, []),
-      loadEncFile<ConferenceAbstract[]>(this.tok, PATHS.conferences, []),
-      loadEncFile<PeerReview[]>(this.tok, PATHS.peerReviews, []),
-      loadEncFile<Manuscript[]>(this.tok, PATHS.manuscripts, []),
-      loadEncFile<ReviewArticle[]>(this.tok, PATHS.reviews, []),
-      loadEncFile<{bookmarks?: string[], custom?: LaunchpadCustomResource[]}>(this.tok, PATHS.launchpad, { bookmarks: [], custom: [] }),
-      loadEncFile<{refs?: BiblioReference[], collections?: BiblioCollection[]}>(this.tok, PATHS.biblio, { refs: [], collections: [] }),
-      loadEncFile<WellnessData>(this.tok, PATHS.wellness, { log: [] }),
-      loadEncFile<SystematicReview[]>(this.tok, PATHS.sysReview, []),
-      loadEncFile<GrantApp[]>(this.tok, PATHS.grantApps, []),
+      load<Note[]>(p.notes, L.notes, []),
+      load<JournalEntry[]>(p.journal, L.journal, []),
+      load<Task[]>(p.tasks, L.tasks, []),
+      load<ChatSession[]>(p.chat, L.chat, []),
+      load<AudioRecord[]>(p.audio, L.audio, []),
+      load<PaperResult[]>(p.pinned, L.pinned, []),
+      load<AppSettings>(p.settings, L.settings, this.settings),
+      load<{readingList: ReadingListItem[], savedSearches: SavedSearch[], paperCollections?: PaperCollection[], searchHistory?: SearchHistoryEntry[]}>(p.research, L.research, { readingList: [], savedSearches: [], paperCollections: [], searchHistory: [] }),
+      load<{runs: PipelineRun[], protocols: Protocol[], hypotheses: Hypothesis[]}>(p.pipelines, L.pipelines, { runs: [], protocols: [], hypotheses: [] }),
+      load<SavedJob[]>(p.jobs, L.jobs, []),
+      load<{contacts: JobContact[], templates: JobEmailTemplate[], salaries: SalaryEntry[], deadlines: JobDeadline[], pinnedJobs?: JobListing[]}>(p.jobExt, L.jobExt, { contacts: [], templates: [], salaries: [], deadlines: [] }),
+      load<CvProfile>(p.cv, L.cv, this.cvProfile),
+      load<CoverLetter[]>(p.coverLetters, L.coverLetters, []),
+      load<ResearcherProfile>(p.profile, L.profile, DEFAULT_PROFILE),
+      load<Presentation[]>(p.presentations, L.presentations, []),
+      load<FileRecord[]>(p.files, L.files, []),
+      load<Grant[]>(p.grants, L.grants, []),
+      load<ConferenceAbstract[]>(p.conferences, L.conferences, []),
+      load<PeerReview[]>(p.peerReviews, L.peerReviews, []),
+      load<Manuscript[]>(p.manuscripts, L.manuscripts, []),
+      load<ReviewArticle[]>(p.reviews, L.reviews, []),
+      load<{bookmarks?: string[], custom?: LaunchpadCustomResource[]}>(p.launchpad, L.launchpad, { bookmarks: [], custom: [] }),
+      load<{refs?: BiblioReference[], collections?: BiblioCollection[]}>(p.biblio, L.biblio, { refs: [], collections: [] }),
+      load<WellnessData>(p.wellness, L.wellness, { log: [] }),
+      load<SystematicReview[]>(p.sysReview, L.sysReview, []),
+      load<GrantApp[]>(p.grantApps, L.grantApps, []),
     ]);
 
     this.notes = n.data; this.notesSha = n.sha;
@@ -395,7 +401,7 @@ class Store {
   async saveResearch(): Promise<void> {
     if (!this.tok) return;
     const sha = await saveEncFile(
-      this.tok, PATHS.research,
+      this.tok, this.paths.research,
       { readingList: this.readingList, savedSearches: this.savedSearches, paperCollections: this.paperCollections, searchHistory: this.searchHistory },
       this.researchSha,
       'research: update'
@@ -406,7 +412,7 @@ class Store {
   async saveLaunchpad(): Promise<void> {
     if (!this.tok) return;
     const sha = await saveEncFile(
-      this.tok, PATHS.launchpad,
+      this.tok, this.paths.launchpad,
       { bookmarks: this.launchpadBookmarks, custom: this.launchpadCustom },
       this.launchpadSha,
       'launchpad: update'
@@ -417,7 +423,7 @@ class Store {
   async saveBiblio(): Promise<void> {
     if (!this.tok) return;
     const sha = await saveEncFile(
-      this.tok, PATHS.biblio,
+      this.tok, this.paths.biblio,
       { refs: this.biblioRefs, collections: this.biblioCollections },
       this.biblioSha,
       'biblio: update'
@@ -427,13 +433,13 @@ class Store {
 
   async saveSysReviews(): Promise<void> {
     if (!this.tok) return;
-    const sha = await saveEncFile(this.tok, PATHS.sysReview, this.sysReviews, this.sysReviewsSha, 'sysreview: update');
+    const sha = await saveEncFile(this.tok, this.paths.sysReview, this.sysReviews, this.sysReviewsSha, 'sysreview: update');
     this.sysReviewsSha = sha;
   }
 
   async saveGrantApps(): Promise<void> {
     if (!this.tok) return;
-    const sha = await saveEncFile(this.tok, PATHS.grantApps, this.grantApps, this.grantAppsSha, 'grantapps: update');
+    const sha = await saveEncFile(this.tok, this.paths.grantApps, this.grantApps, this.grantAppsSha, 'grantapps: update');
     this.grantAppsSha = sha;
   }
 
@@ -442,7 +448,7 @@ class Store {
     // Keep only last 90 days to avoid file bloat
     const cutoff = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
     this.habitLog = this.habitLog.filter(e => e.date >= cutoff);
-    const sha = await saveEncFile(this.tok, PATHS.wellness, {
+    const sha = await saveEncFile(this.tok, this.paths.wellness, {
       log: this.habitLog,
       currentBook: this.currentBook,
       lastArvinCall: this.lastArvinCall,
@@ -455,7 +461,7 @@ class Store {
   async savePipelines(): Promise<void> {
     if (!this.tok) return;
     const sha = await saveEncFile(
-      this.tok, PATHS.pipelines,
+      this.tok, this.paths.pipelines,
       { runs: this.pipelineRuns, protocols: this.protocols, hypotheses: this.hypotheses },
       this.pipelinesSha,
       'pipelines: update'
@@ -465,49 +471,49 @@ class Store {
 
   async saveNotes(): Promise<void> {
     if (!this.tok) return;
-    const sha = await saveEncFile(this.tok, PATHS.notes, this.notes, this.notesSha, 'notes: update');
+    const sha = await saveEncFile(this.tok, this.paths.notes, this.notes, this.notesSha, 'notes: update');
     this.notesSha = sha;
   }
 
   async saveJournal(): Promise<void> {
     if (!this.tok) return;
-    const sha = await saveEncFile(this.tok, PATHS.journal, this.journal, this.journalSha, 'journal: update');
+    const sha = await saveEncFile(this.tok, this.paths.journal, this.journal, this.journalSha, 'journal: update');
     this.journalSha = sha;
   }
 
   async saveTasks(): Promise<void> {
     if (!this.tok) return;
-    const sha = await saveEncFile(this.tok, PATHS.tasks, this.tasks, this.tasksSha, 'tasks: update');
+    const sha = await saveEncFile(this.tok, this.paths.tasks, this.tasks, this.tasksSha, 'tasks: update');
     this.tasksSha = sha;
   }
 
   async saveChat(): Promise<void> {
     if (!this.tok) return;
-    const sha = await saveEncFile(this.tok, PATHS.chat, this.chatSessions, this.chatSha, 'enzo: chat update');
+    const sha = await saveEncFile(this.tok, this.paths.chat, this.chatSessions, this.chatSha, 'enzo: chat update');
     this.chatSha = sha;
   }
 
   async saveAudio(): Promise<void> {
     if (!this.tok) return;
-    const sha = await saveEncFile(this.tok, PATHS.audio, this.audioRecords, this.audioSha, 'audio: update');
+    const sha = await saveEncFile(this.tok, this.paths.audio, this.audioRecords, this.audioSha, 'audio: update');
     this.audioSha = sha;
   }
 
   async savePinnedPapers(): Promise<void> {
     if (!this.tok) return;
-    const sha = await saveEncFile(this.tok, PATHS.pinned, this.pinnedPapers, this.pinnedPapersSha, 'research: pinned update');
+    const sha = await saveEncFile(this.tok, this.paths.pinned, this.pinnedPapers, this.pinnedPapersSha, 'research: pinned update');
     this.pinnedPapersSha = sha;
   }
 
   async saveJobs(): Promise<void> {
     if (!this.tok) return;
-    const sha = await saveEncFile(this.tok, PATHS.jobs, this.savedJobs, this.jobsSha, 'jobs: update');
+    const sha = await saveEncFile(this.tok, this.paths.jobs, this.savedJobs, this.jobsSha, 'jobs: update');
     this.jobsSha = sha;
   }
 
   async saveJobExt(): Promise<void> {
     if (!this.tok) return;
-    const sha = await saveEncFile(this.tok, PATHS.jobExt, {
+    const sha = await saveEncFile(this.tok, this.paths.jobExt, {
       contacts: this.jobContacts,
       templates: this.emailTemplates,
       salaries: this.salaryEntries,
@@ -520,61 +526,61 @@ class Store {
   async saveCv(): Promise<void> {
     if (!this.tok) return;
     this.cvProfile.updatedAt = Date.now();
-    const sha = await saveEncFile(this.tok, PATHS.cv, this.cvProfile, this.cvSha, 'cv: update');
+    const sha = await saveEncFile(this.tok, this.paths.cv, this.cvProfile, this.cvSha, 'cv: update');
     this.cvSha = sha;
   }
 
   async saveCoverLetters(): Promise<void> {
     if (!this.tok) return;
-    const sha = await saveEncFile(this.tok, PATHS.coverLetters, this.coverLetters, this.coverLettersSha, 'cv: cover letter update');
+    const sha = await saveEncFile(this.tok, this.paths.coverLetters, this.coverLetters, this.coverLettersSha, 'cv: cover letter update');
     this.coverLettersSha = sha;
   }
 
   async saveProfile(): Promise<void> {
     if (!this.tok) return;
-    const sha = await saveEncFile(this.tok, PATHS.profile, this.profile, this.profileSha, 'profile: update');
+    const sha = await saveEncFile(this.tok, this.paths.profile, this.profile, this.profileSha, 'profile: update');
     this.profileSha = sha;
   }
 
   async savePresentations(): Promise<void> {
     if (!this.tok) return;
-    const sha = await saveEncFile(this.tok, PATHS.presentations, this.presentations, this.presentationsSha, 'presentations: update');
+    const sha = await saveEncFile(this.tok, this.paths.presentations, this.presentations, this.presentationsSha, 'presentations: update');
     this.presentationsSha = sha;
   }
 
   async saveFiles(): Promise<void> {
     if (!this.tok) return;
-    const sha = await saveEncFile(this.tok, PATHS.files, this.files, this.filesSha, 'files: update');
+    const sha = await saveEncFile(this.tok, this.paths.files, this.files, this.filesSha, 'files: update');
     this.filesSha = sha;
   }
 
   async saveGrants(): Promise<void> {
     if (!this.tok) return;
-    const sha = await saveEncFile(this.tok, PATHS.grants, this.grants, this.grantsSha, 'grants: update');
+    const sha = await saveEncFile(this.tok, this.paths.grants, this.grants, this.grantsSha, 'grants: update');
     this.grantsSha = sha;
   }
 
   async saveConferences(): Promise<void> {
     if (!this.tok) return;
-    const sha = await saveEncFile(this.tok, PATHS.conferences, this.conferences, this.conferencesSha, 'conferences: update');
+    const sha = await saveEncFile(this.tok, this.paths.conferences, this.conferences, this.conferencesSha, 'conferences: update');
     this.conferencesSha = sha;
   }
 
   async savePeerReviews(): Promise<void> {
     if (!this.tok) return;
-    const sha = await saveEncFile(this.tok, PATHS.peerReviews, this.peerReviews, this.peerReviewsSha, 'peer-reviews: update');
+    const sha = await saveEncFile(this.tok, this.paths.peerReviews, this.peerReviews, this.peerReviewsSha, 'peer-reviews: update');
     this.peerReviewsSha = sha;
   }
 
   async saveManuscripts(): Promise<void> {
     if (!this.tok) return;
-    const sha = await saveEncFile(this.tok, PATHS.manuscripts, this.manuscripts, this.manuscriptsSha, 'manuscripts: update');
+    const sha = await saveEncFile(this.tok, this.paths.manuscripts, this.manuscripts, this.manuscriptsSha, 'manuscripts: update');
     this.manuscriptsSha = sha;
   }
 
   async saveReviewArticles(): Promise<void> {
     if (!this.tok) return;
-    const sha = await saveEncFile(this.tok, PATHS.reviews, this.reviewArticles, this.reviewArticlesSha, 'reviews: update');
+    const sha = await saveEncFile(this.tok, this.paths.reviews, this.reviewArticles, this.reviewArticlesSha, 'reviews: update');
     this.reviewArticlesSha = sha;
   }
 
@@ -595,7 +601,7 @@ class Store {
 
   async saveSettings(): Promise<void> {
     if (!this.tok) return;
-    const sha = await saveEncFile(this.tok, PATHS.settings, this.settings, this.settingsSha, 'settings: update');
+    const sha = await saveEncFile(this.tok, this.paths.settings, this.settings, this.settingsSha, 'settings: update');
     this.settingsSha = sha;
   }
 

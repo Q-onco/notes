@@ -5,20 +5,53 @@ const API = 'https://api.github.com';
 const REPO = 'Q-onco/notes';
 const BRANCH = 'main';
 
-// Data file paths
-export const PATHS = {
-  notes:        'data/notes.enc',
-  journal:      'data/journal.enc',
-  tasks:        'data/tasks.enc',
-  chat:         'data/chat.enc',
-  audio:        'data/audio.enc',
-  pinned:       'data/pinned.enc',
-  settings:     'settings/keys.enc',
-  research:     'data/research.enc',
-  pipelines:    'data/pipelines.enc',
-  jobs:         'data/jobs.enc',
-  jobExt:       'data/jobs-ext.enc',
-  cv:           'data/cv.enc',
+// Per-user paths — each GitHub login gets their own namespace
+export function makePaths(username: string) {
+  const u = username.toLowerCase();
+  return {
+    notes:         `data/${u}/notes.enc`,
+    journal:       `data/${u}/journal.enc`,
+    tasks:         `data/${u}/tasks.enc`,
+    chat:          `data/${u}/chat.enc`,
+    audio:         `data/${u}/audio.enc`,
+    pinned:        `data/${u}/pinned.enc`,
+    settings:      `settings/${u}/keys.enc`,
+    research:      `data/${u}/research.enc`,
+    pipelines:     `data/${u}/pipelines.enc`,
+    jobs:          `data/${u}/jobs.enc`,
+    jobExt:        `data/${u}/jobs-ext.enc`,
+    cv:            `data/${u}/cv.enc`,
+    coverLetters:  `data/${u}/coverletters.enc`,
+    profile:       `settings/${u}/profile.enc`,
+    presentations: `data/${u}/presentations.enc`,
+    files:         `data/${u}/files.enc`,
+    grants:        `data/${u}/grants.enc`,
+    conferences:   `data/${u}/conferences.enc`,
+    peerReviews:   `data/${u}/peer-reviews.enc`,
+    manuscripts:   `data/${u}/manuscripts.enc`,
+    reviews:       `data/${u}/reviews.enc`,
+    launchpad:     `data/${u}/launchpad.enc`,
+    biblio:        `data/${u}/biblio.enc`,
+    wellness:      `data/${u}/wellness.enc`,
+    sysReview:     `data/${u}/sys-review.enc`,
+    grantApps:     `data/${u}/grant-apps.enc`,
+  } as const;
+}
+
+// Legacy flat paths — used as one-time migration fallback on first login
+export const LEGACY_PATHS = {
+  notes:         'data/notes.enc',
+  journal:       'data/journal.enc',
+  tasks:         'data/tasks.enc',
+  chat:          'data/chat.enc',
+  audio:         'data/audio.enc',
+  pinned:        'data/pinned.enc',
+  settings:      'settings/keys.enc',
+  research:      'data/research.enc',
+  pipelines:     'data/pipelines.enc',
+  jobs:          'data/jobs.enc',
+  jobExt:        'data/jobs-ext.enc',
+  cv:            'data/cv.enc',
   coverLetters:  'data/coverletters.enc',
   profile:       'settings/profile.enc',
   presentations: 'data/presentations.enc',
@@ -124,6 +157,20 @@ export async function loadEncFile<T>(
   } catch {
     return { data: defaultValue, sha };
   }
+}
+
+// Load from user-scoped path, fall back to legacy flat path on first login after migration
+export async function loadEncFileFallback<T>(
+  token: string,
+  userPath: string,
+  legacyPath: string,
+  defaultValue: T
+): Promise<{ data: T; sha: string | null }> {
+  const result = await loadEncFile<T>(token, userPath, defaultValue);
+  if (result.sha !== null) return result;
+  // User path absent — try legacy. Return sha:null so next save creates the user-scoped file.
+  const legacy = await loadEncFile<T>(token, legacyPath, defaultValue);
+  return { data: legacy.data, sha: null };
 }
 
 // Generic save: encrypt, commit
