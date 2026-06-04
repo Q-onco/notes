@@ -5,6 +5,7 @@
   import type { ChatSession, ChatMessage, Note } from '../lib/types';
   import { getEnzoPersonality } from '../lib/personality';
   import EnzoDog from './EnzoDog.svelte';
+  import { extractPdfText } from '../lib/pdfUtils';
 
   let { showToast, emotion = 'content' }: {
     showToast: (msg: string, type?: 'success' | 'error') => void;
@@ -692,9 +693,37 @@
 
     try {
       abortController = new AbortController();
+      // Auto-fetch content for any file the user mentions by name
+      let autoFileContext = '';
+      const msgLower = text.toLowerCase();
+      const mentionedFile = store.files.find(f =>
+        msgLower.includes(f.name.toLowerCase()) ||
+        msgLower.includes(f.name.toLowerCase().replace(/\.[^.]+$/, ''))
+      );
+      if (mentionedFile?.r2Key && store.workerBase) {
+        const fileUrl = `${store.workerBase}/file/${encodeURIComponent(mentionedFile.r2Key)}`;
+        try {
+          if (mentionedFile.mimeType === 'application/pdf') {
+            const extracted = await extractPdfText(fileUrl);
+            if (extracted.trim()) {
+              autoFileContext = `## File: ${mentionedFile.name}\n${extracted.slice(0, 60000)}`;
+            }
+          } else if (mentionedFile.mimeType?.startsWith('text/') || mentionedFile.mimeType?.includes('json')) {
+            const res = await fetch(fileUrl);
+            if (res.ok) {
+              const txt = await res.text();
+              autoFileContext = `## File: ${mentionedFile.name}\n${txt.slice(0, 40000)}`;
+            }
+          }
+        } catch { /* silent — Enzo will work without file content */ }
+      }
+
       const noteContext = store.currentNote
         ? `${store.currentNote.title}\n\n${store.currentNote.body.slice(0, 40000)}`
-        : '';
+        : autoFileContext ? '' : '';
+      const effectiveNoteContext = autoFileContext
+        ? `${autoFileContext}${noteContext ? '\n\n' + noteContext : ''}`
+        : noteContext;
 
       const journalPart = useJournalContext && store.journal.length > 0
         ? [...store.journal]
@@ -753,7 +782,7 @@
 
       const { text: full, tokens, model } = await askEnzo(
         history,
-        noteContext,
+        effectiveNoteContext,
         (chunk) => {
           streamBuffer += chunk;
           const idx = session.messages.findIndex(m => m.id === assistantId);

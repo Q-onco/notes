@@ -2,6 +2,7 @@
   import { store } from '../lib/store.svelte';
   import { nanoid } from 'nanoid';
   import type { FileRecord, Note } from '../lib/types';
+  import { extractPdfText } from '../lib/pdfUtils';
 
   let { showToast }: { showToast: (msg: string, type?: 'success' | 'error') => void } = $props();
 
@@ -282,39 +283,6 @@
   function copyShareUrl() {
     if (!shareUrl) return;
     navigator.clipboard.writeText(shareUrl).then(() => showToast('Link copied'));
-  }
-
-  // ── PDF text extraction via PDF.js ────────────────────────────
-  async function extractPdfText(url: string): Promise<string> {
-    const pdfjsLib = await import('pdfjs-dist');
-    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-      'pdfjs-dist/build/pdf.worker.min.mjs',
-      import.meta.url
-    ).href;
-
-    const response = await fetch(url);
-    const arrayBuffer = await response.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-
-    const maxPages = Math.min(pdf.numPages, 25);
-    const parts: string[] = [];
-
-    for (let i = 1; i <= maxPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      const pageText = content.items
-        .map((item: any) => ('str' in item ? item.str : ''))
-        .join(' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (pageText) parts.push(`[Page ${i}]\n${pageText}`);
-    }
-
-    const full = parts.join('\n\n');
-    if (pdf.numPages > maxPages) {
-      return full + `\n\n[Note: ${pdf.numPages - maxPages} additional pages not shown]`;
-    }
-    return full;
   }
 
   // ── Enzo ──────────────────────────────────────────────────────
