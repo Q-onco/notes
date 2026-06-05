@@ -78,7 +78,6 @@ export interface ChatSession {
   date: string;
   messages: ChatMessage[];
   noteContext: string | null;
-  fileContexts?: { name: string; content: string }[];
 }
 
 export interface CalendarEvent {
