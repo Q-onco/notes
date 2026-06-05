@@ -411,6 +411,38 @@ export async function continueWriting(
   );
 }
 
+// ── 8b context compressor: extracts relevant excerpts before 70b call ─────────
+// Fires automatically when estimated request tokens would exceed the 70b TPM cap.
+async function compressContextWith8b(content: string, question: string, signal?: AbortSignal): Promise<string> {
+  const CHUNK = 11_000; // chars per 8b call — ~3100 tokens, safe under 8b limits
+
+  async function extractChunk(text: string): Promise<string> {
+    let out = '';
+    try {
+      await streamGroq(MODELS.quick, [
+        {
+          role: 'system' as const,
+          content: 'You are a context extractor. Extract ONLY the parts of this text that directly help answer the question. Preserve exact compound names, concentrations, gene names, cytokines, statistics, and numbers verbatim. Skip irrelevant sections entirely. Plain text output.',
+        },
+        { role: 'user' as const, content: `Question: ${question.slice(0, 500)}\n\nText:\n${text}` },
+      ], c => { out += c; }, signal, 900);
+    } catch { /* fall through — caller handles empty */ }
+    return out.trim();
+  }
+
+  if (content.length <= CHUNK) {
+    return (await extractChunk(content)) || content.slice(0, 4000);
+  }
+
+  const excerpts: string[] = [];
+  for (let i = 0; i < content.length; i += CHUNK) {
+    await awaitTpmBudget(2500);
+    const excerpt = await extractChunk(content.slice(i, i + CHUNK));
+    if (excerpt) excerpts.push(excerpt);
+  }
+  return excerpts.join('\n\n') || content.slice(0, 4000);
+}
+
 // ── Public API ─────────────────────────────────────────────────
 export async function askEnzo(
   messages: { role: 'user' | 'assistant'; content: string }[],
@@ -420,9 +452,29 @@ export async function askEnzo(
   journalContext?: string
 ): Promise<{ text: string; tokens: number; model: string }> {
   const userName = store.settings.userName || 'Amritha';
+  let nc = noteContext;
+  let jc = journalContext ?? '';
+
+  // Estimate total tokens: system base + context + messages (~3.5 chars per token)
+  const estTokens = Math.ceil(
+    (ENZO_SYSTEM(userName, '').length + nc.length + jc.length + JSON.stringify(messages).length) / 3.5
+  );
+
+  if (estTokens > 9000 && messages.length > 0) {
+    // Extract question to guide 8b compression
+    const question = [...messages].reverse().find(m => m.role === 'user')?.content.slice(0, 600) ?? '';
+    // Compress largest context blocks in parallel using quick 8b model
+    const jobs: Promise<void>[] = [];
+    if (nc.length > 3500 && question) jobs.push(compressContextWith8b(nc, question, signal).then(c => { nc = c; }));
+    if (jc.length > 3500 && question) jobs.push(compressContextWith8b(jc, question, signal).then(c => { jc = c; }));
+    if (jobs.length > 0) await Promise.all(jobs);
+  }
+
   const contextParts: string[] = [];
-  if (noteContext) contextParts.push(noteContext);
-  if (journalContext) contextParts.push(`## Recent journal entries\n${journalContext}`);
+  if (nc) contextParts.push(nc);
+  if (jc) contextParts.push(jc);
+
+  await awaitTpmBudget(9500);
   return streamGroq(MODELS.enzo, [
     { role: 'system', content: ENZO_SYSTEM(userName, contextParts.join('\n\n')) },
     ...messages

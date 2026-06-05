@@ -4,7 +4,7 @@
   import { nanoid } from 'nanoid';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
-  import type { ChatSession, ChatMessage, Note, FileRecord } from '../lib/types';
+  import type { ChatSession, ChatMessage, Note, FileRecord, JournalEntry, Task, Grant, Manuscript, GrantApp, ConferenceAbstract } from '../lib/types';
   import { getEnzoPersonality } from '../lib/personality';
   import EnzoDog from './EnzoDog.svelte';
 
@@ -659,12 +659,33 @@
     tab = 'chat';
   }
 
+  // ── Emoji picker ─────────────────────────────────────────────
+  const EMOJIS = [
+    '🔬','🧬','🧪','🧫','🦠','🧠','💊','🏥','⚗️','🔭','🩺','🧲',
+    '📊','📈','📉','📝','📌','📁','🗂️','🔍','💡','🎯','📚','📖',
+    '✅','❌','⚠️','ℹ️','🔥','✨','⭐','🎉','👏','💪','🤔','🤯',
+    '😊','😄','🥳','😮','😅','🙏','❤️','💙','💚','🐕','🐾','🌱',
+    '→','←','↑','↓','⇒','≈','≠','Δ','α','β','γ','σ',
+  ];
+  let showEmojiPicker = $state(false);
+
+  function insertEmoji(emoji: string) {
+    const start = inputEl?.selectionStart ?? inputText.length;
+    const end = inputEl?.selectionEnd ?? inputText.length;
+    inputText = inputText.slice(0, start) + emoji + inputText.slice(end);
+    showEmojiPicker = false;
+    setTimeout(() => {
+      inputEl?.focus();
+      inputEl?.setSelectionRange(start + emoji.length, start + emoji.length);
+    }, 0);
+  }
+
   // ── Attached context items ────────────────────────────────────
   interface AttachedItem { id: string; label: string; content: string; }
   let attachedItems = $state<AttachedItem[]>([]);
   let showAttachPicker = $state(false);
   let attachLoading = $state<string | null>(null);
-  let attachTab = $state<'notes' | 'papers' | 'files'>('notes');
+  let attachTab = $state<'notes' | 'papers' | 'data' | 'files'>('notes');
 
   function attachNote(note: Note) {
     if (attachedItems.some(a => a.id === note.id)) { showAttachPicker = false; return; }
@@ -713,6 +734,42 @@
   }
 
   function removeAttached(id: string) { attachedItems = attachedItems.filter(a => a.id !== id); }
+
+  // ── Internal data attach helpers ──────────────────────────────
+  function attachJournalEntry(entry: JournalEntry) {
+    const id = `j_${entry.id}`;
+    if (attachedItems.some(a => a.id === id)) { showAttachPicker = false; return; }
+    const date = new Date(entry.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    const body = entry.body.replace(/<[^>]*>/g, ' ').slice(0, 20000);
+    attachedItems = [...attachedItems, { id, label: `Journal ${date}`, content: `## Journal Entry — ${date}\n\n${body}` }];
+    showAttachPicker = false;
+  }
+
+  function attachTasksContext() {
+    const id = 'ctx_tasks';
+    if (attachedItems.some(a => a.id === id)) { showAttachPicker = false; return; }
+    const open = store.tasks.filter((t: Task) => !t.done).slice(0, 40);
+    const done = store.tasks.filter((t: Task) => t.done).slice(0, 10);
+    const text = `## Tasks\n\n### Open (${open.length})\n${open.map((t: Task) => `- [${t.priority}] ${t.text}`).join('\n') || 'none'}\n\n### Recently Completed\n${done.map((t: Task) => `- ${t.text}`).join('\n') || 'none'}`;
+    attachedItems = [...attachedItems, { id, label: `Tasks (${open.length} open)`, content: text }];
+    showAttachPicker = false;
+  }
+
+  function attachManuscript(ms: Manuscript) {
+    const id = `ms_${ms.id}`;
+    if (attachedItems.some(a => a.id === id)) { showAttachPicker = false; return; }
+    const body = ms.sections?.map((s: { title: string; content: string }) => `### ${s.title}\n${s.content.replace(/<[^>]*>/g, ' ').slice(0, 3000)}`).join('\n\n') ?? '';
+    attachedItems = [...attachedItems, { id, label: `MS: ${ms.title.slice(0, 50)}`, content: `## Manuscript: ${ms.title}\nJournal: ${ms.targetJournal ?? 'TBD'}\n\n${body.slice(0, 15000)}` }];
+    showAttachPicker = false;
+  }
+
+  function attachGrant(g: Grant) {
+    const id = `gr_${g.id}`;
+    if (attachedItems.some(a => a.id === id)) { showAttachPicker = false; return; }
+    const desc = (g.description ?? '').replace(/<[^>]*>/g, ' ').slice(0, 12000);
+    attachedItems = [...attachedItems, { id, label: `Grant: ${g.title.slice(0, 50)}`, content: `## Grant: ${g.title}\nFunder: ${g.funder ?? '—'}\nAmount: ${g.amount ?? '—'}\n\n${desc}` }];
+    showAttachPicker = false;
+  }
 
   // ── Elastic textarea ──────────────────────────────────────────
   function autoResize(e: Event) {
@@ -1115,7 +1172,8 @@
         <div class="attach-picker-tabs">
           <button class="apt" class:active={attachTab === 'notes'} onclick={() => attachTab = 'notes'}>Notes</button>
           <button class="apt" class:active={attachTab === 'papers'} onclick={() => attachTab = 'papers'}>Papers</button>
-          <button class="apt" class:active={attachTab === 'files'} onclick={() => attachTab = 'files'}>Files</button>
+          <button class="apt" class:active={attachTab === 'data'} onclick={() => attachTab = 'data'}>Data</button>
+          <button class="apt" class:active={attachTab === 'files'} onclick={() => attachTab = 'files'}>R2 Files</button>
           <button class="apt apt-close" onclick={() => showAttachPicker = false}>✕</button>
         </div>
         <div class="attach-picker-list">
@@ -1137,6 +1195,44 @@
             {:else}
               <p class="attach-empty">No pinned papers.</p>
             {/each}
+          {:else if attachTab === 'data'}
+            <!-- Tasks -->
+            <p class="attach-section-label">Tasks</p>
+            <button class="attach-item" class:attached={attachedItems.some(a => a.id === 'ctx_tasks')} onclick={attachTasksContext}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+              Tasks ({store.tasks.filter((t: Task) => !t.done).length} open)
+            </button>
+            <!-- Journal entries -->
+            <p class="attach-section-label">Journal</p>
+            {#each store.journal.slice(0, 15) as entry}
+              {@const dateStr = new Date(entry.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+              <button class="attach-item" class:attached={attachedItems.some(a => a.id === `j_${entry.id}`)} onclick={() => attachJournalEntry(entry)}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M8 13h8M8 17h5"/><polyline points="14 2 14 8 20 8"/></svg>
+                {dateStr} — {entry.body.replace(/<[^>]*>/g, ' ').slice(0, 35)}{entry.body.length > 35 ? '…' : ''}
+              </button>
+            {:else}
+              <p class="attach-empty">No journal entries.</p>
+            {/each}
+            <!-- Manuscripts -->
+            {#if store.manuscripts && store.manuscripts.length > 0}
+              <p class="attach-section-label">Manuscripts</p>
+              {#each store.manuscripts.slice(0, 8) as ms}
+                <button class="attach-item" class:attached={attachedItems.some(a => a.id === `ms_${ms.id}`)} onclick={() => attachManuscript(ms)}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+                  {ms.title.slice(0, 55)}{ms.title.length > 55 ? '…' : ''}
+                </button>
+              {/each}
+            {/if}
+            <!-- Grants -->
+            {#if store.grants && store.grants.length > 0}
+              <p class="attach-section-label">Grants</p>
+              {#each store.grants.slice(0, 8) as g}
+                <button class="attach-item" class:attached={attachedItems.some(a => a.id === `gr_${g.id}`)} onclick={() => attachGrant(g)}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg>
+                  {g.title.slice(0, 55)}{g.title.length > 55 ? '…' : ''}
+                </button>
+              {/each}
+            {/if}
           {:else}
             {#each store.files.slice(0, 20) as file}
               <button class="attach-item" class:attached={attachedItems.some(a => a.id === file.id)} disabled={attachLoading === file.id} onclick={() => attachFile(file)}>
@@ -1144,19 +1240,33 @@
                 {attachLoading === file.id ? 'Loading…' : file.name}
               </button>
             {:else}
-              <p class="attach-empty">No files stored.</p>
+              <p class="attach-empty">No R2 files stored.</p>
             {/each}
           {/if}
         </div>
       </div>
     {/if}
 
+    <!-- Emoji picker -->
+    {#if showEmojiPicker}
+      <div class="emoji-picker">
+        {#each EMOJIS as emoji}
+          <button class="emoji-glyph" onclick={() => insertEmoji(emoji)}>{emoji}</button>
+        {/each}
+      </div>
+    {/if}
+
     <!-- Input -->
     <div class="enzo-input-row">
-      <button class="attach-btn" onclick={() => showAttachPicker = !showAttachPicker} title="Attach context (notes, papers, files)" class:active={showAttachPicker || attachedItems.length > 0}>
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
-        {#if attachedItems.length > 0}<span class="attach-badge">{attachedItems.length}</span>{/if}
-      </button>
+      <div class="input-left-col">
+        <button class="attach-btn emoji-trigger" onclick={() => { showEmojiPicker = !showEmojiPicker; showAttachPicker = false; }} title="Insert emoji" class:active={showEmojiPicker}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+        </button>
+        <button class="attach-btn" onclick={() => { showAttachPicker = !showAttachPicker; showEmojiPicker = false; }} title="Attach context (notes, papers, data, R2 files)" class:active={showAttachPicker || attachedItems.length > 0}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+          {#if attachedItems.length > 0}<span class="attach-badge">{attachedItems.length}</span>{/if}
+        </button>
+      </div>
       <textarea
         bind:value={inputText}
         bind:this={inputEl}
@@ -1270,6 +1380,7 @@
     flex-shrink: 0;
     width: 24px;
     height: 30px;
+    transform: scaleX(-1); /* SVG faces left; flip so she faces the chat */
   }
   .enzo-name-stack { display: flex; flex-direction: column; gap: 1px; line-height: 1; }
   .enzo-name-label { font-weight: 700; font-size: 0.875rem; color: var(--enzo); line-height: 1.3; }
@@ -1437,6 +1548,28 @@
   }
   .send-btn { padding: 8px; border-radius: var(--radius-sm); flex-shrink: 0; }
 
+  /* Left column: emoji + attach stacked */
+  .input-left-col {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 3px; flex-shrink: 0;
+  }
+
+  /* Emoji picker */
+  .emoji-picker {
+    display: flex; flex-wrap: wrap; gap: 2px;
+    padding: 8px 10px;
+    background: var(--sf); border-top: 1px solid var(--bd);
+    flex-shrink: 0; max-height: 140px; overflow-y: auto;
+  }
+  .emoji-glyph {
+    display: flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; font-size: 1rem;
+    background: none; border: none; border-radius: var(--radius-sm);
+    cursor: pointer; transition: background var(--transition);
+    line-height: 1;
+  }
+  .emoji-glyph:hover { background: var(--ac-bg); }
+
   /* Attach button */
   .attach-btn {
     display: flex; align-items: center; justify-content: center;
@@ -1510,6 +1643,10 @@
   .attach-item.attached { color: var(--ac); opacity: 0.6; }
   .attach-item:disabled { opacity: 0.5; cursor: wait; }
   .attach-empty { padding: 12px 8px; font-size: 0.78rem; color: var(--mu); }
+  .attach-section-label {
+    padding: 6px 8px 2px; font-size: 0.68rem; font-weight: 600;
+    color: var(--mu); text-transform: uppercase; letter-spacing: 0.05em;
+  }
 
   /* ── History ── */
   .history-panel { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
