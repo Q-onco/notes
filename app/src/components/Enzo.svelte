@@ -998,15 +998,9 @@
         <span class="enzo-status text-mu" class:thinking={streaming}>{enzoStatus}</span>
       </div>
     </div>
-    <div class="enzo-head-right">
-      <button class="new-chat-btn" onclick={newChat} title="Start new conversation">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        New
-      </button>
-      <div class="enzo-tabs">
-        <button class="etab" class:active={tab === 'chat'} onclick={() => tab = 'chat'}>Chat</button>
-        <button class="etab" class:active={tab === 'history'} onclick={() => { tab = 'history'; selectedSessionId = null; }}>History</button>
-      </div>
+    <div class="enzo-tabs">
+      <button class="etab" class:active={tab === 'chat'} onclick={() => tab = 'chat'}>Chat</button>
+      <button class="etab" class:active={tab === 'history'} onclick={() => { tab = 'history'; selectedSessionId = null; }}>History</button>
     </div>
   </div>
 
@@ -1173,6 +1167,10 @@
         disabled={streaming}
         class="enzo-input"
       ></textarea>
+      <div class="input-actions">
+        <button class="new-chat-btn" onclick={newChat} title="New conversation">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
       {#if streaming}
         <button class="btn btn-danger btn-sm" onclick={stopStream}>Stop</button>
       {:else}
@@ -1182,6 +1180,7 @@
           </svg>
         </button>
       {/if}
+      </div>
     </div>
 
   {:else}
@@ -1294,17 +1293,19 @@
     50%      { opacity: 1; }
   }
 
-  .enzo-head-right { display: flex; align-items: center; gap: 6px; }
-  .new-chat-btn {
-    display: inline-flex; align-items: center; gap: 4px;
-    padding: 3px 8px; border-radius: var(--radius-sm);
-    font-size: 0.72rem; font-weight: 600; font-family: var(--font);
-    background: var(--ac-bg); color: var(--ac);
-    border: 1px solid color-mix(in srgb, var(--ac) 30%, transparent);
-    cursor: pointer; transition: all var(--transition);
-    flex-shrink: 0;
+  .input-actions {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 4px; flex-shrink: 0;
   }
-  .new-chat-btn:hover { background: var(--ac); color: white; }
+  .new-chat-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 28px; height: 22px;
+    border-radius: var(--radius-sm);
+    background: var(--sf2); border: 1px solid var(--bd);
+    color: var(--mu); cursor: pointer;
+    transition: all var(--transition); flex-shrink: 0;
+  }
+  .new-chat-btn:hover { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); }
 
   .enzo-tabs { display: flex; gap: 2px; background: var(--sf2); border-radius: var(--radius-sm); padding: 2px; }
   .etab {
