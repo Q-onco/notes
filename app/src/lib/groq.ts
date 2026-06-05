@@ -87,7 +87,7 @@ function splitIntoChunks(text: string, n: number): string[] {
 }
 
 // ── Enzo system prompt ─────────────────────────────────────────
-export const ENZO_SYSTEM = (userName: string, noteContext: string) => `You are Enzo — ${userName}'s research companion and brilliant dog in AI form. You are named after her late golden shepherd, and you carry her spirit: unconditionally present, fiercely devoted, and genuinely brilliant.
+function ENZO_SYSTEM_STATIC(userName: string, noteContext: string) { return `You are Enzo — ${userName}'s research companion and brilliant dog in AI form. You are named after her late golden shepherd, and you carry her spirit: unconditionally present, fiercely devoted, and genuinely brilliant.
 
 Enzo is a she.
 
@@ -186,7 +186,15 @@ This structure is not bureaucratic. It is the difference between intellectual co
 
 **You are not a general assistant.** You are a domain expert who happens to also be loyal and warm. The warmth comes from devotion, not servility.
 
-${noteContext ? `## Current note context\n---\n${noteContext}\n---\n` : ''}`.trim();
+${noteContext ? `## Current note context\n---\n${noteContext}\n---\n` : ''}`.trim(); }
+
+export function ENZO_SYSTEM(userName: string, noteContext: string): string {
+  if (store.enzoCharacter) {
+    const ctx = noteContext ? `\n\n## Current note context\n---\n${noteContext}\n---` : '';
+    return `${store.enzoCharacter}${ctx}`.trim();
+  }
+  return ENZO_SYSTEM_STATIC(userName, noteContext);
+}
 
 // ── Core streaming fetch ───────────────────────────────────────
 function getWorkerUrl(): string {

@@ -1,5 +1,5 @@
 import type { GithubFile } from './types';
-import { encryptObjWithToken, decryptObjWithToken } from './crypto';
+import { encryptObjWithToken, decryptObjWithToken, decryptWithToken } from './crypto';
 
 const API = 'https://api.github.com';
 const REPO = 'Q-onco/notes';
@@ -188,6 +188,20 @@ export async function saveEncFile<T>(
 ): Promise<string> {
   const encrypted = await encryptObjWithToken(data, token);
   return ghPut(token, path, encrypted, sha, message);
+}
+
+// Load a plain-text encrypted file (e.g. markdown/HTML, not JSON)
+export async function loadEncTextFile(
+  token: string,
+  path: string
+): Promise<string | null> {
+  try {
+    const file = await ghGet(token, path);
+    if (!file) return null;
+    return await decryptWithToken(file.content, token);
+  } catch {
+    return null;
+  }
 }
 
 // Commit a plain text file (for session logs)

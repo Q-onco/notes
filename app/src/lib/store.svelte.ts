@@ -13,7 +13,7 @@ import type {
   SystematicReview,
   GrantApp
 } from './types';
-import { loadEncFile, loadEncFileFallback, saveEncFile, makePaths, LEGACY_PATHS, validateToken } from './github';
+import { loadEncFile, loadEncFileFallback, saveEncFile, loadEncTextFile, makePaths, LEGACY_PATHS, validateToken } from './github';
 import { WORKER_URL } from './groq';
 import { idbGet, idbSet, idbNuke } from './idb';
 
@@ -35,6 +35,7 @@ class Store {
   // Auth
   tok = $state<string | null>(null);
   userLogin = $state('');
+  enzoCharacter = $state<string | null>(null);
 
   // Data
   notes = $state<Note[]>([]);
@@ -233,6 +234,7 @@ class Store {
     // ── 1. Zero every in-memory data field ───────────────────────────────
     this.tok = null;
     this.userLogin = '';
+    this.enzoCharacter = null;
     this.notes = []; this.notesSha = null;
     this.journal = []; this.journalSha = null;
     this.tasks = []; this.tasksSha = null;
@@ -306,7 +308,7 @@ class Store {
     const load = <T>(userPath: string, legacyPath: string, def: T) =>
       loadEncFileFallback<T>(this.tok!, userPath, legacyPath, def);
 
-    const [n, j, t, c, a, pp, s, res, pip, jb, jbx, cv, cl, prf, pres, fi, gr, conf, pr, ms, rv, lp, bl, wl, sr, ga] = await Promise.all([
+    const [n, j, t, c, a, pp, s, res, pip, jb, jbx, cv, cl, prf, pres, fi, gr, conf, pr, ms, rv, lp, bl, wl, sr, ga, enzoChar] = await Promise.all([
       load<Note[]>(p.notes, L.notes, []),
       load<JournalEntry[]>(p.journal, L.journal, []),
       load<Task[]>(p.tasks, L.tasks, []),
@@ -333,6 +335,7 @@ class Store {
       load<WellnessData>(p.wellness, L.wellness, { log: [] }),
       load<SystematicReview[]>(p.sysReview, L.sysReview, []),
       load<GrantApp[]>(p.grantApps, L.grantApps, []),
+      loadEncTextFile(this.tok!, 'settings/enzo-character.enc'),
     ]);
 
     this.notes = n.data; this.notesSha = n.sha;
@@ -390,6 +393,7 @@ class Store {
     this.sysReviewsSha = sr.sha;
     this.grantApps = ga.data ?? [];
     this.grantAppsSha = ga.sha;
+    this.enzoCharacter = enzoChar;
     this.habitLog = wl.data?.log ?? [];
     this.currentBook = wl.data?.currentBook ?? '';
     this.lastArvinCall = wl.data?.lastArvinCall ?? '';
