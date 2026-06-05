@@ -5,19 +5,6 @@
   import type { ChatSession, ChatMessage, Note } from '../lib/types';
   import { getEnzoPersonality } from '../lib/personality';
   import EnzoDog from './EnzoDog.svelte';
-  import { extractPdfText } from '../lib/pdfUtils';
-  import { marked } from 'marked';
-
-  marked.use({ breaks: true, gfm: true });
-
-  function renderEnzo(content: string): string {
-    try {
-      const html = marked(content) as string;
-      return html.replace(/<a href=/g, '<a target="_blank" rel="noopener noreferrer" href=');
-    } catch {
-      return content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
-  }
 
   let { showToast, emotion = 'content' }: {
     showToast: (msg: string, type?: 'success' | 'error') => void;
@@ -620,35 +607,15 @@
   let abortController: AbortController | null = null;
   let messagesEl = $state<HTMLDivElement | undefined>(undefined);
   let historySearch = $state('');
-  let selectedSessionId = $state<string | null>(null);
-  let resumedSessionId = $state<string | null>(null);
-  // Up to 3 files loaded into session context
-  type FileCtx = { name: string; content: string };
-  let sessionFileContexts = $state<FileCtx[]>([]);
-  let fetchingFile = $state(''); // filename being extracted — shows loading indicator
-
-  // Restore file contexts when current session changes (resume / page load)
-  $effect(() => {
-    const s = currentSession;
-    if (s?.fileContexts?.length && !sessionFileContexts.length) {
-      sessionFileContexts = s.fileContexts;
-    }
-  });
+  let selectedDate = $state<string | null>(null);
 
   // Current session for today
   const todayKey = new Date().toISOString().slice(0, 10);
   const currentSession = $derived(
-    resumedSessionId
-      ? store.chatSessions.find(s => s.id === resumedSessionId) ?? null
-      : store.chatSessions.find(s => s.id === todayKey) ?? null
+    store.chatSessions.find(s => s.id === todayKey) ?? null
   );
 
   function getOrCreateSession(): ChatSession {
-    // If resuming a past session, append to it
-    if (resumedSessionId) {
-      const resumed = store.chatSessions.find(s => s.id === resumedSessionId);
-      if (resumed) return resumed;
-    }
     const existing = store.chatSessions.find(s => s.id === todayKey);
     if (existing) return existing;
     const session: ChatSession = {
@@ -659,42 +626,6 @@
     };
     store.chatSessions = [session, ...store.chatSessions];
     return store.chatSessions.find(s => s.id === todayKey)!;
-  }
-
-  function startNewChat() {
-    sessionFileContexts = [];
-    fetchingFile = '';
-    inputText = '';
-    if (resumedSessionId) {
-      resumedSessionId = null;
-      return;
-    }
-    const existing = store.chatSessions.find(s => s.id === todayKey);
-    if (!existing || existing.messages.length === 0) return;
-    store.chatSessions = store.chatSessions.map(s =>
-      s.id === todayKey ? { ...s, id: `${todayKey}-${Date.now()}` } : s
-    );
-  }
-
-  function resumeSession(sessionId: string) {
-    resumedSessionId = sessionId;
-    selectedSessionId = null;
-    tab = 'chat';
-    setTimeout(scrollToBottom, 50);
-  }
-
-  async function regenerate() {
-    const session = getOrCreateSession();
-    // Find last user message
-    const lastUser = [...session.messages].reverse().find(m => m.role === 'user');
-    if (!lastUser || streaming) return;
-    // Drop the last assistant message
-    session.messages = session.messages.filter((m, i) =>
-      !(m.role === 'assistant' && i === session.messages.length - 1)
-    );
-    // Re-send as if the user typed it again
-    inputText = lastUser.content;
-    await send();
   }
 
   async function send() {
@@ -751,74 +682,9 @@
 
     try {
       abortController = new AbortController();
-      // Auto-fetch file content on mention; persist for rest of session
-      const msgLower = text.toLowerCase();
-      // Auto-fetch up to 3 files mentioned by name; show loading indicator
-      const alreadyLoaded = new Set(sessionFileContexts.map(f => f.name.toLowerCase()));
-      const mentionedFiles = store.files.filter(f =>
-        !alreadyLoaded.has(f.name.toLowerCase()) &&
-        (msgLower.includes(f.name.toLowerCase()) ||
-         msgLower.includes(f.name.toLowerCase().replace(/\.[^.]+$/, '')))
-      ).slice(0, 3 - sessionFileContexts.length);
-
-      for (const mentionedFile of mentionedFiles) {
-        fetchingFile = mentionedFile.name;
-        try {
-          let extracted = '';
-          const mime = mentionedFile.mimeType ?? '';
-
-          if (mentionedFile.r2Key && store.workerBase) {
-            const fileUrl = `${store.workerBase}/file/${encodeURIComponent(mentionedFile.r2Key)}`;
-            if (mime === 'application/pdf') {
-              extracted = await extractPdfText(fileUrl);
-            } else if (mime.startsWith('text/') || mime.includes('json')) {
-              const res = await fetch(fileUrl);
-              if (res.ok) extracted = await res.text();
-            }
-          } else if ((mentionedFile as any).data) {
-            const raw = (mentionedFile as any).data as string;
-            const base64 = raw.includes(',') ? raw.split(',')[1] : raw;
-            const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-            const blob = new Blob([bytes], { type: mime || 'application/octet-stream' });
-            const blobUrl = URL.createObjectURL(blob);
-            try {
-              if (mime === 'application/pdf') {
-                extracted = await extractPdfText(blobUrl);
-              } else if (mime.startsWith('text/') || mime.includes('json')) {
-                extracted = new TextDecoder().decode(bytes);
-              }
-            } finally {
-              URL.revokeObjectURL(blobUrl);
-            }
-          }
-
-          if (extracted.trim()) {
-            sessionFileContexts = [...sessionFileContexts, {
-              name: mentionedFile.name,
-              content: extracted.slice(0, 60000)
-            }];
-          } else {
-            showToast(`Could not extract text from ${mentionedFile.name} — it may be a scanned image PDF`, 'error');
-          }
-        } catch {
-          showToast(`Failed to read ${mentionedFile.name}`, 'error');
-        }
-        fetchingFile = '';
-      }
-
-      // Persist loaded file contexts to session
-      if (mentionedFiles.length > 0 && sessionFileContexts.length > 0) {
-        const sess = getOrCreateSession();
-        sess.fileContexts = sessionFileContexts;
-        await store.saveChat();
-      }
-
       const noteContext = store.currentNote
-        ? `${store.currentNote.title}\n\n${store.currentNote.body.slice(0, 40000)}`
+        ? `${store.currentNote.title}\n\n${store.currentNote.body.slice(0, 2000)}`
         : '';
-      const filePart = sessionFileContexts
-        .map(f => `## File: ${f.name}\n${f.content}`).join('\n\n');
-      const effectiveNoteContext = [filePart, noteContext].filter(Boolean).join('\n\n');
 
       const journalPart = useJournalContext && store.journal.length > 0
         ? [...store.journal]
@@ -872,12 +738,12 @@
 
       const history = session.messages
         .filter(m => m.id !== assistantId)
-        .slice(-30)
+        .slice(-10)
         .map(m => ({ role: m.role, content: m.content }));
 
       const { text: full, tokens, model } = await askEnzo(
         history,
-        effectiveNoteContext,
+        noteContext,
         (chunk) => {
           streamBuffer += chunk;
           const idx = session.messages.findIndex(m => m.id === assistantId);
@@ -977,7 +843,7 @@
   );
 
   const selectedSession = $derived(
-    selectedSessionId ? store.chatSessions.find(s => s.id === selectedSessionId) ?? null : null
+    selectedDate ? store.chatSessions.find(s => s.date === selectedDate) ?? null : null
   );
 
   function fmtDate(d: string) {
@@ -1034,17 +900,11 @@
     </div>
     <div class="enzo-tabs">
       <button class="etab" class:active={tab === 'chat'} onclick={() => tab = 'chat'}>Chat</button>
-      <button class="etab" class:active={tab === 'history'} onclick={() => { tab = 'history'; selectedSessionId = null; }}>History</button>
+      <button class="etab" class:active={tab === 'history'} onclick={() => { tab = 'history'; selectedDate = null; }}>History</button>
     </div>
   </div>
 
   {#if tab === 'chat'}
-    {#if resumedSessionId}
-      <div class="resumed-banner">
-        <span>Continuing past conversation · {currentSession ? fmtDate(currentSession.date) : ''}</span>
-        <button class="btn btn-ghost btn-xs" onclick={() => { resumedSessionId = null; }}>← Back to today</button>
-      </div>
-    {/if}
     <!-- Messages -->
     <div class="messages" bind:this={messagesEl}>
       {#if !currentSession || currentSession.messages.length === 0}
@@ -1063,65 +923,28 @@
           {/if}
         </div>
       {:else}
-        {#if fetchingFile}
-          <div class="file-fetching-indicator">
-            <span class="thinking-dots"><span></span><span></span><span></span></span>
-            Reading <strong>{fetchingFile}</strong>…
-          </div>
-        {/if}
-        {#each currentSession.messages as msg, i (msg.id)}
+        {#each currentSession.messages as msg (msg.id)}
           <div class="message msg-{msg.role}">
             <div class="msg-content">
               {#if msg.role === 'assistant' && !msg.content}
                 <span class="thinking-dots">
                   <span></span><span></span><span></span>
                 </span>
-              {:else if msg.role === 'assistant'}
-                <div class="enzo-md">{@html renderEnzo(msg.content)}</div>
               {:else}
                 {msg.content}
               {/if}
             </div>
-            <div class="msg-actions">
-              {#if msg.tokens > 0}
-                <span class="msg-meta text-xs text-mu">{msg.tokens} tokens · {fmtTime(msg.timestamp)}</span>
-              {:else if msg.role !== 'assistant' || msg.content}
-                <span class="msg-meta text-xs text-mu">{fmtTime(msg.timestamp)}</span>
-              {/if}
-              {#if msg.content}
-                <button class="msg-action-btn copy-btn" title="Copy"
-                  onclick={() => navigator.clipboard.writeText(msg.content)}>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-                  </svg>
-                </button>
-              {/if}
-              {#if msg.role === 'assistant' && i === currentSession.messages.length - 1 && !streaming}
-                <button class="msg-action-btn regen-btn" title="Regenerate response"
-                  onclick={() => regenerate()}>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/>
-                  </svg>
-                </button>
-              {/if}
-            </div>
+            {#if msg.tokens > 0}
+              <span class="msg-meta text-xs text-mu">{msg.tokens} tokens · {fmtTime(msg.timestamp)}</span>
+            {/if}
           </div>
         {/each}
       {/if}
     </div>
 
     <!-- Context bar -->
-    {#if store.currentNote || hasJournal || hasWeeklyMemory || sessionFileContexts.length}
+    {#if store.currentNote || hasJournal || hasWeeklyMemory}
       <div class="context-bar text-xs text-mu">
-        {#each sessionFileContexts as fc, fi}
-          <span class="file-ctx-chip" title="File loaded into session context">
-            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
-            </svg>
-            {fc.name}
-            <button class="file-ctx-clear" onclick={() => { sessionFileContexts = sessionFileContexts.filter((_, i) => i !== fi); }} title="Remove from context">×</button>
-          </span>
-        {/each}
         {#if store.currentNote}
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
@@ -1180,23 +1003,15 @@
         disabled={streaming}
         class="enzo-input"
       ></textarea>
-      <div class="enzo-btn-col">
-        <button class="btn btn-ghost btn-xs new-chat-btn" onclick={startNewChat}
-          title="New chat" disabled={!currentSession || currentSession.messages.length === 0}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+      {#if streaming}
+        <button class="btn btn-danger btn-sm" onclick={stopStream}>Stop</button>
+      {:else}
+        <button class="btn btn-primary btn-sm send-btn" onclick={send} disabled={!inputText.trim()} aria-label="Send message">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
           </svg>
         </button>
-        {#if streaming}
-          <button class="btn btn-danger btn-sm" onclick={stopStream}>Stop</button>
-        {:else}
-          <button class="btn btn-primary btn-sm send-btn" onclick={send} disabled={!inputText.trim()} aria-label="Send message">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-            </svg>
-          </button>
-        {/if}
-      </div>
+      {/if}
     </div>
 
   {:else}
@@ -1206,18 +1021,13 @@
         <input type="search" bind:value={historySearch} placeholder="Search conversations..." />
       </div>
 
-      {#if selectedSessionId && selectedSession}
+      {#if selectedDate && selectedSession}
         <div class="history-session">
-          <div class="history-session-head">
-            <button class="btn btn-ghost btn-sm back-btn" onclick={() => selectedSessionId = null}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-              Back
-            </button>
-            <button class="btn btn-primary btn-sm" onclick={() => resumeSession(selectedSession.id)}>
-              Resume →
-            </button>
-          </div>
-          <p class="text-xs text-mu" style="padding: 0 14px 8px;">{fmtDate(selectedSession.date)}</p>
+          <button class="btn btn-ghost btn-sm back-btn" onclick={() => selectedDate = null}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+            Back
+          </button>
+          <p class="text-xs text-mu">{fmtDate(selectedDate)}</p>
           <div class="history-msgs">
             {#each selectedSession.messages as msg}
               <div class="message msg-{msg.role}">
@@ -1231,7 +1041,7 @@
         <div class="sessions-list">
           {#each filteredHistory as session (session.id)}
             <div class="session-item-wrap">
-              <button class="session-item" onclick={() => selectedSessionId = session.id}>
+              <button class="session-item" onclick={() => selectedDate = session.date}>
                 <span class="session-date">{fmtDate(session.date)}</span>
                 <span class="session-count text-xs text-mu">{session.messages.length} messages</span>
                 {#if session.noteContext}
@@ -1362,75 +1172,8 @@
     border-radius: var(--radius) var(--radius) var(--radius) var(--radius-sm);
   }
 
-  .msg-actions { display: flex; align-items: center; gap: 6px; padding: 0 4px; min-height: 18px; }
-  .msg-meta { font-size: 0.72rem; }
-  .msg-action-btn {
-    background: none; border: none; cursor: pointer; padding: 2px 3px;
-    color: var(--tx3, #aaa); border-radius: 3px; opacity: 0;
-    transition: opacity 0.15s, color 0.15s;
-  }
-  .message:hover .msg-action-btn { opacity: 1; }
-  .msg-action-btn:hover { color: var(--tx); }
-  .msg-user .msg-actions { justify-content: flex-end; }
-
-  /* Markdown rendering in Enzo responses */
-  .enzo-md { line-height: 1.65; }
-  .enzo-md p { margin: 0 0 8px; }
-  .enzo-md p:last-child { margin-bottom: 0; }
-  .enzo-md h1, .enzo-md h2, .enzo-md h3 { font-weight: 700; margin: 12px 0 4px; font-size: 0.9rem; }
-  .enzo-md h1 { font-size: 0.95rem; }
-  .enzo-md ul, .enzo-md ol { margin: 4px 0 8px 16px; padding: 0; }
-  .enzo-md li { margin-bottom: 3px; }
-  .enzo-md strong { font-weight: 700; }
-  .enzo-md em { font-style: italic; }
-  .enzo-md code { font-family: monospace; font-size: 0.82em; background: var(--sf2); padding: 1px 4px; border-radius: 3px; }
-  .enzo-md pre { background: var(--sf2); border-radius: 6px; padding: 10px 12px; overflow-x: auto; margin: 8px 0; }
-  .enzo-md pre code { background: none; padding: 0; }
-  .enzo-md blockquote { border-left: 3px solid var(--bd2); margin: 8px 0; padding: 4px 10px; color: var(--tx2); }
-  .enzo-md a { color: var(--pc-primary, #1a535c); text-decoration: underline; }
-  .enzo-md table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 0.82rem; }
-  .enzo-md th, .enzo-md td { border: 1px solid var(--bd); padding: 5px 8px; text-align: left; }
-  .enzo-md th { background: var(--sf2); font-weight: 600; }
-  .enzo-md hr { border: none; border-top: 1px solid var(--bd); margin: 10px 0; }
-
-  /* File context chip */
-  .file-ctx-chip {
-    display: inline-flex; align-items: center; gap: 4px;
-    background: var(--sf2); border: 1px solid var(--bd); border-radius: 10px;
-    padding: 2px 7px 2px 5px; font-size: 0.72rem; color: var(--tx2);
-  }
-  .file-ctx-clear { background: none; border: none; cursor: pointer; color: var(--tx3); padding: 0 0 0 3px; font-size: 0.85rem; line-height: 1; }
-  .file-ctx-clear:hover { color: var(--tx); }
-
-  /* File fetching loading indicator */
-  .file-fetching-indicator {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 0.8rem; color: var(--tx2); padding: 6px 12px;
-    animation: fadein 0.2s ease;
-  }
-
-  /* Syntax highlighting — github-style minimal theme */
-  .enzo-md .hljs { background: transparent; padding: 0; }
-  .enzo-md .hljs-keyword, .enzo-md .hljs-selector-tag { color: #cf222e; }
-  .enzo-md .hljs-string, .enzo-md .hljs-attr { color: #0a3069; }
-  .enzo-md .hljs-number, .enzo-md .hljs-literal { color: #0550ae; }
-  .enzo-md .hljs-comment { color: #6e7781; font-style: italic; }
-  .enzo-md .hljs-function, .enzo-md .hljs-title { color: #8250df; }
-  .enzo-md .hljs-variable, .enzo-md .hljs-name { color: #953800; }
-  .enzo-md .hljs-built_in { color: #0550ae; }
-  .enzo-md .hljs-type { color: #0550ae; }
-  .enzo-md .hljs-operator, .enzo-md .hljs-punctuation { color: #24292f; }
-  /* Dark mode override */
-  @media (prefers-color-scheme: dark) {
-    .enzo-md .hljs-keyword { color: #ff7b72; }
-    .enzo-md .hljs-string, .enzo-md .hljs-attr { color: #a5d6ff; }
-    .enzo-md .hljs-number, .enzo-md .hljs-literal { color: #79c0ff; }
-    .enzo-md .hljs-comment { color: #8b949e; }
-    .enzo-md .hljs-function, .enzo-md .hljs-title { color: #d2a8ff; }
-    .enzo-md .hljs-variable, .enzo-md .hljs-name { color: #ffa657; }
-    .enzo-md .hljs-built_in { color: #79c0ff; }
-    .enzo-md .hljs-operator { color: #c9d1d9; }
-  }
+  .msg-meta { align-self: flex-end; padding: 0 4px; }
+  .msg-user .msg-meta { align-self: flex-end; }
 
   .thinking-dots {
     display: inline-flex;
@@ -1482,16 +1225,7 @@
     max-height: 120px;
     overflow-y: auto;
   }
-  .enzo-btn-col { display: flex; flex-direction: column; align-items: center; gap: 4px; flex-shrink: 0; }
-  .send-btn { padding: 8px; border-radius: var(--radius-sm); }
-  .new-chat-btn { padding: 4px 5px; border-radius: var(--radius-sm); opacity: 0.55; }
-  .new-chat-btn:not(:disabled):hover { opacity: 1; }
-  .resumed-banner {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 6px 12px; background: var(--sf2); border-bottom: 1px solid var(--bd);
-    font-size: 0.78rem; color: var(--tx2); flex-shrink: 0;
-  }
-  .history-session-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px 4px; }
+  .send-btn { padding: 8px; border-radius: var(--radius-sm); flex-shrink: 0; }
 
   /* ── History ── */
   .history-panel { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
