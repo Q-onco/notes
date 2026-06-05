@@ -668,7 +668,7 @@
 
   function attachNote(note: Note) {
     if (attachedItems.some(a => a.id === note.id)) { showAttachPicker = false; return; }
-    const body = note.body.replace(/<[^>]*>/g, ' ').slice(0, 6000);
+    const body = note.body.replace(/<[^>]*>/g, ' ').slice(0, 20000);
     attachedItems = [...attachedItems, { id: note.id, label: note.title, content: `## Note: ${note.title}\n\n${body}` }];
     showAttachPicker = false;
   }
@@ -703,7 +703,7 @@
       } else if ((file as {data?:string}).data) {
         text = atob((file as {data:string}).data);
       }
-      attachedItems = [...attachedItems, { id: file.id, label: file.name, content: `## File: ${file.name}\n\n${text.slice(0, 8000)}` }];
+      attachedItems = [...attachedItems, { id: file.id, label: file.name, content: `## File: ${file.name}\n\n${text.slice(0, 30000)}` }];
       showAttachPicker = false;
     } catch {
       showToast(`Could not load ${file.name}`, 'error');
@@ -776,7 +776,7 @@
     try {
       abortController = new AbortController();
       const noteBody = store.currentNote
-        ? `${store.currentNote.title}\n\n${store.currentNote.body.slice(0, 2000)}`
+        ? `${store.currentNote.title}\n\n${store.currentNote.body.slice(0, 12000)}`
         : '';
       const attachedPart = attachedItems.length > 0
         ? attachedItems.map(a => a.content).join('\n\n---\n\n')
@@ -786,10 +786,10 @@
       const journalPart = useJournalContext && store.journal.length > 0
         ? [...store.journal]
             .sort((a, b) => b.createdAt - a.createdAt)
-            .slice(0, 3)
+            .slice(0, 12)
             .map(e => {
               const d = new Date(e.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-              return `[${d}] ${e.body.slice(0, 300)}${e.body.length > 300 ? '…' : ''}`;
+              return `[${d}] ${e.body.slice(0, 1200)}${e.body.length > 1200 ? '…' : ''}`;
             })
             .join('\n\n')
         : '';
@@ -799,14 +799,14 @@
         ? store.chatSessions
             .filter(s => s.id !== currentSessionId && new Date(s.date).getTime() > sevenDaysAgo)
             .sort((a, b) => b.date.localeCompare(a.date))
-            .slice(0, 5)
+            .slice(0, 10)
         : [];
       const memoryPart = pastSessions.length > 0
         ? pastSessions.map(s => {
             const d = new Date(s.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-            const userQ = s.messages.find(m => m.role === 'user')?.content.slice(0, 100) ?? '';
-            const enzoA = s.messages.find(m => m.role === 'assistant')?.content.slice(0, 160) ?? '';
-            return `[${d}] You: ${userQ}…\nEnzo: ${enzoA}…`;
+            const userQ = s.messages.find(m => m.role === 'user')?.content.slice(0, 500) ?? '';
+            const enzoA = s.messages.find(m => m.role === 'assistant')?.content.slice(0, 800) ?? '';
+            return `[${d}] You: ${userQ}\nEnzo: ${enzoA}`;
           }).join('\n\n')
         : '';
 
@@ -819,7 +819,7 @@
       const viewCtx = `## Active section\nUser is currently in: ${VIEW_NAMES[store.view] ?? store.view}`;
 
       const filesPart = useFilesContext && store.files.length > 0
-        ? store.files.slice(0, 60).map(f => {
+        ? store.files.slice(0, 120).map(f => {
             const parts = [f.name];
             if (f.folder) parts.push(`[${f.folder}]`);
             if (f.description) parts.push(`— ${f.description}`);
@@ -836,7 +836,7 @@
 
       const history = session.messages
         .filter(m => m.id !== assistantId)
-        .slice(-10)
+        .slice(-20)
         .map(m => ({ role: m.role, content: m.content }));
 
       const { text: full, tokens, model } = await askEnzo(
