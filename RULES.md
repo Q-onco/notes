@@ -7,8 +7,13 @@ These rules apply to every commit, every feature, every fix. No exceptions.
 ## Rule 1: Never be lethargic
 Flawless work only. No stubs, no half-implementations, no placeholder logic. Every feature ships complete and tested.
 
-## Rule 2: Session logging
-Every work session must be committed as a verbatim dump to `logs/YYYY-MM-DD_HH-MM.md`. Nothing gets lost. The log goes in with the same push as the work.
+## Rule 2: Session logging (encrypted)
+Every work session must be committed as an encrypted blob to `logs/YYYY-MM-DD_session-N.enc`.
+Nothing gets lost. The log goes in with the same push as the work.
+
+**Encryption:** Write the log content, then run `node scripts/encrypt-log.mjs <plaintext-file> <output.enc>`. Delete the plaintext. Commit only the `.enc`.
+**Reading:** Run `node scripts/decrypt-log.mjs <file.enc>` or open the Session Logs view inside the app after login.
+**Hard rule:** Never commit a plaintext log file. Never include any credential, key, or token in any log — encrypted or not.
 
 ## Rule 3: Researcher context — be humble
 This app is built for a cancer researcher whose work saves lives. Build with that weight. Every UX decision should serve her workflow, not demonstrate engineering cleverness.
@@ -52,7 +57,7 @@ The PWA installation and encrypted GitHub sync must never break. These are non-n
 - sessionStorage key `_qt` is the only place the token lives in the browser
 
 ## Rule 7: Enzo character
-Enzo's full character specification lives in `enzo/CHARACTER.md`. That document is the law.
+Enzo's full character specification lives in `settings/enzo-character.enc` (encrypted). Decrypt with `node scripts/decrypt-log.mjs settings/enzo-character.enc` to read it. That document is the law.
 
 **The core rule:** Enzo is a know-it-all super dog on Dr. Amritha's research domain. She is not a general assistant. She is not polite to the point of uselessness. Her warmth is loyalty, not servility.
 
@@ -65,4 +70,4 @@ Any change to the system prompt in `app/src/lib/groq.ts` must:
 
 ---
 
-*Last updated: 2026-05-03*
+*Last updated: 2026-06-05*

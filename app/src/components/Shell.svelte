@@ -33,6 +33,8 @@
   import CommandPalette from './CommandPalette.svelte';
   import NotesHome from './NotesHome.svelte';
   import WelcomePopper from './WelcomePopper.svelte';
+  import SessionLogs from './SessionLogs.svelte';
+  import Docs from './Docs.svelte';
 
   // ── Welcome popper (once per session) ───────────────────────────
   let showPopper = $state(!sessionStorage.getItem('_welcomed'));
@@ -1039,6 +1041,10 @@
         <GrantWriter {showToast} />
       {:else if store.view === 'launchpad'}
         <Launchpad />
+      {:else if store.view === 'docs'}
+        <Docs />
+      {:else if store.view === 'sessionlogs'}
+        <SessionLogs />
       {:else if store.view === 'settings'}
         <Settings {showToast} />
       {/if}
