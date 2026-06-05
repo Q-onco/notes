@@ -2,7 +2,8 @@
 import { readdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { encryptText } from './crypto-utils.mjs';
 
-const key = 'QONCO_KEY_PLACEHOLDER';
+const key = process.env.QONCO_KEY;
+if (!key) { console.error('QONCO_KEY env var not set'); process.exit(1); }
 const dir = new URL('../logs/', import.meta.url).pathname;
 
 const files = readdirSync(dir).filter(f => f.endsWith('.md'));
