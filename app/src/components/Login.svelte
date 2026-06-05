@@ -111,14 +111,14 @@
       </div>
 
       <div class="field">
-        <label for="token-input">GitHub token</label>
+        <label for="token-input">Access password</label>
         <div class="token-wrap">
           <input
             id="token-input"
             type={showToken ? 'text' : 'password'}
             bind:value={token}
             onkeydown={handleKey}
-            placeholder="ghp_•••••••••••••••••••••••••"
+            placeholder="••••••••••••••••••••••••••••••"
             autocomplete="off"
             spellcheck="false"
             disabled={loading}
@@ -164,7 +164,7 @@
       {/if}
 
       <p class="hint text-xs text-mu mt-3">
-        Token never leaves your device. All data is encrypted with it client-side.
+        Password never leaves your device. All data is encrypted with it client-side.
       </p>
     </div>
   </div>

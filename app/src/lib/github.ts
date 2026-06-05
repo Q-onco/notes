@@ -5,6 +5,9 @@ const API = 'https://api.github.com';
 const REPO = 'Q-onco/notes';
 const BRANCH = 'main';
 
+// API token for GitHub access — injected at build time, never derived from user input
+const GH_API_TOKEN = import.meta.env.VITE_GH_API_TOKEN as string;
+
 // Per-user paths — each GitHub login gets their own namespace
 export function makePaths(username: string) {
   const u = username.toLowerCase();
@@ -68,9 +71,9 @@ export const LEGACY_PATHS = {
   grantApps:     'data/grant-apps.enc',
 } as const;
 
-function headers(token: string) {
+function headers() {
   return {
-    Authorization: `token ${token}`,
+    Authorization: `token ${GH_API_TOKEN}`,
     Accept: 'application/vnd.github.v3+json',
     'Content-Type': 'application/json'
   };
@@ -86,7 +89,7 @@ function ghEnc(text: string): string {
 
 export async function ghGet(token: string, path: string): Promise<GithubFile | null> {
   const res = await fetch(`${API}/repos/${REPO}/contents/${path}?ref=${BRANCH}`, {
-    headers: headers(token)
+    headers: headers()
   });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`GitHub ${res.status}: ${await res.text()}`);
@@ -110,7 +113,7 @@ export async function ghPut(
 
   const res = await fetch(`${API}/repos/${REPO}/contents/${path}`, {
     method: 'PUT',
-    headers: headers(token),
+    headers: headers(),
     body: JSON.stringify(body)
   });
 
@@ -121,7 +124,7 @@ export async function ghPut(
     body.sha = current.sha;
     const retry = await fetch(`${API}/repos/${REPO}/contents/${path}`, {
       method: 'PUT',
-      headers: headers(token),
+      headers: headers(),
       body: JSON.stringify(body)
     });
     if (!retry.ok) throw new Error('Save conflict — data was modified elsewhere. Please retry.');
@@ -133,10 +136,12 @@ export async function ghPut(
   return json.content.sha as string;
 }
 
-export async function validateToken(token: string): Promise<{ login: string }> {
-  const res = await fetch(`${API}/repos/${REPO}`, { headers: headers(token) });
-  if (!res.ok) throw new Error('Token invalid or no access to Q-onco/notes');
-  const data = await fetch(`${API}/user`, { headers: headers(token) });
+export async function validateToken(encKey: string): Promise<{ login: string }> {
+  if (!encKey.trim()) throw new Error('Please enter your access password.');
+  if (!GH_API_TOKEN) throw new Error('App not configured — contact administrator.');
+  const res = await fetch(`${API}/repos/${REPO}`, { headers: headers() });
+  if (!res.ok) throw new Error('Cannot reach Q-onco/notes — contact administrator.');
+  const data = await fetch(`${API}/user`, { headers: headers() });
   const user = await data.json();
   return { login: user.login };
 }
