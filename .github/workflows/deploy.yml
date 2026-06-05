@@ -35,6 +35,8 @@ jobs:
       - name: Build
         run: npm run build
         working-directory: app
+        env:
+          VITE_GH_API_TOKEN: ${{ secrets.VITE_GH_API_TOKEN }}
 
       - name: Add .nojekyll
         run: touch app/dist/.nojekyll
