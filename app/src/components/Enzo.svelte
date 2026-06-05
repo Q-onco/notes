@@ -772,11 +772,13 @@
   }
 
   // ── Elastic textarea ──────────────────────────────────────────
-  function autoResize(e: Event) {
-    const el = e.target as HTMLTextAreaElement;
-    el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 200) + 'px';
-  }
+  // Resize textarea whenever inputText changes (covers programmatic clear after send)
+  $effect(() => {
+    if (!inputEl) return;
+    void inputText; // reactive dependency
+    inputEl.style.height = 'auto';
+    inputEl.style.height = (inputText ? Math.min(inputEl.scrollHeight, 200) : 36) + 'px';
+  });
 
   async function send() {
     const text = inputText.trim();
@@ -1271,7 +1273,7 @@
         bind:value={inputText}
         bind:this={inputEl}
         onkeydown={handleKey}
-        oninput={(e) => { onInputChange(); autoResize(e); }}
+        oninput={onInputChange}
         placeholder="Ask Enzo… or type / for commands"
         rows={1}
         disabled={streaming}
@@ -1543,7 +1545,6 @@
     min-height: 36px;
     max-height: 200px;
     overflow-y: auto;
-    field-sizing: content;
     transition: height 0.1s ease;
   }
   .send-btn { padding: 8px; border-radius: var(--radius-sm); flex-shrink: 0; }
