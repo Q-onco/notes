@@ -7,38 +7,16 @@
   import EnzoDog from './EnzoDog.svelte';
   import { extractPdfText } from '../lib/pdfUtils';
   import { marked } from 'marked';
-  import { markedHighlight } from 'marked-highlight';
-  import hljs from 'highlight.js/lib/core';
-  import langR from 'highlight.js/lib/languages/r';
-  import langPython from 'highlight.js/lib/languages/python';
-  import langBash from 'highlight.js/lib/languages/bash';
-  import langTS from 'highlight.js/lib/languages/typescript';
-  import langJS from 'highlight.js/lib/languages/javascript';
-  import langSQL from 'highlight.js/lib/languages/sql';
 
-  hljs.registerLanguage('r', langR);
-  hljs.registerLanguage('python', langPython);
-  hljs.registerLanguage('bash', langBash);
-  hljs.registerLanguage('shell', langBash);
-  hljs.registerLanguage('typescript', langTS);
-  hljs.registerLanguage('javascript', langJS);
-  hljs.registerLanguage('sql', langSQL);
+  marked.use({ breaks: true, gfm: true });
 
-  marked.use(
-    markedHighlight({
-      langPrefix: 'hljs language-',
-      highlight(code, lang) {
-        const language = hljs.getLanguage(lang) ? lang : 'plaintext';
-        try { return hljs.highlight(code, { language }).value; } catch { return code; }
-      }
-    }),
-    { breaks: true }
-  );
-
-  // Post-process: open all links in new tab (avoids marked v14 renderer API differences)
   function renderEnzo(content: string): string {
-    const html = marked(content) as string;
-    return html.replace(/<a href=/g, '<a target="_blank" rel="noopener noreferrer" href=');
+    try {
+      const html = marked(content) as string;
+      return html.replace(/<a href=/g, '<a target="_blank" rel="noopener noreferrer" href=');
+    } catch {
+      return content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
   }
 
   let { showToast, emotion = 'content' }: {
