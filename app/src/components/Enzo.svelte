@@ -2,9 +2,16 @@
   import { store } from '../lib/store.svelte';
   import { askEnzo, getAllTokenUsage, DAILY_TOKEN_REF } from '../lib/groq';
   import { nanoid } from 'nanoid';
-  import type { ChatSession, ChatMessage, Note } from '../lib/types';
+  import { marked } from 'marked';
+  import DOMPurify from 'dompurify';
+  import type { ChatSession, ChatMessage, Note, FileRecord } from '../lib/types';
   import { getEnzoPersonality } from '../lib/personality';
   import EnzoDog from './EnzoDog.svelte';
+
+  function md(text: string): string {
+    if (!text) return '';
+    try { return DOMPurify.sanitize(marked.parse(text) as string); } catch { return text; }
+  }
 
   let { showToast, emotion = 'content' }: {
     showToast: (msg: string, type?: 'success' | 'error') => void;
@@ -593,8 +600,7 @@
     }
 
     if (cmd.cmd === 'clear') {
-      const session = store.chatSessions.find(s => s.id === todayKey);
-      if (session) session.messages = [];
+      if (currentSession) currentSession.messages = [];
       await store.saveChat();
       return;
     }
@@ -603,29 +609,116 @@
   let tab = $state<'chat' | 'history'>('chat');
   let inputText = $state('');
   let useJournalContext = $state(true);
+  let useMemoryContext = $state(true);
+  let useFilesContext = $state(true);
   let streamBuffer = $state('');
   let abortController: AbortController | null = null;
   let messagesEl = $state<HTMLDivElement | undefined>(undefined);
   let historySearch = $state('');
-  let selectedDate = $state<string | null>(null);
+  let selectedSessionId = $state<string | null>(null);
 
-  // Current session for today
-  const todayKey = new Date().toISOString().slice(0, 10);
+  // ── Session management ────────────────────────────────────────
+  const todayStr = new Date().toISOString().slice(0, 10);
+  let currentSessionId = $state<string | null>(null);
+
   const currentSession = $derived(
-    store.chatSessions.find(s => s.id === todayKey) ?? null
+    currentSessionId ? store.chatSessions.find(s => s.id === currentSessionId) ?? null : null
   );
 
+  $effect(() => {
+    if (currentSessionId) return;
+    const todaySessions = store.chatSessions
+      .filter(s => s.date === todayStr)
+      .sort((a, b) => (b.messages.at(-1)?.timestamp ?? 0) - (a.messages.at(-1)?.timestamp ?? 0));
+    if (todaySessions.length > 0) currentSessionId = todaySessions[0].id;
+  });
+
   function getOrCreateSession(): ChatSession {
-    const existing = store.chatSessions.find(s => s.id === todayKey);
-    if (existing) return existing;
-    const session: ChatSession = {
-      id: todayKey,
-      date: todayKey,
-      messages: [],
-      noteContext: store.currentNote?.title ?? null
-    };
+    if (currentSessionId) {
+      const ex = store.chatSessions.find(s => s.id === currentSessionId);
+      if (ex) return ex;
+    }
+    const id = nanoid();
+    const session: ChatSession = { id, date: todayStr, messages: [], noteContext: store.currentNote?.title ?? null };
     store.chatSessions = [session, ...store.chatSessions];
-    return store.chatSessions.find(s => s.id === todayKey)!;
+    currentSessionId = id;
+    return store.chatSessions.find(s => s.id === id)!;
+  }
+
+  function newChat() {
+    const id = nanoid();
+    const session: ChatSession = { id, date: todayStr, messages: [], noteContext: null };
+    store.chatSessions = [session, ...store.chatSessions];
+    currentSessionId = id;
+    tab = 'chat';
+  }
+
+  function resumeSession(id: string) {
+    currentSessionId = id;
+    selectedSessionId = null;
+    tab = 'chat';
+  }
+
+  // ── Attached context items ────────────────────────────────────
+  interface AttachedItem { id: string; label: string; content: string; }
+  let attachedItems = $state<AttachedItem[]>([]);
+  let showAttachPicker = $state(false);
+  let attachLoading = $state<string | null>(null);
+  let attachTab = $state<'notes' | 'papers' | 'files'>('notes');
+
+  function attachNote(note: Note) {
+    if (attachedItems.some(a => a.id === note.id)) { showAttachPicker = false; return; }
+    const body = note.body.replace(/<[^>]*>/g, ' ').slice(0, 6000);
+    attachedItems = [...attachedItems, { id: note.id, label: note.title, content: `## Note: ${note.title}\n\n${body}` }];
+    showAttachPicker = false;
+  }
+
+  function attachPaper(p: { id: string; title: string; abstract: string }) {
+    if (attachedItems.some(a => a.id === p.id)) { showAttachPicker = false; return; }
+    attachedItems = [...attachedItems, { id: p.id, label: p.title.slice(0, 60), content: `## Paper: ${p.title}\n\nAbstract: ${p.abstract}` }];
+    showAttachPicker = false;
+  }
+
+  async function attachFile(file: FileRecord) {
+    if (attachedItems.some(a => a.id === file.id)) { showAttachPicker = false; return; }
+    attachLoading = file.id;
+    try {
+      let text = '';
+      if (file.r2Key) {
+        const res = await fetch(`${store.workerBase}/file/${encodeURIComponent(file.r2Key)}`);
+        if ((file.mimeType?.includes('pdf') || file.name.toLowerCase().endsWith('.pdf'))) {
+          const pdfjsLib = await import('pdfjs-dist');
+          pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).href;
+          const buf = await res.arrayBuffer();
+          const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+          const pages = await Promise.all(
+            Array.from({ length: Math.min(pdf.numPages, 20) }, (_, i) =>
+              pdf.getPage(i + 1).then(p => p.getTextContent()).then(tc => (tc.items as {str:string}[]).map(x => x.str).join(' '))
+            )
+          );
+          text = pages.join('\n\n');
+        } else {
+          text = await res.text();
+        }
+      } else if ((file as {data?:string}).data) {
+        text = atob((file as {data:string}).data);
+      }
+      attachedItems = [...attachedItems, { id: file.id, label: file.name, content: `## File: ${file.name}\n\n${text.slice(0, 8000)}` }];
+      showAttachPicker = false;
+    } catch {
+      showToast(`Could not load ${file.name}`, 'error');
+    } finally {
+      attachLoading = null;
+    }
+  }
+
+  function removeAttached(id: string) { attachedItems = attachedItems.filter(a => a.id !== id); }
+
+  // ── Elastic textarea ──────────────────────────────────────────
+  function autoResize(e: Event) {
+    const el = e.target as HTMLTextAreaElement;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 200) + 'px';
   }
 
   async function send() {
@@ -682,9 +775,13 @@
 
     try {
       abortController = new AbortController();
-      const noteContext = store.currentNote
+      const noteBody = store.currentNote
         ? `${store.currentNote.title}\n\n${store.currentNote.body.slice(0, 2000)}`
         : '';
+      const attachedPart = attachedItems.length > 0
+        ? attachedItems.map(a => a.content).join('\n\n---\n\n')
+        : '';
+      const noteContext = [noteBody, attachedPart].filter(Boolean).join('\n\n---\n\n');
 
       const journalPart = useJournalContext && store.journal.length > 0
         ? [...store.journal]
@@ -698,10 +795,12 @@
         : '';
 
       const sevenDaysAgo = Date.now() - 7 * 86400000;
-      const pastSessions = store.chatSessions
-        .filter(s => s.date !== todayKey && new Date(s.date).getTime() > sevenDaysAgo)
-        .sort((a, b) => b.date.localeCompare(a.date))
-        .slice(0, 5);
+      const pastSessions = useMemoryContext
+        ? store.chatSessions
+            .filter(s => s.id !== currentSessionId && new Date(s.date).getTime() > sevenDaysAgo)
+            .sort((a, b) => b.date.localeCompare(a.date))
+            .slice(0, 5)
+        : [];
       const memoryPart = pastSessions.length > 0
         ? pastSessions.map(s => {
             const d = new Date(s.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -719,8 +818,7 @@
       };
       const viewCtx = `## Active section\nUser is currently in: ${VIEW_NAMES[store.view] ?? store.view}`;
 
-      // Files index — give Enzo names, folders, tags, descriptions so she can answer "do I have..."
-      const filesPart = store.files.length > 0
+      const filesPart = useFilesContext && store.files.length > 0
         ? store.files.slice(0, 60).map(f => {
             const parts = [f.name];
             if (f.folder) parts.push(`[${f.folder}]`);
@@ -835,15 +933,17 @@
     store.chatSessions
       .filter(s => {
         if (!historySearch) return true;
-        return s.messages.some(m =>
-          m.content.toLowerCase().includes(historySearch.toLowerCase())
-        );
+        return s.messages.some(m => m.content.toLowerCase().includes(historySearch.toLowerCase()));
       })
-      .sort((a, b) => b.date.localeCompare(a.date))
+      .sort((a, b) => {
+        const aLast = a.messages.at(-1)?.timestamp ?? new Date(a.date).getTime();
+        const bLast = b.messages.at(-1)?.timestamp ?? new Date(b.date).getTime();
+        return bLast - aLast;
+      })
   );
 
-  const selectedSession = $derived(
-    selectedDate ? store.chatSessions.find(s => s.date === selectedDate) ?? null : null
+  const selectedHistorySession = $derived(
+    selectedSessionId ? store.chatSessions.find(s => s.id === selectedSessionId) ?? null : null
   );
 
   function fmtDate(d: string) {
@@ -882,7 +982,7 @@
   const hasJournal = $derived(store.journal.length > 0);
   const hasWeeklyMemory = $derived((() => {
     const sevenDaysAgo = Date.now() - 7 * 86400000;
-    return store.chatSessions.some(s => s.date !== todayKey && new Date(s.date).getTime() > sevenDaysAgo);
+    return store.chatSessions.some(s => s.id !== currentSessionId && new Date(s.date).getTime() > sevenDaysAgo);
   })());
 </script>
 
@@ -898,9 +998,15 @@
         <span class="enzo-status text-mu" class:thinking={streaming}>{enzoStatus}</span>
       </div>
     </div>
-    <div class="enzo-tabs">
-      <button class="etab" class:active={tab === 'chat'} onclick={() => tab = 'chat'}>Chat</button>
-      <button class="etab" class:active={tab === 'history'} onclick={() => { tab = 'history'; selectedDate = null; }}>History</button>
+    <div class="enzo-head-right">
+      <button class="new-chat-btn" onclick={newChat} title="Start new conversation">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New
+      </button>
+      <div class="enzo-tabs">
+        <button class="etab" class:active={tab === 'chat'} onclick={() => tab = 'chat'}>Chat</button>
+        <button class="etab" class:active={tab === 'history'} onclick={() => { tab = 'history'; selectedSessionId = null; }}>History</button>
+      </div>
     </div>
   </div>
 
@@ -930,6 +1036,8 @@
                 <span class="thinking-dots">
                   <span></span><span></span><span></span>
                 </span>
+              {:else if msg.role === 'assistant'}
+                {@html md(msg.content)}
               {:else}
                 {msg.content}
               {/if}
@@ -943,29 +1051,32 @@
     </div>
 
     <!-- Context bar -->
-    {#if store.currentNote || hasJournal || hasWeeklyMemory}
-      <div class="context-bar text-xs text-mu">
-        {#if store.currentNote}
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-          </svg>
-          {store.currentNote.title}
-        {/if}
-        {#if hasJournal}
-          <button
-            class="journal-ctx-btn"
-            class:active={useJournalContext}
-            onclick={() => useJournalContext = !useJournalContext}
-            title={useJournalContext ? 'Journal + 7-day memory on — click to disable' : 'Journal + 7-day memory off — click to enable'}
-          >
-            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/>
-            </svg>
-            {useJournalContext ? (hasWeeklyMemory ? 'journal + memory' : 'journal') : 'context off'}
-          </button>
-        {/if}
-      </div>
-    {/if}
+    <div class="context-bar text-xs text-mu">
+      {#if store.currentNote}
+        <span class="ctx-note-label" title={store.currentNote.title}>
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          {store.currentNote.title.slice(0, 24)}{store.currentNote.title.length > 24 ? '…' : ''}
+        </span>
+      {/if}
+      {#if hasJournal}
+        <button class="ctx-toggle" class:active={useJournalContext} onclick={() => useJournalContext = !useJournalContext} title="Toggle journal context">
+          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>
+          journal
+        </button>
+      {/if}
+      {#if hasWeeklyMemory}
+        <button class="ctx-toggle" class:active={useMemoryContext} onclick={() => useMemoryContext = !useMemoryContext} title="Toggle 7-day memory">
+          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          memory
+        </button>
+      {/if}
+      {#if store.files.length > 0}
+        <button class="ctx-toggle" class:active={useFilesContext} onclick={() => useFilesContext = !useFilesContext} title="Toggle files index">
+          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+          files
+        </button>
+      {/if}
+    </div>
 
     <!-- Command picker -->
     {#if showPicker && pickerCmds.length > 0}
@@ -991,15 +1102,74 @@
       </div>
     {/if}
 
+    <!-- Attached context chips -->
+    {#if attachedItems.length > 0}
+      <div class="attached-chips">
+        {#each attachedItems as item}
+          <span class="attach-chip">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+            {item.label.slice(0, 30)}{item.label.length > 30 ? '…' : ''}
+            <button onclick={() => removeAttached(item.id)} class="chip-remove">×</button>
+          </span>
+        {/each}
+      </div>
+    {/if}
+
+    <!-- Attach picker -->
+    {#if showAttachPicker}
+      <div class="attach-picker">
+        <div class="attach-picker-tabs">
+          <button class="apt" class:active={attachTab === 'notes'} onclick={() => attachTab = 'notes'}>Notes</button>
+          <button class="apt" class:active={attachTab === 'papers'} onclick={() => attachTab = 'papers'}>Papers</button>
+          <button class="apt" class:active={attachTab === 'files'} onclick={() => attachTab = 'files'}>Files</button>
+          <button class="apt apt-close" onclick={() => showAttachPicker = false}>✕</button>
+        </div>
+        <div class="attach-picker-list">
+          {#if attachTab === 'notes'}
+            {#each [...store.notes].sort((a,b) => b.updatedAt - a.updatedAt).slice(0, 15) as note}
+              <button class="attach-item" class:attached={attachedItems.some(a => a.id === note.id)} onclick={() => attachNote(note)}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                {note.title}
+              </button>
+            {:else}
+              <p class="attach-empty">No notes yet.</p>
+            {/each}
+          {:else if attachTab === 'papers'}
+            {#each store.pinnedPapers.slice(0, 15) as paper}
+              <button class="attach-item" class:attached={attachedItems.some(a => a.id === paper.id)} onclick={() => attachPaper(paper)}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                {paper.title.slice(0, 55)}{paper.title.length > 55 ? '…' : ''}
+              </button>
+            {:else}
+              <p class="attach-empty">No pinned papers.</p>
+            {/each}
+          {:else}
+            {#each store.files.slice(0, 20) as file}
+              <button class="attach-item" class:attached={attachedItems.some(a => a.id === file.id)} disabled={attachLoading === file.id} onclick={() => attachFile(file)}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+                {attachLoading === file.id ? 'Loading…' : file.name}
+              </button>
+            {:else}
+              <p class="attach-empty">No files stored.</p>
+            {/each}
+          {/if}
+        </div>
+      </div>
+    {/if}
+
     <!-- Input -->
     <div class="enzo-input-row">
+      <button class="attach-btn" onclick={() => showAttachPicker = !showAttachPicker} title="Attach context (notes, papers, files)" class:active={showAttachPicker || attachedItems.length > 0}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+        {#if attachedItems.length > 0}<span class="attach-badge">{attachedItems.length}</span>{/if}
+      </button>
       <textarea
         bind:value={inputText}
         bind:this={inputEl}
         onkeydown={handleKey}
-        oninput={onInputChange}
+        oninput={(e) => { onInputChange(); autoResize(e); }}
         placeholder="Ask Enzo… or type / for commands"
-        rows={2}
+        rows={1}
         disabled={streaming}
         class="enzo-input"
       ></textarea>
@@ -1021,17 +1191,27 @@
         <input type="search" bind:value={historySearch} placeholder="Search conversations..." />
       </div>
 
-      {#if selectedDate && selectedSession}
+      {#if selectedSessionId && selectedHistorySession}
         <div class="history-session">
-          <button class="btn btn-ghost btn-sm back-btn" onclick={() => selectedDate = null}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-            Back
-          </button>
-          <p class="text-xs text-mu">{fmtDate(selectedDate)}</p>
+          <div class="history-session-head">
+            <button class="btn btn-ghost btn-sm back-btn" onclick={() => selectedSessionId = null}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+              Back
+            </button>
+            <p class="text-xs text-mu">{fmtDate(selectedHistorySession.date)}</p>
+            <button class="btn btn-primary btn-sm" onclick={() => resumeSession(selectedHistorySession.id)}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Continue
+            </button>
+          </div>
           <div class="history-msgs">
-            {#each selectedSession.messages as msg}
+            {#each selectedHistorySession.messages as msg}
               <div class="message msg-{msg.role}">
-                <div class="msg-content">{msg.content}</div>
+                {#if msg.role === 'assistant'}
+                  <div class="msg-content">{@html md(msg.content)}</div>
+                {:else}
+                  <div class="msg-content">{msg.content}</div>
+                {/if}
                 <span class="msg-meta text-xs text-mu">{fmtTime(msg.timestamp)}</span>
               </div>
             {/each}
@@ -1041,21 +1221,23 @@
         <div class="sessions-list">
           {#each filteredHistory as session (session.id)}
             <div class="session-item-wrap">
-              <button class="session-item" onclick={() => selectedDate = session.date}>
-                <span class="session-date">{fmtDate(session.date)}</span>
+              <button class="session-item" onclick={() => selectedSessionId = session.id}>
+                <div class="session-item-row">
+                  <span class="session-date">{fmtDate(session.date)}</span>
+                  {#if session.id === currentSessionId}
+                    <span class="session-active-dot" title="Active session"></span>
+                  {/if}
+                </div>
                 <span class="session-count text-xs text-mu">{session.messages.length} messages</span>
                 {#if session.noteContext}
                   <span class="session-ctx text-xs text-mu">re: {session.noteContext}</span>
                 {/if}
               </button>
-              <button
-                class="session-save-btn btn-icon"
-                onclick={() => saveSessionAsNote(session)}
-                title="Save conversation as note"
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                </svg>
+              <button class="session-resume-btn btn-icon" onclick={() => resumeSession(session.id)} title="Continue this conversation">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              </button>
+              <button class="session-save-btn btn-icon" onclick={() => saveSessionAsNote(session)} title="Save as note">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
               </button>
             </div>
           {:else}
@@ -1112,6 +1294,18 @@
     50%      { opacity: 1; }
   }
 
+  .enzo-head-right { display: flex; align-items: center; gap: 6px; }
+  .new-chat-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 8px; border-radius: var(--radius-sm);
+    font-size: 0.72rem; font-weight: 600; font-family: var(--font);
+    background: var(--ac-bg); color: var(--ac);
+    border: 1px solid color-mix(in srgb, var(--ac) 30%, transparent);
+    cursor: pointer; transition: all var(--transition);
+    flex-shrink: 0;
+  }
+  .new-chat-btn:hover { background: var(--ac); color: white; }
+
   .enzo-tabs { display: flex; gap: 2px; background: var(--sf2); border-radius: var(--radius-sm); padding: 2px; }
   .etab {
     padding: 3px 10px;
@@ -1157,9 +1351,22 @@
     border-radius: var(--radius);
     font-size: 0.85rem;
     line-height: 1.6;
-    white-space: pre-wrap;
     word-wrap: break-word;
+    overflow-wrap: break-word;
   }
+  .msg-user .msg-content { white-space: pre-wrap; }
+  /* Markdown prose for assistant messages */
+  .msg-assistant .msg-content :global(p) { margin: 0 0 0.5em; }
+  .msg-assistant .msg-content :global(p:last-child) { margin-bottom: 0; }
+  .msg-assistant .msg-content :global(ul), .msg-assistant .msg-content :global(ol) { margin: 0.3em 0 0.5em 1.2em; padding: 0; }
+  .msg-assistant .msg-content :global(li) { margin: 0.15em 0; }
+  .msg-assistant .msg-content :global(code) { font-family: var(--mono); font-size: 0.82em; background: var(--sf2); padding: 1px 4px; border-radius: 3px; }
+  .msg-assistant .msg-content :global(pre) { background: var(--sf2); border: 1px solid var(--bd); border-radius: var(--radius-sm); padding: 8px 10px; overflow-x: auto; margin: 0.4em 0; }
+  .msg-assistant .msg-content :global(pre code) { background: none; padding: 0; font-size: 0.8em; }
+  .msg-assistant .msg-content :global(strong) { font-weight: 700; }
+  .msg-assistant .msg-content :global(h1), .msg-assistant .msg-content :global(h2), .msg-assistant .msg-content :global(h3) { font-weight: 700; margin: 0.6em 0 0.3em; font-size: 0.9em; }
+  .msg-assistant .msg-content :global(blockquote) { border-left: 2px solid var(--enzo); padding-left: 8px; color: var(--tx2); margin: 0.4em 0; }
+  .msg-assistant .msg-content :global(hr) { border: none; border-top: 1px solid var(--bd); margin: 0.5em 0; }
   .msg-user .msg-content {
     background: var(--ac);
     color: white;
@@ -1221,11 +1428,87 @@
     resize: none;
     border-radius: var(--radius-sm);
     line-height: 1.5;
-    min-height: 52px;
-    max-height: 120px;
+    min-height: 36px;
+    max-height: 200px;
     overflow-y: auto;
+    field-sizing: content;
+    transition: height 0.1s ease;
   }
   .send-btn { padding: 8px; border-radius: var(--radius-sm); flex-shrink: 0; }
+
+  /* Attach button */
+  .attach-btn {
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+    width: 28px; height: 28px; flex-shrink: 0;
+    border-radius: var(--radius-sm);
+    background: var(--sf2); border: 1px solid var(--bd);
+    color: var(--mu); cursor: pointer;
+    transition: all var(--transition);
+  }
+  .attach-btn:hover, .attach-btn.active { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); }
+  .attach-badge {
+    position: absolute; top: -4px; right: -4px;
+    background: var(--ac); color: white;
+    border-radius: 50%; width: 14px; height: 14px;
+    font-size: 0.6rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* Attached chips */
+  .attached-chips {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    padding: 6px 12px 0;
+    flex-shrink: 0;
+  }
+  .attach-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 6px 2px 8px;
+    background: var(--ac-bg); border: 1px solid color-mix(in srgb, var(--ac) 30%, transparent);
+    color: var(--ac); border-radius: 20px; font-size: 0.7rem; font-weight: 500;
+  }
+  .chip-remove {
+    background: none; border: none; color: var(--ac); cursor: pointer;
+    padding: 0; line-height: 1; font-size: 0.9rem; opacity: 0.6;
+  }
+  .chip-remove:hover { opacity: 1; }
+
+  /* Attach picker */
+  .attach-picker {
+    border-top: 1px solid var(--bd);
+    background: var(--sf);
+    flex-shrink: 0;
+    max-height: 220px;
+    display: flex; flex-direction: column;
+  }
+  .attach-picker-tabs {
+    display: flex; gap: 2px; padding: 6px 8px;
+    border-bottom: 1px solid var(--bd); flex-shrink: 0;
+  }
+  .apt {
+    padding: 3px 9px; border-radius: 4px;
+    font-size: 0.72rem; font-weight: 500; font-family: var(--font);
+    background: transparent; color: var(--mu); border: none; cursor: pointer;
+    transition: all var(--transition);
+  }
+  .apt.active { background: var(--ac-bg); color: var(--ac); }
+  .apt-close { margin-left: auto; opacity: 0.5; }
+  .apt-close:hover { opacity: 1; }
+  .attach-picker-list { flex: 1; overflow-y: auto; padding: 4px; }
+  .attach-item {
+    display: flex; align-items: center; gap: 6px;
+    width: 100%; padding: 6px 8px;
+    border-radius: var(--radius-sm); border: none;
+    background: transparent; color: var(--tx2);
+    font-size: 0.78rem; font-family: var(--font);
+    text-align: left; cursor: pointer;
+    transition: background var(--transition), color var(--transition);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .attach-item:hover { background: var(--ac-bg); color: var(--ac); }
+  .attach-item.attached { color: var(--ac); opacity: 0.6; }
+  .attach-item:disabled { opacity: 0.5; cursor: wait; }
+  .attach-empty { padding: 12px 8px; font-size: 0.78rem; color: var(--mu); }
 
   /* ── History ── */
   .history-panel { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
@@ -1249,35 +1532,52 @@
   .session-date { font-size: 0.82rem; font-weight: 600; color: var(--tx); }
   .session-ctx { font-style: italic; }
 
-  .history-session { flex: 1; overflow: hidden; display: flex; flex-direction: column; padding: 10px 12px; gap: 10px; }
-  .back-btn { align-self: flex-start; }
+  .history-session { flex: 1; overflow: hidden; display: flex; flex-direction: column; padding: 10px 12px; gap: 8px; }
+  .history-session-head { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .history-session-head .text-mu { flex: 1; }
+  .back-btn { flex-shrink: 0; }
   .history-msgs { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
 
   .session-item-wrap { display: flex; align-items: stretch; gap: 0; }
   .session-item-wrap .session-item { flex: 1; border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
-  .session-save-btn {
-    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  .session-item-row { display: flex; align-items: center; gap: 6px; }
+  .session-active-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--gn); flex-shrink: 0;
+  }
+  .session-resume-btn, .session-save-btn {
+    border-radius: 0;
     border: 1px solid var(--bd);
     border-left: none;
     background: var(--sf);
     opacity: 0;
     flex-shrink: 0;
     transition: opacity var(--transition), background var(--transition);
+    padding: 0 8px;
   }
+  .session-save-btn { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+  .session-item-wrap:hover .session-resume-btn,
   .session-item-wrap:hover .session-save-btn { opacity: 1; }
-  .session-save-btn:hover { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); opacity: 1; }
+  .session-resume-btn:hover { background: var(--ac-bg); color: var(--ac); border-color: var(--ac); opacity: 1; }
+  .session-save-btn:hover { background: var(--gn-bg, #f0faf4); color: var(--gn); border-color: var(--gn); opacity: 1; }
 
-  .journal-ctx-btn {
+  .ctx-note-label {
+    display: inline-flex; align-items: center; gap: 3px;
+    max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .ctx-toggle {
     display: inline-flex; align-items: center; gap: 3px;
     padding: 1px 7px; border-radius: 20px;
     border: 1px solid var(--bd); background: var(--sf2);
     color: var(--mu); font-size: 0.65rem; font-weight: 600;
     cursor: pointer; font-family: var(--font);
     transition: all var(--transition);
-    letter-spacing: 0.02em;
+    letter-spacing: 0.02em; flex-shrink: 0;
+    opacity: 0.6;
   }
-  .journal-ctx-btn.active { border-color: var(--gn); color: var(--gn); background: var(--gn-bg); }
-  .journal-ctx-btn:hover { border-color: var(--gn); color: var(--gn); }
+  .ctx-toggle.active { border-color: var(--gn); color: var(--gn); background: var(--gn-bg, #f0faf4); opacity: 1; }
+  .ctx-toggle:hover { opacity: 1; border-color: var(--gn); color: var(--gn); }
 
   /* ── Command picker ── */
   .cmd-picker {
