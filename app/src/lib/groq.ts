@@ -14,7 +14,7 @@ export const MODELS = {
 export const MODEL_LABELS: Record<ModelKey, string> = {
   enzo:    'Llama 70B',
   research:'GPT-OSS 120B',
-  quick:   'Llama 8B',
+  quick:   'Llama 3.1 8B',
   whisper: 'Whisper v3',
 };
 
